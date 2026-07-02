@@ -13,3 +13,7 @@ catalog-*.yaml
 investor-notes-gdoc.txt
 readme-upfront.md
 deployment.md
+
+# Python build artifacts
+dist/
+*.egg-info/
