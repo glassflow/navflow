@@ -13,7 +13,7 @@ RUN npm run build
 # 2) build + install the package (console baked in) with all connector extras
 FROM python:3.12-slim AS app
 WORKDIR /src
-COPY pyproject.toml ./
+COPY pyproject.toml README.md LICENSE ./
 COPY navflow/ ./navflow/
 COPY --from=ui /ui/dist ./ui/dist
 RUN pip install --no-cache-dir ".[postgres,otlp-grpc,agent]"

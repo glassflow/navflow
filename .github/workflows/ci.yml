@@ -1,4 +1,4 @@
-# Test the backend + console and scan for secrets on every push / PR.
+# Test the backend + console on every push / PR.
 name: CI
 
 on:
@@ -16,7 +16,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -e .
+        run: |
+          mkdir -p ui/dist        # satisfy the console force-include; the tests don't need the UI
+          pip install -e .
       - name: Tests
         run: |
           for t in test_labels test_normalize test_readonly test_auth test_catalog_sync test_cli test_mcp_setup; do
@@ -48,7 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # gitleaks binary via its Docker image — no license needed (the gitleaks-action requires a
+      # paid license for organization repos; the tool itself is free).
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest detect --source=/repo --redact
