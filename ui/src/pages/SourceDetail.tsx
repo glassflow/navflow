@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import SourceForm from "../components/SourceForm";
 import { StatusBadge, TimeAgo, usePolling } from "../components/bits";
 import type { ConnectorSpec, Source } from "../types";
@@ -12,6 +13,8 @@ export default function SourceDetail() {
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>();
   const [editing, setEditing] = useState(false);
   const [actionError, setActionError] = useState<string>();
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [purge, setPurge] = useState(false);
 
   const { data: source, error, reload } = usePolling(() => api.source(name));
   const { data: events } = usePolling(() => api.sourceEvents(name, 30));
@@ -43,12 +46,7 @@ export default function SourceDetail() {
             ? <button onClick={act(() => api.resumeSource(name))}>Resume</button>
             : <button onClick={act(() => api.pauseSource(name))}>Pause</button>}
           <button onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit config"}</button>
-          <button className="danger" onClick={act(async () => {
-            if (!window.confirm(`Delete source "${name}"? Stored events are kept unless purged.`)) return;
-            const purge = window.confirm("Also purge its stored events?");
-            await api.deleteSource(name, purge);
-            nav("/");
-          })}>Delete</button>
+          <button className="danger" onClick={() => { setPurge(false); setConfirmDel(true); }}>Delete</button>
         </div>
       </div>
 
@@ -105,6 +103,29 @@ export default function SourceDetail() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {confirmDel && (
+        <ConfirmDialog
+          title={`Delete source "${name}"?`}
+          confirmLabel="Delete source"
+          danger
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={async () => {
+            setConfirmDel(false);
+            setActionError(undefined);
+            try { await api.deleteSource(name, purge); nav("/"); }
+            catch (e) { setActionError(String((e as Error).message ?? e)); }
+          }}
+        >
+          <p className="help" style={{ whiteSpace: "normal", margin: 0 }}>
+            Its configuration is removed. Stored events are kept unless you purge them.
+          </p>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
+            <span>also purge its stored events{h?.events_total ? ` (${h.events_total.toLocaleString()})` : ""}</span>
+          </label>
+        </ConfirmDialog>
       )}
     </>
   );

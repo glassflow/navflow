@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { Close, Search } from "../components/icons";
 import { TimeAgo, usePolling } from "../components/bits";
 import type { Trigger, View, ViewFilter } from "../types";
@@ -81,6 +82,7 @@ function ViewsSection({ views, sourceNames, onChange }:
   const [error, setError] = useState<string>();
   const [filtersText, setFiltersText] = useState("");
   const [q, setQ] = useState("");
+  const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -123,7 +125,6 @@ function ViewsSection({ views, sourceNames, onChange }:
   };
 
   const del = async (name: string) => {
-    if (!window.confirm(`Delete view "${name}"?`)) return;
     setError(undefined);
     try { await api.deleteView(name); onChange(); }
     catch (e) { setError(String((e as Error).message ?? e)); }
@@ -166,7 +167,7 @@ function ViewsSection({ views, sourceNames, onChange }:
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <span className="btnrow" style={{ justifyContent: "flex-end" }}>
                       <button onClick={() => openEditor(v, false)}>edit</button>
-                      <button className="danger" onClick={() => del(v.name)}>delete</button>
+                      <button className="danger" onClick={() => setConfirmDelName(v.name)}>delete</button>
                     </span>
                   </td>
                 </tr>
@@ -235,6 +236,16 @@ function ViewsSection({ views, sourceNames, onChange }:
           </aside>
         </>
       )}
+
+      {confirmDelName && (
+        <ConfirmDialog
+          title={`Delete view "${confirmDelName}"?`}
+          message="Triggers that read this view will stop working. This can't be undone."
+          confirmLabel="Delete view" danger
+          onCancel={() => setConfirmDelName(null)}
+          onConfirm={() => { const n = confirmDelName; setConfirmDelName(null); del(n); }}
+        />
+      )}
     </>
   );
 }
@@ -254,6 +265,7 @@ function TriggersSection({ triggers, viewNames, onChange }:
   const [isNew, setIsNew] = useState(false);
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
+  const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -283,7 +295,6 @@ function TriggersSection({ triggers, viewNames, onChange }:
   };
 
   const del = async (name: string) => {
-    if (!window.confirm(`Delete trigger "${name}"?`)) return;
     setError(undefined);
     try { await api.deleteTrigger(name); onChange(); }
     catch (e) { setError(String((e as Error).message ?? e)); }
@@ -322,7 +333,7 @@ function TriggersSection({ triggers, viewNames, onChange }:
                         setIsNew(false);
                         setError(undefined);
                       }}>edit</button>
-                      <button className="danger" onClick={() => del(t.name)}>delete</button>
+                      <button className="danger" onClick={() => setConfirmDelName(t.name)}>delete</button>
                     </span>
                   </td>
                 </tr>
@@ -408,6 +419,16 @@ function TriggersSection({ triggers, viewNames, onChange }:
             </div>
           </aside>
         </>
+      )}
+
+      {confirmDelName && (
+        <ConfirmDialog
+          title={`Delete trigger "${confirmDelName}"?`}
+          message="It will stop firing. This can't be undone."
+          confirmLabel="Delete trigger" danger
+          onCancel={() => setConfirmDelName(null)}
+          onConfirm={() => { const n = confirmDelName; setConfirmDelName(null); del(n); }}
+        />
       )}
     </>
   );

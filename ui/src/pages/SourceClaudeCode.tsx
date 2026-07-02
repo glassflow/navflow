@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { usePolling } from "../components/bits";
 
 type Status = { available: boolean; root: string; sessions: number; connected: boolean };
@@ -18,6 +19,7 @@ export default function SourceClaudeCode() {
   const [pushMode, setPushMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
+  const [confirmDisc, setConfirmDisc] = useState(false);
 
   const refresh = () => api.claudeCodeStatus().then(setSt).catch(() => setSt(undefined));
   useEffect(() => { refresh(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -38,7 +40,6 @@ export default function SourceClaudeCode() {
   };
 
   const disconnect = async () => {
-    if (!window.confirm("Disconnect Claude Code? Stored session events are kept unless you delete the source with purge.")) return;
     setBusy(true); setErr(undefined);
     try { await api.deleteSource("claude_code", false); await refresh(); reload(); }
     catch (e) { setErr(String((e as Error).message ?? e)); }
@@ -78,7 +79,7 @@ export default function SourceClaudeCode() {
           </p>
           <div className="btnrow">
             <Link className="btn primary" to="/sources/claude_code">Manage source</Link>
-            <button className="danger" onClick={disconnect} disabled={busy}>{busy ? "…" : "Disconnect"}</button>
+            <button className="danger" onClick={() => setConfirmDisc(true)} disabled={busy}>{busy ? "…" : "Disconnect"}</button>
           </div>
         </div>
       ) : (
@@ -115,6 +116,16 @@ export default function SourceClaudeCode() {
             <Link className="btn" to="/">Cancel</Link>
           </div>
         </div>
+      )}
+
+      {confirmDisc && (
+        <ConfirmDialog
+          title="Disconnect Claude Code?"
+          message="The source is removed and new sessions stop streaming. Stored session events are kept unless you later delete the source with purge."
+          confirmLabel="Disconnect" danger
+          onCancel={() => setConfirmDisc(false)}
+          onConfirm={() => { setConfirmDisc(false); disconnect(); }}
+        />
       )}
     </>
   );

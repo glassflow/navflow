@@ -628,6 +628,16 @@ pre.payload {
 .navlink.active .nav-kbd { color: var(--accent-deep); border-color: var(--accent-soft); }
 
 /* ⌘K command palette — the Ask overlay */
+/* centered confirm modal (integrated replacement for window.confirm) */
+.modal {
+  position: fixed; z-index: 101; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(460px, 92vw);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(28, 26, 23, 0.28);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+
 .cmdk-overlay {
   position: fixed; inset: 0; z-index: 100;
   background: rgba(28, 26, 23, 0.35);
