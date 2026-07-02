@@ -202,22 +202,20 @@ reproduces your whole setup on first boot.
 
 ## The full demo (real upstream systems)
 
-The curl path above is self-contained. For the real thing — Prometheus + logs + deploys +
-config feeding an SRE incident-response agent — bring up the cookbook platform and use the
-ready-made catalog:
+The curl path above is self-contained. For the full experience — an api-server with metrics, logs,
+and an admin API, plus Prometheus and traffic — use the bundled demo:
 
 ```bash
-cd ../navflow-cookbooks/platform && docker compose up -d && cd -
-cp catalog.example.yaml catalog.yaml
-navflowd
-# inject a fault and watch the error_spike trigger fire:
-curl -XPOST localhost:8080/admin/fault -d '{"lever":"error_rate","value":0.3}' -H 'content-type: application/json'
+cd demo && docker compose up -d --build && cd -
+NAVFLOW_CATALOG=demo/catalog.demo.yaml navflowd
+# cause an incident and watch the error_spike trigger fire:
+cd demo && ./inject.sh error_spike
 ```
 
 ---
 
-## Honest scope
+## Scope
 
-This is an MVP: local, single-tenant, no auth, one DuckDB file, trigger latency bounded by
-the poll interval (~5s). Each of those is a deliberate collapse of the full design with a
-documented expand path — see the collapse map in [README.md](README.md).
+By default NavFlow runs locally: single-tenant, no auth, one DuckDB file, with trigger latency
+bounded by the poll interval (~5s). To expose it on a network, set `NAVFLOW_AUTH_TOKEN` and put it
+behind TLS — see the deployment guide at [docs.navflow.ai](https://docs.navflow.ai).
