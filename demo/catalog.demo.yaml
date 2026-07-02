@@ -1,0 +1,104 @@
+# NavFlow catalog for the demo stack (demo/docker-compose.yml).
+# Prometheus on :9090, api-server admin on :8080, logs via docker. All sources share
+# key=api-server so deploys, config, logs, metrics, and alerts correlate in one timeline.
+#
+# Use it from the repo root, e.g.:
+#   NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up
+
+sources:
+  - name: metrics
+    connector: prometheus
+    poll: 5s
+    config:
+      url: http://localhost:9090
+      default_key: api-server
+      labels:
+        - name: service
+          field: service        # tag each series with its Prometheus `service` label
+      queries:
+        - promql: 'sum(rate(http_requests_total{status=~"5.."}[1m])) by (service)'
+          event_type: 5xx_rate
+          field: rate_5xx
+          text: "5xx rate {service}={val}/s"
+        - promql: 'histogram_quantile(0.99, sum(rate(http_request_duration_milliseconds_bucket[2m])) by (le, service))'
+          event_type: p99
+          field: p99_ms
+          text: "p99 {service}={val}ms"
+        - promql: 'db_pool_size'
+          event_type: db_pool
+          field: db_pool_size
+          text: "db_pool_size={val}"
+        - promql: 'db_connections_active'
+          event_type: db_active
+          field: db_connections_active
+          text: "db_connections_active={val}"
+        - promql: 'dependency_up'
+          event_type: dependency
+          field: dependency_up
+          text: "dependency {dependency} up={val}"
+
+  - name: deploys
+    connector: changelog
+    poll: 5s
+    config:
+      url: http://localhost:8080/admin/changelog
+      key: api-server
+
+  - name: config
+    connector: config
+    poll: 10s
+    config:
+      url: http://localhost:8080/admin/config
+      key: api-server
+
+  - name: logs
+    connector: docker_logs
+    poll: 5s
+    config:
+      container: api-server               # the compose service name
+      compose_file: demo/docker-compose.yml
+      key: api-server
+
+  - name: alerts
+    connector: alerts
+    poll: 5s
+    config:
+      url: http://localhost:9090
+      key: api-server
+      threshold: 5
+      ratio_promql: '100*sum(rate(http_requests_total{status=~"5.."}[1m]))/sum(rate(http_requests_total[1m]))'
+
+views:
+  - name: service_timeline
+    key_field: service
+    sources: [deploys, config, logs, metrics, alerts]
+
+triggers:
+  # 5xx storm — fires on an actual error spike.
+  - name: error_spike
+    view: service_timeline
+    condition:
+      aggregate: max
+      field: rate_5xx
+      predicate: "> 1.0"
+      window: 1m
+      group_by: [key_value]
+    emit:
+      kind: error_spike
+      attach_view: true
+    cooldown: 5m
+
+  # Latency regression — the right signal for the slow/timeout-shaped incident.
+  - name: slow_responses
+    view: service_timeline
+    condition:
+      aggregate: max
+      field: p99_ms
+      predicate: "> 1000"
+      window: 1m
+      group_by: [key_value]
+    emit:
+      kind: slow_responses
+      attach_view: true
+      context_window: 15m
+    cooldown: 30s

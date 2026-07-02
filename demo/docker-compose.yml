@@ -1,0 +1,46 @@
+# NavFlow demo stack — the *upstream* services NavFlow ingests from (the thing being monitored).
+# NavFlow itself is NOT in here: install it separately with uv (see demo/README.md), then point it
+# at this stack via demo/catalog.demo.yaml.
+#
+#   docker compose up -d --build      # start the stack
+#   docker compose down               # stop it
+name: navflow-demo
+
+services:
+  # The monitored app: Prometheus metrics on /metrics, request logs, admin changelog/config,
+  # and /admin/inject to cause an incident.
+  api-server:
+    build: ./api-server
+    ports:
+      - "8080:8080"
+
+  # Scrapes api-server:8080/metrics every 5s. NavFlow reads PromQL from here on :9090.
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api-server
+
+  # Steady traffic so the metrics and logs are alive to look at. Uses the multi-arch python image
+  # (same base as api-server) with a stdlib loop — no third-party image, runs natively on
+  # linux/amd64 and linux/arm64 (Apple Silicon) alike.
+  traffic-generator:
+    image: python:3.12-slim
+    depends_on:
+      - api-server
+    command:
+      - python
+      - "-u"
+      - "-c"
+      - |
+        import time, urllib.request
+        while True:
+            for p in ("orders", "stats", "users"):
+                try:
+                    urllib.request.urlopen("http://api-server:8080/api/" + p, timeout=5).read()
+                except Exception:
+                    pass
+            time.sleep(1)

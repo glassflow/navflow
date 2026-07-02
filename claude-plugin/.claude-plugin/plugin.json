@@ -1,0 +1,32 @@
+{
+  "name": "navflow",
+  "displayName": "NavFlow",
+  "version": "0.1.0",
+  "description": "Connect Claude Code to NavFlow — query your data plane over MCP, and stream this session into NavFlow's claude_code source.",
+  "author": { "name": "GlassFlow", "url": "https://glassflow.dev" },
+  "homepage": "https://glassflow.dev",
+  "keywords": ["navflow", "data-plane", "agents", "observability"],
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "navflow_url": {
+      "type": "string",
+      "title": "NavFlow URL",
+      "description": "Base URL of your NavFlow daemon. Local default works for `navflow up`; set your remote URL otherwise.",
+      "default": "http://127.0.0.1:8787",
+      "required": true
+    },
+    "ingest_token": {
+      "type": "string",
+      "title": "Auth token (optional)",
+      "description": "Only if your NavFlow requires auth (NAVFLOW_AUTH_TOKEN / INGEST_TOKEN). Sent as a Bearer header to the MCP proxy and the ingest endpoint.",
+      "sensitive": true
+    },
+    "stream_sessions": {
+      "type": "boolean",
+      "title": "Stream this session into NavFlow",
+      "description": "When on, this session's transcript is shipped to NavFlow's claude_code source as it progresses.",
+      "default": true
+    }
+  }
+}

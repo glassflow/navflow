@@ -1,0 +1,25 @@
+# NavFlow — one image for the daemon and the remote MCP server (same image, different command).
+# Build from the repo root:  docker build -f deploy/docker/Dockerfile -t navflow .
+# syntax=docker/dockerfile:1
+
+# 1) build the console SPA so it can be embedded in the wheel (hatch force-include ui/dist)
+FROM node:20-slim AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+# 2) build + install the package (console baked in) with all connector extras
+FROM python:3.12-slim AS app
+WORKDIR /src
+COPY pyproject.toml ./
+COPY navflow/ ./navflow/
+COPY --from=ui /ui/dist ./ui/dist
+RUN pip install --no-cache-dir ".[postgres,otlp-grpc,agent]"
+
+ENV NAVFLOW_HOME=/data
+VOLUME /data
+EXPOSE 8787 8788
+# the daemon by default; the compose mcp service overrides this with `navflow mcp ...`
+CMD ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]

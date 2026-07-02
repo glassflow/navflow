@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+*.duckdb
+*.duckdb.wal
+catalog.yaml
+catalog-*.yaml
+*.bak
+.env
+
+# private / non-public working notes — kept out of the public repo
+investor-notes-gdoc.txt
+readme-upfront.md
+deployment.md

@@ -1,0 +1,231 @@
+"""navflow-mcp — the stdio MCP server the agent spawns. A thin proxy to navflowd's HTTP API.
+
+Stateless: every tool call becomes one HTTP call to navflowd. This is the only NavFlow surface the
+agent sees.
+
+Two tool groups: the READ surface (query/catalog/list_*) and the WRITE/SETUP surface
+(subscribe/derive/remember/discover_*/create_source/…), which lets an agent author views and wire
+up its own data sources. The design doc keeps admin ops off the MCP surface; exposing them here is a
+deliberate MVP test of agent-operable onboarding (no auth — the proxy talks to the local daemon).
+
+Read-only mode (NAVFLOW_READONLY, for the public demo): the write/setup tools are not registered at
+all, so a connected agent sees only the read surface (the daemon refuses the writes too).
+"""
+from __future__ import annotations
+
+import os
+
+import httpx
+from mcp.server.fastmcp import FastMCP
+
+NAVFLOWD = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
+READONLY = os.getenv("NAVFLOW_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
+# Shared bearer token (self-hosted single-tenant): connecting agents must present it, and we forward
+# it to navflowd (whose API now requires it too).
+AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
+_AUTH_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
+
+
+def _cx(timeout: float = 10):
+    """An httpx client that carries the auth token to navflowd (a no-op when none is set)."""
+    return httpx.AsyncClient(timeout=timeout, headers=_AUTH_HEADERS)
+
+# stdio (default) is what a local agent spawns. For remote agents (the demo / a server), run with
+# NAVFLOW_MCP_TRANSPORT=streamable-http (or sse) and the server listens on MCP_HOST:MCP_PORT — at
+# /mcp (streamable-http) or /sse (sse), proxying tool calls to navflowd as usual.
+mcp = FastMCP("navflow",
+              host=os.getenv("NAVFLOW_MCP_HOST", "127.0.0.1"),
+              port=int(os.getenv("NAVFLOW_MCP_PORT", "8788")))
+
+
+def writable():
+    """Decorator for a write/setup tool: registers it normally, or drops it (no-op) when the
+    server is read-only, so it isn't even listed to the agent."""
+    return mcp.tool() if not READONLY else (lambda fn: fn)
+
+
+@mcp.tool()
+async def query(view: str, key: str = "", window: str = "15m",
+                where: dict | None = None) -> str:
+    """Pull one correlated, time-ordered view of everything that happened to an entity over a
+    window (metrics, logs, config, deploys, alerts) — already merged. Prefer this over many small
+    reads. Select the entity with `key` (the primary key) OR `where`, a {label: value} map on any
+    named label, e.g. {"env": "prod"} or {"env": "prod", "app": "ui"}. Use catalog_describe to
+    see a source's labels."""
+    body = {"view": view, "window": window, "client": "mcp"}
+    if where:
+        body["where"] = where
+    if key:
+        body["key"] = key
+    async with _cx(30) as cx:
+        r = await cx.post(f"{NAVFLOWD}/query", json=body)
+    return r.json()["payload"]
+
+
+@mcp.tool()
+async def read(selector: dict, window: str = "15m") -> str:
+    """Read one correlated, time-ordered timeline of everything matching `selector` across ALL
+    sources — no view needed. `selector` is a {label: value} conjunction, matched with strict AND,
+    e.g. {"project": "frontend"} or {"service": "api-server", "endpoint": "/login"}. An event
+    matches only if it carries every named label with that value, so adding a label narrows and
+    removing one widens. Use this to investigate any entity on the fly; once you know which sources
+    matter, save the slice with derive() to create a reusable view you can attach triggers to."""
+    async with _cx(30) as cx:
+        r = await cx.post(f"{NAVFLOWD}/read",
+                          json={"selector": selector, "window": window, "client": "mcp"})
+    return r.json()["payload"]
+
+
+@writable()
+async def subscribe(trigger: str, url: str) -> str:
+    """Register a webhook to be woken (pushed) when a trigger fires. Returns a subscription id."""
+    async with _cx(10) as cx:
+        r = await cx.post(f"{NAVFLOWD}/subscribe", json={"trigger": trigger, "url": url})
+    return r.json()["subscription_id"]
+
+
+@mcp.tool()
+async def catalog_list() -> str:
+    """List available sources, views, and triggers."""
+    async with _cx(10) as cx:
+        r = await cx.get(f"{NAVFLOWD}/catalog")
+    return r.text
+
+
+@mcp.tool()
+async def catalog_describe(handle: str) -> str:
+    """Describe one catalog entry in full: schema (event types + typed fields, inferred from
+    stored events), freshness, lineage, and sample records. Handles look like source:logs,
+    view:service_timeline, trigger:error_spike. Use this to discover field names before
+    writing a derive() or querying an unfamiliar view."""
+    async with _cx(10) as cx:
+        r = await cx.get(f"{NAVFLOWD}/catalog/{handle}")
+    return r.text
+
+
+@writable()
+async def derive(sources: list[str], key_field: str, name: str = "",
+                 filters: list[dict] | None = None) -> str:
+    """Propose a new view shaped the way YOU want to read: pick the sources to correlate, what
+    the key means, and optional filters [{field, op, value}] (ops: eq, neq, contains, gt, lt,
+    gte, lte) to narrow it. Returns a handle immediately queryable with query(). Use
+    catalog_describe first to learn the available fields."""
+    body = {"sources": sources, "key_field": key_field, "filters": filters or [],
+            "client": "mcp"}
+    if name:
+        body["name"] = name
+    async with _cx(10) as cx:
+        r = await cx.post(f"{NAVFLOWD}/derive", json=body)
+    return r.text
+
+
+@writable()
+async def remember(key: str, content: str, memory_type: str = "observation") -> str:
+    """Write an observation back to NavFlow's agent-memory lane. It becomes a source like any
+    other: joined into correlated reads, so what you learned this incident appears in the
+    timeline next time the same key acts up. memory_type: observation | aggregation | decision."""
+    async with _cx(10) as cx:
+        r = await cx.post(f"{NAVFLOWD}/remember",
+                          json={"key": key, "content": content, "memory_type": memory_type})
+    return r.text
+
+
+# ── setup surface: an agent can wire up its own data sources ─────────────────
+
+@mcp.tool()
+async def list_connectors() -> str:
+    """List the connector types you can create a source with, each with its config fields, mode
+    (poll | push), and whether it supports discovery. Read this first to learn what you can ingest
+    and how to configure it."""
+    async with _cx(10) as cx:
+        r = await cx.get(f"{NAVFLOWD}/api/connectors")
+    return r.text
+
+
+@writable()
+async def discover_source(connector: str, config: dict) -> str:
+    """Introspect an upstream and get a proposed source config — no commitment. Works for
+    connectors that can introspect: e.g. prometheus given {"url": "http://..."}, or github given
+    {"repo": "owner/name"}. The returned `proposed_config` can be passed straight to create_source.
+    (Use list_connectors to see which connectors support discovery.)"""
+    async with _cx(20) as cx:
+        r = await cx.post(f"{NAVFLOWD}/api/sources/discover",
+                          json={"connector": connector, "config": config})
+    return r.text
+
+
+@writable()
+async def discover_docker() -> str:
+    """Scan the local Docker environment and get a list of proposed sources (one per container's
+    logs, plus a detected Prometheus). Each item's `config` is ready to pass to create_source."""
+    async with _cx(20) as cx:
+        r = await cx.get(f"{NAVFLOWD}/api/discover/environment", params={"provider": "docker"})
+    return r.text
+
+
+@writable()
+async def test_source(name: str, connector: str, config: dict, poll: str = "5s") -> str:
+    """Dry-run a source config without creating it: poll connectors do one live poll and return a
+    sample; push connectors return their ingest endpoint. Use before create_source to check the
+    config works."""
+    async with _cx(20) as cx:
+        r = await cx.post(f"{NAVFLOWD}/api/sources/test",
+                          json={"name": name, "connector": connector, "poll": poll, "config": config})
+    return r.text
+
+
+@writable()
+async def create_source(name: str, connector: str, config: dict, poll: str = "5s") -> str:
+    """Create a data source so NavFlow starts ingesting it immediately (no restart). `config` is
+    the connector's config (see list_connectors / discover_source); push connectors ignore `poll`.
+    Returns {ok, name} or an error detail. After creating, use list_sources to watch it ingest and
+    catalog_describe("source:<name>") to see its labels."""
+    async with _cx(15) as cx:
+        r = await cx.post(f"{NAVFLOWD}/api/sources",
+                          json={"name": name, "connector": connector, "poll": poll, "config": config})
+    return r.text
+
+
+@mcp.tool()
+async def list_sources() -> str:
+    """List every configured source with its live health (status, events ingested, last error).
+    Use it to confirm a source you created is actually ingesting."""
+    async with _cx(10) as cx:
+        r = await cx.get(f"{NAVFLOWD}/api/sources")
+    return r.text
+
+
+class _BearerGate:
+    """Pure-ASGI middleware: every HTTP request to the MCP server must carry the bearer token.
+    Non-HTTP scopes (lifespan/websocket) pass through untouched."""
+    def __init__(self, app, token: str):
+        self.app, self.token = app, token
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers") or []}
+            auth = headers.get("authorization", "")
+            tok = auth[7:].strip() if auth.lower().startswith("bearer ") else headers.get("x-navflow-token", "")
+            if tok != self.token:
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
+                return
+        await self.app(scope, receive, send)
+
+
+def main():
+    transport = os.getenv("NAVFLOW_MCP_TRANSPORT", "stdio")  # stdio | sse | streamable-http
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    # HTTP transports: build the ASGI app, gate it with the bearer token, run it under uvicorn.
+    app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
+    if AUTH_TOKEN:
+        app = _BearerGate(app, AUTH_TOKEN)
+    import uvicorn
+    uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port)
+
+
+if __name__ == "__main__":
+    main()

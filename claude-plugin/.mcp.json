@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "navflow": {
+      "command": "navflow-mcp",
+      "env": {
+        "NAVFLOWD_URL": "${user_config.navflow_url}",
+        "NAVFLOW_AUTH_TOKEN": "${CLAUDE_PLUGIN_OPTION_ingest_token}"
+      }
+    }
+  }
+}

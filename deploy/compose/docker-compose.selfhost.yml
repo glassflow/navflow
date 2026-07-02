@@ -1,0 +1,51 @@
+# NavFlow self-hosted single-tenant (Scenario 3) — a writable instance for one team, behind a token.
+# Pulls a PINNED prebuilt image (default :0.0.1). Bump it with NAVFLOW_VERSION (or `git pull` after a
+# release bumps the default); NAVFLOW_REGISTRY points at another registry. Build with build override.
+#   NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24) NAVFLOW_DOMAIN=navflow.acme.com \
+#     docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
+#
+# The console + MCP require NAVFLOW_AUTH_TOKEN (humans log in with it; agents send it as a bearer
+# token). Ingest endpoints take a separate NAVFLOW_INGEST_TOKEN (give it to your producers). DuckDB
+# is single-writer, so this is exactly ONE navflowd + one volume — do not scale to replicas.
+name: navflow
+
+services:
+  navflowd:
+    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-0.1.0}
+    command: ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
+    environment:
+      NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN (e.g. openssl rand -hex 24)}"
+      NAVFLOW_INGEST_TOKEN: "${NAVFLOW_INGEST_TOKEN:-}"  # optional: require a token on /ingest, /v1/*
+    volumes:
+      - navflow-data:/data                              # back this up: it holds navflow.duckdb
+    expose: ["8787"]
+    restart: unless-stopped
+
+  mcp:
+    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-0.1.0}
+    command: ["navflow", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0",
+              "--port", "8788", "--navflowd", "http://navflowd:8787"]
+    environment:
+      NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN}"
+    expose: ["8788"]
+    depends_on: [navflowd]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "${NAVFLOW_HTTP_PORT:-80}:80"
+      - "${NAVFLOW_HTTPS_PORT:-443}:443"
+    environment:
+      NAVFLOW_DOMAIN: "${NAVFLOW_DOMAIN:-:80}"   # a real domain enables automatic HTTPS
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [navflowd, mcp]
+    restart: unless-stopped
+
+volumes:
+  navflow-data:
+  caddy-data:
+  caddy-config:

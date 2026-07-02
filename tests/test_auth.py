@@ -1,0 +1,69 @@
+"""NAVFLOW_AUTH_TOKEN — self-hosted single-tenant auth. The API + console require the token; the
+SPA shell, /health, and ingest (own token) stay public.
+"""
+import asyncio, os, signal, subprocess, sys
+import httpx
+
+P = F = 0
+def ck(l, c, d=""):
+    global P, F; P += 1 if c else 0; F += 0 if c else 1
+    print(("  ok   " if c else "  FAIL ") + l + ("" if c else f"  {d}"))
+
+SEED = "/tmp/auth_catalog.yaml"
+with open(SEED, "w") as fh:
+    fh.write("sources:\n  - name: evt\n    connector: webhook\n    poll: 5s\n    config: {}\n")
+DB, PORT, TOKEN = "/tmp/auth.duckdb", "8804", "sekret-123"
+
+
+async def _wait(url):
+    for _ in range(80):
+        try:
+            async with httpx.AsyncClient() as cx:
+                if (await cx.get(url, timeout=1)).status_code == 200:
+                    return True
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)
+    return False
+
+
+async def main():
+    for p in (DB, DB + ".wal"):
+        if os.path.exists(p):
+            os.remove(p)
+    env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
+           "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_AUTH_TOKEN": TOKEN}
+    proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    B = f"http://127.0.0.1:{PORT}"
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    try:
+        if not await _wait(f"{B}/health"):
+            ck("daemon up", False); return
+        async with httpx.AsyncClient() as cx:
+            h = (await cx.get(f"{B}/health")).json()
+            ck("/health public + advertises auth_required", h.get("auth_required") is True, str(h))
+            ck("/health does not leak source names", h.get("sources") == [], str(h.get("sources")))
+            ck("console SPA shell public (GET /)", (await cx.get(f"{B}/")).status_code != 401)
+            ck("static assets public (GET /assets/x)", (await cx.get(f"{B}/assets/whatever.js")).status_code != 401)
+
+            ck("API without token -> 401", (await cx.get(f"{B}/api/connectors")).status_code == 401)
+            ck("API with bearer token -> 200", (await cx.get(f"{B}/api/connectors", headers=auth)).status_code == 200)
+            ck("API with X-NavFlow-Token -> 200", (await cx.get(f"{B}/api/sources", headers={"X-NavFlow-Token": TOKEN})).status_code == 200)
+            ck("API with wrong token -> 401", (await cx.get(f"{B}/api/connectors", headers={"Authorization": "Bearer nope"})).status_code == 401)
+
+            ck("POST /query without token -> 401", (await cx.post(f"{B}/query", json={"view": "x"})).status_code == 401)
+            ck("POST /query with token -> not 401", (await cx.post(f"{B}/query", json={"view": "x"}, headers=auth)).status_code != 401)
+            ck("catalog export protected", (await cx.get(f"{B}/api/catalog/export")).status_code == 401)
+
+            # ingest is NOT gated by the auth token (it has its own; none set here -> open)
+            ig = await cx.post(f"{B}/ingest/evt", json={"app": "a", "msg": "hi"})
+            ck("ingest not gated by auth token (202)", ig.status_code == 202, str(ig.status_code))
+    finally:
+        proc.send_signal(signal.SIGTERM)
+        try: proc.wait(timeout=5)
+        except Exception: proc.kill()
+    print(f"\n{P} passed, {F} failed")
+
+asyncio.run(main())
+sys.exit(1 if F else 0)
