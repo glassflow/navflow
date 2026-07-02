@@ -45,6 +45,8 @@ export interface SourceField {
   primary_default: boolean;
   coverage: number;
   distinct: number;
+  is_label?: boolean;
+  is_key?: boolean;
   values: SourceFieldValue[];
 }
 export interface SourceFieldsProfile { sampled: number; fields: SourceField[]; }

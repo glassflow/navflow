@@ -674,6 +674,16 @@ def make_app() -> FastAPI:
         if cfg is None:
             _err(KeyError(f"unknown source {name!r}"), 404)
         conn = build_connector(cfg, store)
+
+        # Which fields are actual entity axes (the things you read/alert by). Match a declared label
+        # by the field's last path segment, so a nested context (e.g. a Prometheus label set stored
+        # under `metric`) still maps: `metric.service` counts as the declared `service` label.
+        label_specs = (cfg.config.get("labels") or []) if isinstance(cfg.config, dict) else []
+        label_names = {s.get("field") or s.get("name") for s in label_specs} | {s.get("name") for s in label_specs}
+        label_names.discard(None)
+        key_names = {(s.get("field") or s.get("name")) for s in label_specs if s.get("primary")}
+        key_names.discard(None)
+
         counts: dict[str, Counter] = {}
         sampled = 0
         for payload in store.recent_payloads(name, min(limit, 2000)):
@@ -682,23 +692,31 @@ def make_app() -> FastAPI:
                 continue
             sampled += 1
             for k, v in ctx.items():
-                if v is None or v == "":
-                    continue
-                counts.setdefault(k, Counter())[str(v)] += 1
+                if isinstance(v, dict):                 # explode one level: metric.service, metric.endpoint, …
+                    for sk, sv in v.items():
+                        if sv not in (None, ""):
+                            counts.setdefault(f"{k}.{sk}", Counter())[str(sv)] += 1
+                elif v not in (None, ""):
+                    counts.setdefault(k, Counter())[str(v)] += 1
 
         def entry(fname, help_="", primary_default=False):
             vals = counts.get(fname, Counter())
+            seg = fname.rsplit(".", 1)[-1]
             return {"name": fname, "help": help_, "primary_default": primary_default,
                     "coverage": sum(vals.values()), "distinct": len(vals),
+                    "is_label": seg in label_names or fname in label_names,
+                    "is_key": seg in key_names or fname in key_names,
                     "values": [{"value": val, "events": c} for val, c in vals.most_common(8)]}
 
         fields, seen = [], set()
         for spec in getattr(type(conn), "PROVIDES", None) or []:   # advertised fields, in order
             fields.append(entry(spec["name"], spec.get("help", ""), spec.get("primary", False)))
             seen.add(spec["name"])
-        for fname in counts:                                       # plus observed-but-not-advertised
+        for fname in counts:                                       # plus observed (flattened) fields
             if fname not in seen:
                 fields.append(entry(fname))
+        # entity axes first (key, then label), then the rest — lead with what you'd actually key on.
+        fields.sort(key=lambda f: (0 if f["is_key"] else 1 if f["is_label"] else 2))
         return {"sampled": sampled, "fields": fields}
 
     # ── in-app agent (the Ask view) — server-side chat loop over the read API ──

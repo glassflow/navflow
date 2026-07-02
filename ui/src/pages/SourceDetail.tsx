@@ -67,7 +67,7 @@ export default function SourceDetail() {
         </div>
       )}
 
-      <FieldsPanel name={name} primaryField={primaryField(source)} />
+      <FieldsPanel name={name} />
 
       {editing && spec && (
         <div className="panel">
@@ -131,43 +131,61 @@ export default function SourceDetail() {
   );
 }
 
-function primaryField(source: Source): string | undefined {
-  const labels = (source.config?.labels as Array<Record<string, unknown>> | undefined) ?? [];
-  const p = labels.find((l) => l.primary);
-  return (p?.field as string) ?? undefined;
-}
-
-// The connector's normalized fields and how often each is actually present — makes the otherwise
-// invisible structure visible, so the key is chosen against real coverage instead of guessed.
-function FieldsPanel({ name, primaryField }: { name: string; primaryField?: string }) {
+// The fields this source carries, sampled from recent events. Nested contexts (e.g. a Prometheus
+// label set) are flattened to sub-fields (metric.service, …) so the real keyable axes are visible;
+// the backend marks which are declared labels/keys. Coverage is only shown when it varies (a full
+// 100%-everywhere column is noise), so partial fields stand out.
+function FieldsPanel({ name }: { name: string }) {
   const { data } = usePolling(() => api.sourceFields(name), 5000);
   if (!data || !data.fields.length) return null;
-  const max = Math.max(1, ...data.fields.map((f) => f.coverage));
+  const allFull = data.fields.every((f) => f.coverage === data.sampled);
+  const fmt = (v: string) => (v.length > 44 ? v.slice(0, 43) + "…" : v);
   return (
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Fields <small className="dim">· {data.sampled} events sampled</small></h2>
-      <p className="subtitle">The normalized fields you can key/label on, and how present each is. Prefer a well-covered field for the key.</p>
+      <p className="subtitle">
+        What this source carries. <span className="badge ok">key</span> and{" "}
+        <span className="badge starting">label</span> mark the axes you read and alert by; the rest
+        are available to promote to a label.
+      </p>
       <table>
-        <thead><tr><th>field</th><th style={{ width: 200 }}>coverage</th><th>distinct</th><th>top values</th></tr></thead>
+        <thead><tr>
+          <th>field</th>
+          {!allFull && <th style={{ width: 180 }}>coverage</th>}
+          <th className="num">distinct</th>
+          <th>top values</th>
+        </tr></thead>
         <tbody>
           {data.fields.map((f) => (
             <tr key={f.name}>
               <td className="mono">
                 {f.name}
-                {f.name === primaryField && <span className="badge ok" style={{ marginLeft: 6 }}>key</span>}
+                {f.is_key ? <span className="badge ok" style={{ marginLeft: 6 }}>key</span>
+                  : f.is_label ? <span className="badge starting" style={{ marginLeft: 6 }}>label</span> : null}
               </td>
+              {!allFull && (
+                <td>
+                  <div className="cov"><div className="cov-bar" style={{ width: `${(f.coverage / Math.max(1, data.sampled)) * 100}%` }} /></div>
+                  <small className="dim">{f.coverage} / {data.sampled}</small>
+                </td>
+              )}
+              <td className="num">{f.distinct}</td>
               <td>
-                <div className="cov"><div className="cov-bar" style={{ width: `${(f.coverage / max) * 100}%` }} /></div>
-                <small className="dim">{f.coverage} / {data.sampled}</small>
-              </td>
-              <td>{f.distinct}</td>
-              <td className="help" style={{ whiteSpace: "normal" }}>
-                {f.values.slice(0, 5).map((v) => `${v.value} (${v.events})`).join(", ") || "—"}
+                {f.values.length
+                  ? <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      {f.values.slice(0, 6).map((v) => (
+                        <span className="chip" key={v.value} title={`${v.value} · ${v.events} events`}>
+                          {fmt(v.value)} <span className="dim">({v.events})</span>
+                        </span>
+                      ))}
+                    </span>
+                  : <span className="help">—</span>}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {allFull && <p className="help" style={{ marginTop: 8 }}>Every field is present in all {data.sampled} sampled events.</p>}
     </div>
   );
 }
