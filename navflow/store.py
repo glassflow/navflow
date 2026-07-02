@@ -190,7 +190,7 @@ class Store:
     # ── reads ───────────────────────────────────────────────────────────────
     def read_view_window(self, sources: list[str], key: str | None, since: datetime, cap: int = 12,
                          filters: list | None = None, where: dict | None = None):
-        """Rows (event_time, source, text) for an entity across sources, time-ordered.
+        """Rows (event_time, source, text, labels) for an entity across sources, time-ordered.
 
         The entity is selected by `key` (legacy primary key_value) and/or `where` (a
         {label: value} map matching named labels). Passing key=None with a `where` is the
@@ -206,8 +206,8 @@ class Store:
         ksql, kparams = (" AND key_value = ?", [key]) if key is not None else ("", [])
         with self._lock:
             return self.con.execute(
-                f"SELECT event_time, source, text FROM ("
-                f"  SELECT event_time, source, text, "
+                f"SELECT event_time, source, text, labels FROM ("
+                f"  SELECT event_time, source, text, labels, "
                 f"  ROW_NUMBER() OVER (PARTITION BY source ORDER BY event_time DESC) AS rn "
                 f"  FROM events WHERE source IN ({ph}) AND event_time >= ?{ksql}{fsql}{wsql}"
                 f") WHERE rn <= {int(cap)} ORDER BY event_time",

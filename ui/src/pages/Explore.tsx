@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { Close, Search } from "../components/icons";
 import { usePolling } from "../components/bits";
-import type { LabelFacet, View } from "../types";
+import type { LabelFacet, TimelineEventRow, View } from "../types";
 
 // Explore — the hero, selector-first. Pick an entity on the left to start a selector, optionally
 // narrow it with more label=value constraints (strict AND), and read everything matching across
@@ -25,21 +25,6 @@ function toSelector(terms: Term[]): Record<string, string> {
   return out;
 }
 
-/** A payload line like `[T-64s] [metrics] db_pool_size api-server=20.0` → its three parts. */
-type TimelineRow = { offset: string; source: string; text: string };
-
-function parseTimeline(payload: string): { rows: TimelineRow[]; raw: string[] } {
-  const rows: TimelineRow[] = [];
-  const raw: string[] = [];
-  for (const line of payload.split("\n")) {
-    if (!line.trim() || line.startsWith("===")) continue;
-    const m = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+([\s\S]*)$/);
-    if (m) rows.push({ offset: m[1], source: m[2], text: m[3] });
-    else if (!line.startsWith("(no events")) raw.push(line);
-  }
-  return { rows, raw };
-}
-
 /** Views usable as a lens for this axis: matching key_field first, then broadest (most sources). */
 function lensesFor(axis: string, sources: string[], views: View[]): View[] {
   return views
@@ -58,6 +43,7 @@ export default function Explore() {
   const [window_, setWindow] = useState("1h");
   const [mode, setMode] = useState<"human" | "agent">("human");
   const [payload, setPayload] = useState<string>();
+  const [rows, setRows] = useState<TimelineEventRow[]>();
   const [readSources, setReadSources] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [qerror, setQerror] = useState<string>();
@@ -101,7 +87,7 @@ export default function Explore() {
   // (Re)run the read whenever the selector, lens or window changes; refresh on an interval so the
   // timeline feels live. Lens RAW → the /read primitive across all sources; a view → /query.
   useEffect(() => {
-    if (!terms.length) { setPayload(undefined); return; }
+    if (!terms.length) { setPayload(undefined); setRows(undefined); return; }
     let live = true;
     const run = (spinner: boolean) => {
       if (document.hidden) return;
@@ -110,16 +96,14 @@ export default function Explore() {
         ? api.read(selector, window_).then((r) => { if (live) setReadSources(r.sources); return r; })
         : api.runQueryWhere(effectiveLens, selector, window_)
             .then((r) => { if (live) setReadSources(lensView?.sources ?? []); return r; });
-      p.then((r) => { if (live) { setPayload(r.payload); setQerror(undefined); } })
-        .catch((e) => { if (live) { setQerror(String((e as Error).message ?? e)); setPayload(undefined); } })
+      p.then((r) => { if (live) { setPayload(r.payload); setRows(r.rows ?? []); setQerror(undefined); } })
+        .catch((e) => { if (live) { setQerror(String((e as Error).message ?? e)); setPayload(undefined); setRows(undefined); } })
         .finally(() => { if (live) setLoading(false); });
     };
     run(true);
     const id = setInterval(() => run(false), 10000);
     return () => { live = false; clearInterval(id); };
   }, [selector, effectiveLens, window_]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const parsed = useMemo(() => (payload !== undefined ? parseTimeline(payload) : null), [payload]);
 
   const needle = q.trim().toLowerCase();
   const pick = (f: LabelFacet, value: string, events: number) => {
@@ -282,7 +266,7 @@ export default function Explore() {
                       : !qerror && <div className="help">reading timeline…</div>}
                   </div>
                 ) : (
-                  <TimelineTable parsed={parsed} loading={payload === undefined && !qerror} emptyHint={emptyHint} />
+                  <TimelineTable rows={rows} loading={rows === undefined && !qerror} emptyHint={emptyHint} />
                 )}
               </>
             )}
@@ -356,24 +340,32 @@ function AddTerm({ facets, used, onAdd }:
   );
 }
 
-function TimelineTable({ parsed, loading, emptyHint }:
-  { parsed: ReturnType<typeof parseTimeline> | null; loading: boolean; emptyHint: string }) {
+function TimelineTable({ rows, loading, emptyHint }:
+  { rows: TimelineEventRow[] | undefined; loading: boolean; emptyHint: string }) {
   if (loading) return <div className="help" style={{ marginTop: 14 }}>reading timeline…</div>;
-  if (!parsed) return null;
-  if (!parsed.rows.length) {
-    return <div className="empty">{parsed.raw.length ? parsed.raw.join(" ") : emptyHint}</div>;
-  }
+  if (!rows) return null;
+  if (!rows.length) return <div className="empty">{emptyHint}</div>;
   return (
     <table style={{ marginTop: 12 }}>
       <thead><tr><th style={{ width: 74 }}>when</th><th style={{ width: 180 }}>source</th><th>event</th></tr></thead>
       <tbody>
-        {parsed.rows.map((r, i) => (
-          <tr key={i}>
-            <td className="mono dim" style={{ whiteSpace: "nowrap" }}>{r.offset}</td>
-            <td><span className="chip">{r.source}</span></td>
-            <td className="mono" style={{ whiteSpace: "pre-wrap" }}>{r.text}</td>
-          </tr>
-        ))}
+        {rows.map((r, i) => {
+          const labels = Object.entries(r.labels ?? {});
+          return (
+            <tr key={i}>
+              <td className="mono dim" style={{ whiteSpace: "nowrap" }}>{r.offset}</td>
+              <td><span className="chip">{r.source}</span></td>
+              <td>
+                <span className="mono" style={{ whiteSpace: "pre-wrap" }}>{r.text}</span>
+                {labels.length > 0 && (
+                  <span className="tl-labels">
+                    {labels.map(([k, v]) => <span className="chip lbl" key={k}>{k}={v}</span>)}
+                  </span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

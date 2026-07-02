@@ -1,7 +1,7 @@
 import type {
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchLogEntry, Entity, EnvScan,
   LabelFacet, QueryLogEntry, Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
-  Trigger, View,
+  TimelineEventRow, Trigger, View,
 } from "./types";
 
 const TOKEN_KEY = "navflow_token";
@@ -112,20 +112,21 @@ export const api = {
       label ? `/api/entities?label=${encodeURIComponent(label)}` : "/api/entities"),
 
   // Raw label-native read across ALL sources — no view. `selector` is a {label: value}
-  // conjunction (strict AND). Returns the payload plus the sources that actually contributed.
+  // conjunction (strict AND). Returns the rendered payload, contributing sources, and structured
+  // rows (each with its per-event labels, for the console timeline).
   read: (selector: Record<string, string>, window: string) =>
-    request<{ payload: string; count: number; sources: string[] }>("/read", {
+    request<{ payload: string; count: number; sources: string[]; rows: TimelineEventRow[] }>("/read", {
       method: "POST",
       body: JSON.stringify({ selector, window, client: "ui" }),
     }),
 
   runQuery: (view: string, key: string, window: string) =>
-    request<{ payload: string }>("/query", {
+    request<{ payload: string; rows: TimelineEventRow[] }>("/query", {
       method: "POST",
       body: JSON.stringify({ view, key, window, client: "ui" }),
     }),
   runQueryWhere: (view: string, where: Record<string, string>, window: string) =>
-    request<{ payload: string }>("/query", {
+    request<{ payload: string; rows: TimelineEventRow[] }>("/query", {
       method: "POST",
       body: JSON.stringify({ view, where, window, client: "ui" }),
     }),

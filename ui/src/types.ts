@@ -51,6 +51,15 @@ export interface SourceField {
 }
 export interface SourceFieldsProfile { sampled: number; fields: SourceField[]; }
 
+// One event in a correlated read: its time offset, source, rendered text, and the labels it
+// carries (endpoint, status, …) — so the timeline shows the dimensions you filtered/sliced by.
+export interface TimelineEventRow {
+  offset: string;
+  source: string;
+  text: string;
+  labels: Record<string, string>;
+}
+
 export interface CatalogList {
   sources: { name: string; type: string }[];
   views: { name: string; key_field: string; sources: string[]; created_by: string }[];

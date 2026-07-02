@@ -5,6 +5,7 @@ the agent path is byte-identical; only the backing (DuckDB scan vs in-process pu
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from .config import Catalog, parse_duration
@@ -19,16 +20,46 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def render_view(view_name: str, selector: str, window: str, rows) -> str:
+def _labels(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if raw:
+        try:
+            v = json.loads(raw)
+            return v if isinstance(v, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+    return {}
+
+
+def _render(rows) -> tuple[list, list]:
+    """From read_view_window 4-tuples → (payload lines, structured rows). The labels the connector
+    extracted (endpoint, status, …) are appended to each line and returned structured, so a read is
+    self-describing: the dimensions you filtered/sliced by are visible on every row, for the human
+    timeline and the agent payload alike."""
     now = now_utc()
-    out = [f"=== {view_name} · {selector} · window={window} · ONE NavFlow read ===", ""]
-    for event_time, source, text in rows:
+    lines, structured = [], []
+    for event_time, source, text, labels in rows:
         ago = int(max((now - _aware(event_time)).total_seconds(), 0))
-        for line in (text or "").splitlines() or [""]:
-            out.append(f"[T-{ago}s] [{source}] {line}")
-    if not rows:
+        lbls = _labels(labels)
+        suffix = ("  ·  " + "  ".join(f"{k}={v}" for k, v in lbls.items())) if lbls else ""
+        sub = (text or "").splitlines() or [""]
+        for i, line in enumerate(sub):
+            lines.append(f"[T-{ago}s] [{source}] {line}" + (suffix if i == 0 else ""))
+        structured.append({"offset": f"T-{ago}s", "source": source, "text": (text or ""), "labels": lbls})
+    return lines, structured
+
+
+def _wrap(view_name: str, selector: str, window: str, lines: list, empty: bool) -> str:
+    out = [f"=== {view_name} · {selector} · window={window} · ONE NavFlow read ===", "", *lines]
+    if empty:
         out.append("(no events for this selector in the window)")
     return "\n".join(out)
+
+
+def render_view(view_name: str, selector: str, window: str, rows) -> str:
+    lines, _ = _render(rows)
+    return _wrap(view_name, selector, window, lines, not rows)
 
 
 def _selector(key, where) -> str:
@@ -38,13 +69,14 @@ def _selector(key, where) -> str:
 
 
 def resolve_query_full(store, catalog: Catalog, view_name: str, key=None, window: str = "15m",
-                       where: dict | None = None) -> tuple[str, int]:
-    """(rendered payload, row count) — the count feeds the query activity log. The entity is
-    selected by `key` (legacy key_value) and/or `where` ({label: value} on any named label)."""
+                       where: dict | None = None) -> tuple[str, int, list]:
+    """(rendered payload, row count, structured rows) — the count feeds the query activity log; the
+    rows carry per-event labels for the console. Entity selected by `key` and/or `where`."""
     view = catalog.views[view_name]
     since = now_utc() - parse_window(window)
     rows = store.read_view_window(view.sources, key, since, filters=view.filters, where=where)
-    return render_view(view_name, _selector(key, where), window, rows), len(rows)
+    lines, structured = _render(rows)
+    return _wrap(view_name, _selector(key, where), window, lines, not rows), len(rows), structured
 
 
 def resolve_query(store, catalog: Catalog, view_name: str, key=None, window: str = "15m",
@@ -52,13 +84,14 @@ def resolve_query(store, catalog: Catalog, view_name: str, key=None, window: str
     return resolve_query_full(store, catalog, view_name, key, window, where)[0]
 
 
-def resolve_read(store, catalog: Catalog, where: dict, window: str = "15m") -> tuple[str, int, list]:
+def resolve_read(store, catalog: Catalog, where: dict, window: str = "15m") -> tuple[str, int, list, list]:
     """Raw label-native read across ALL sources — no view. `where` is a {label: value} conjunction
     (strict AND). Reading every source is self-pruning: a source that doesn't stamp one of the
     selector's labels yields NULL for it and drops out, so the result is exactly the strict-AND
-    match. Returns (rendered payload, row count, sources that actually contributed rows)."""
+    match. Returns (rendered payload, row count, contributing sources, structured rows)."""
     since = now_utc() - parse_window(window)
     rows = store.read_view_window(sorted(catalog.sources), None, since, filters=None, where=where)
-    payload = render_view("read", _selector(None, where), window, rows)
+    lines, structured = _render(rows)
+    payload = _wrap("read", _selector(None, where), window, lines, not rows)
     contributing = sorted({r[1] for r in rows})
-    return payload, len(rows), contributing
+    return payload, len(rows), contributing, structured

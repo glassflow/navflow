@@ -245,12 +245,12 @@ def make_app() -> FastAPI:
             _err(KeyError(f"unknown view {req.view!r}"), 404)
         if not req.key and not req.where:
             _err(ValueError("query needs a key or a where selector"))
-        payload, nrows = resolve_query_full(store, runtime.catalog, req.view, req.key,
-                                            req.window, where=req.where or None)
+        payload, nrows, rows = resolve_query_full(store, runtime.catalog, req.view, req.key,
+                                                  req.window, where=req.where or None)
         log_key = req.key if req.key else ", ".join(f"{k}={v}" for k, v in req.where.items())
         store.log_query("q_" + uuid.uuid4().hex[:12], req.view, log_key, req.window,
                         nrows, req.client)
-        return {"payload": payload}
+        return {"payload": payload, "rows": rows}
 
     @app.post("/read")
     async def read(req: ReadReq):
@@ -259,11 +259,11 @@ def make_app() -> FastAPI:
         derive() a view once you know which sources matter."""
         if not req.selector:
             _err(ValueError('read needs a selector, e.g. {"project": "frontend"}'))
-        payload, nrows, sources = resolve_read(store, runtime.catalog, req.selector, req.window)
+        payload, nrows, sources, rows = resolve_read(store, runtime.catalog, req.selector, req.window)
         log_key = ", ".join(f"{k}={v}" for k, v in req.selector.items())
         store.log_query("r_" + uuid.uuid4().hex[:12], "(read)", log_key, req.window,
                         nrows, req.client)
-        return {"payload": payload, "count": nrows, "sources": sources}
+        return {"payload": payload, "count": nrows, "sources": sources, "rows": rows}
 
     @app.post("/subscribe")
     async def subscribe(req: SubReq):

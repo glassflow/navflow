@@ -540,6 +540,10 @@ pre.payload {
   letter-spacing: 0.06em; color: var(--ink-faint); margin: 0;
 }
 .tl-sources { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* per-event label chips on a timeline row — the dimensions you filtered/sliced by */
+.tl-labels { display: inline-flex; gap: 5px; flex-wrap: wrap; margin-left: 10px; vertical-align: middle; }
+.chip.lbl { background: var(--bg); color: var(--ink-soft); font-weight: 400; }
 .tl-agent-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* Explore — the selector (conjunction of label=value terms, strict AND) */
