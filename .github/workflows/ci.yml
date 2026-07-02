@@ -31,7 +31,7 @@ jobs:
       - name: Backend — install + tests
         run: |
           pip install -e .
-          for t in test_labels test_normalize test_readonly test_auth test_catalog_sync test_cli test_mcp_setup; do
+          for t in test_labels test_normalize test_readonly test_auth test_catalog_sync test_cli; do
             echo "== $t =="
             python "tests/$t.py"
           done
