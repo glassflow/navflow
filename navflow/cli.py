@@ -12,6 +12,14 @@ from pathlib import Path
 DEFAULT_HOME = Path(os.getenv("NAVFLOW_HOME", str(Path.home() / ".navflow")))
 
 
+def _pkg_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        return version("navflow")
+    except PackageNotFoundError:
+        return "0+source"   # running from a source checkout without an install
+
+
 def _warn_if_exposed(host: str) -> None:
     """Loud warning when binding a non-loopback address with no auth token set — the common way to
     accidentally expose your data on the network."""
@@ -80,6 +88,7 @@ def _mcp(args: argparse.Namespace):
 
 def main():
     p = argparse.ArgumentParser(prog="navflow", description="NavFlow — a data plane for AI agents.")
+    p.add_argument("--version", action="version", version=f"navflow {_pkg_version()}")
     sub = p.add_subparsers(dest="cmd")
 
     up = sub.add_parser("up", help="start the NavFlow daemon (API + console UI)")
