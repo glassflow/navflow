@@ -3,6 +3,11 @@
 Notable changes to NavFlow. Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-07-02
+
+### Added
+- `navflow --version`.
+
 ## [0.1.1] — 2026-07-02
 
 First public (soft-launch) release.
