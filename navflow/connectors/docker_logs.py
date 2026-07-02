@@ -11,6 +11,7 @@ before the cursor to avoid re-ingesting the boundary line on every poll.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from datetime import datetime
 
@@ -19,6 +20,35 @@ from .base import Connector
 
 # leading RFC3339 token, after an optional "service  | " compose prefix
 _TS = re.compile(r"^(?:\S+\s*\|\s*)?(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$")
+
+# Best-effort, format-agnostic signals. These are recognize-if-present heuristics, not a parser
+# tied to one log format: a level word, and (only when the classic quoted request is there) the
+# HTTP method/status. Unknown lines yield {} and just carry their raw text.
+_LEVEL = re.compile(r"\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|CRIT(?:ICAL)?)\b", re.I)
+_HTTP = re.compile(r'"(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s[^"]*"\s+(\d{3})')
+_LEVEL_CANON = {"WARNING": "WARN", "CRITICAL": "CRIT"}
+
+
+def derive_fields(msg: str) -> dict:
+    """Structure a log line without assuming a format. If it's a JSON object, use its scalar fields
+    (schema-agnostic structured logs); otherwise pull a couple of near-universal signals. Never
+    raises."""
+    s = msg.strip()
+    if s[:1] == "{":
+        try:
+            obj = json.loads(s)
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict):
+            return {k: v for k, v in obj.items()
+                    if isinstance(v, (str, int, float, bool)) and v != ""}
+    out: dict = {}
+    if (lvl := _LEVEL.search(s)):
+        u = lvl.group(1).upper()
+        out["level"] = _LEVEL_CANON.get(u, u)
+    if (h := _HTTP.search(s)):
+        out["http_method"], out["http_status"] = h.group(1), h.group(2)
+    return out
 
 
 class DockerLogsConnector(Connector):
@@ -36,6 +66,19 @@ class DockerLogsConnector(Connector):
         "label_pattern": {"type": "string", "advanced": True,
                           "help": "regex with named groups → per-line label context"},
     }
+
+    def label_context(self, payload: dict | None) -> dict:
+        """Reconstruct a line's context from its stored payload — the same derived fields (level,
+        http, JSON keys) plus any label_pattern groups. Powers the field profiler and retroactive
+        relabel, so both see the same structure the connector derives at ingest."""
+        raw = (payload or {}).get("raw", "")
+        m = _TS.match(str(raw).strip())
+        msg = m.group(2) if m else str(raw)
+        ctx = derive_fields(msg)
+        lp = self.cfg.config.get("label_pattern")
+        if lp and (lm := re.compile(lp).search(msg)):
+            ctx = {**ctx, **lm.groupdict()}
+        return ctx
 
     async def poll(self):
         c = self.cfg.config
@@ -85,12 +128,14 @@ class DockerLogsConnector(Connector):
                 event_time = datetime.fromisoformat(ts_token.replace("Z", "+00:00"))
             except ValueError:
                 event_time = now_utc()
+            derived = derive_fields(msg)
             lm = label_re.search(msg) if label_re else None
-            labels, key = self.keyed(lm.groupdict() if lm else {}, fallback=key_fallback)
+            ctx = {**derived, **(lm.groupdict() if lm else {})}
+            labels, key = self.keyed(ctx, fallback=key_fallback)
             out.append(Envelope(
                 source=self.cfg.name, source_type=self.cfg.type, key_value=key,
                 event_type="log", text=msg.strip()[:300], event_time=event_time,
-                fields={}, payload={"raw": line}, labels=labels,
+                fields=derived, payload={"raw": line}, labels=labels,
             ))
             if len(out) >= MAX_PER_POLL:
                 break  # leave the rest for the next poll; cursor is at this line
