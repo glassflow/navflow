@@ -42,7 +42,17 @@ export default function SourceDiscover() {
   };
 
   const chosen = scan?.proposed_sources.filter((p) => picked[p.name]).length ?? 0;
-  const created = results && Object.values(results).filter((v) => v === "ok").length;
+  const created = results ? Object.values(results).filter((v) => v === "ok").length : 0;
+  const failed = results ? Object.values(results).filter((v) => v !== "ok").length : 0;
+  const allOk = !!results && failed === 0;
+
+  // On a fully successful create, confirm briefly then hand off to Sources (where the new sources
+  // are now listed). If any failed, stay put so the user can fix and retry.
+  useEffect(() => {
+    if (!allOk) return;
+    const t = setTimeout(() => nav("/"), 1400);
+    return () => clearTimeout(t);
+  }, [allOk, nav]);
 
   return (
     <>
@@ -96,15 +106,27 @@ export default function SourceDiscover() {
               </tbody>
             </table>
 
-            <div className="btnrow" style={{ marginTop: 12 }}>
-              <button className="primary" onClick={create} disabled={busy || chosen === 0}>
-                {busy ? "creating…" : `Create ${chosen} selected source${chosen === 1 ? "" : "s"}`}
-              </button>
-              {results && (
-                <span className="help">
-                  created {created} of {Object.keys(results).length} ·{" "}
-                  <a href="#" onClick={(e) => { e.preventDefault(); nav("/"); }}>view sources</a>
-                </span>
+            <div className="btnrow" style={{ marginTop: 12, alignItems: "center" }}>
+              {allOk ? (
+                <>
+                  <span className="badge ok">created</span>
+                  <span className="help">
+                    added {created} source{created === 1 ? "" : "s"} — taking you to Sources…
+                  </span>
+                </>
+              ) : (
+                <>
+                  <button className="primary" onClick={create} disabled={busy || chosen === 0}>
+                    {busy ? "creating…" : `Create ${chosen} selected source${chosen === 1 ? "" : "s"}`}
+                  </button>
+                  {results && (
+                    <span className="help">
+                      created {created} of {Object.keys(results).length}
+                      {failed ? `, ${failed} failed — fix and retry` : ""} ·{" "}
+                      <a href="#" onClick={(e) => { e.preventDefault(); nav("/"); }}>view sources</a>
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
