@@ -165,7 +165,6 @@ Every shortcut here has a documented expansion:
 navflow/
   README.md                  ← this file
   GETTING_STARTED.md         ← new-user walkthrough: zero → ingest/serve/watch with curl
-  NEXT.md                    ← what we build next, and why (traced to the design doc)
   pyproject.toml             ← package + the navflowd / navflow-mcp entry points
   demo/                      ← one-command stack to ingest from (api-server + Prometheus + traffic)
   catalog.example.yaml       ← sources, views, triggers (wired to the cookbook platform)
@@ -328,8 +327,8 @@ generic inbound path for GitHub/Vercel/custom events.
 
 ### The agent shapes its own reads (describe → derive → remember)
 
-Three agent-surface additions (see `NEXT.md` for the design-doc tracing) turn the MVP from
-"infrastructure that works" into the authorship thesis, demoable:
+Three agent-surface additions turn the MVP from "infrastructure that works" into the authorship
+thesis, demoable:
 
 - **`catalog_describe(handle)`** (`GET /catalog/source:logs` etc.) — full discovery for one
   entry: an inferred schema (event types + typed fields, sampled from stored events),
@@ -370,4 +369,4 @@ Compose self-host (daemon + MCP server + Caddy/TLS).
 
 Pre-1.0; commands and config may change between releases. Still collapsed from the full design —
 the medallion store, streaming substrate, separate trigger engine, and multi-tenant control plane
-remain the expand path (see the collapse map above and `NEXT.md`).
+remain the expand path (see the collapse map above).

@@ -220,5 +220,4 @@ curl -XPOST localhost:8080/admin/fault -d '{"lever":"error_rate","value":0.3}' -
 
 This is an MVP: local, single-tenant, no auth, one DuckDB file, trigger latency bounded by
 the poll interval (~5s). Each of those is a deliberate collapse of the full design with a
-documented expand path — see the collapse map in [README.md](README.md) and what's next in
-[NEXT.md](NEXT.md).
+documented expand path — see the collapse map in [README.md](README.md).
