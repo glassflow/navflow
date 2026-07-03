@@ -2,8 +2,9 @@
 # Prometheus on :9090, logs via docker. All sources share key=api-server so logs, metrics,
 # and alerts correlate in one timeline.
 #
-# Use it from the repo root, e.g.:
-#   NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up
+# Works from any directory (the logs source tails the container by its fixed name):
+#   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
+#   NAVFLOW_CATALOG=catalog.demo.yaml navflow up
 
 sources:
   - name: metrics
@@ -41,8 +42,7 @@ sources:
     connector: docker_logs
     poll: 5s
     config:
-      container: api-server               # the compose service name
-      compose_file: demo/docker-compose.yml
+      container: navflow-demo-api-server  # fixed container_name in docker-compose.yml
       key: api-server
 
   - name: alerts

@@ -1,16 +1,24 @@
 # NavFlow demo stack — the *upstream* services NavFlow ingests from (the thing being monitored).
-# NavFlow itself is NOT in here: install it separately with uv (see demo/README.md), then point it
-# at this stack via demo/catalog.demo.yaml.
+# NavFlow itself is NOT in here: install it separately (see demo/README.md), then point it at
+# this stack via catalog.demo.yaml.
 #
-#   docker compose up -d --build      # start the stack
+# Self-contained — runs anywhere, no repo checkout needed (Docker Compose v2.23.1+ for the
+# inline prometheus config):
+#   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/docker-compose.yml
+#   docker compose up -d              # start the stack
 #   docker compose down               # stop it
+#
+# Hacking on the api-server from a checkout? Build it from source instead of pulling:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 name: navflow-demo
 
 services:
   # The monitored app: Prometheus metrics on /metrics, request logs, and /demo/inject to
-  # cause an incident.
+  # cause an incident. The fixed container_name is what NavFlow's docker_logs source tails
+  # (catalog.demo.yaml), from any directory.
   api-server:
-    build: ./api-server
+    image: ghcr.io/glassflow/navflow-demo-api-server:latest
+    container_name: navflow-demo-api-server
     ports:
       - "8080:8080"
 
@@ -19,8 +27,10 @@ services:
     image: prom/prometheus:latest
     ports:
       - "9090:9090"
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+        mode: 0444    # prometheus runs as nobody; the default config mode isn't world-readable
     depends_on:
       - api-server
 
@@ -44,3 +54,15 @@ services:
                 except Exception:
                     pass
             time.sleep(1)
+
+configs:
+  # Inline so this one file is the whole stack — nothing to mount from a checkout.
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 5s
+
+      scrape_configs:
+        - job_name: api-server
+          static_configs:
+            - targets: ["api-server:8080"]

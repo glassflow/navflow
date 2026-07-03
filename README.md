@@ -27,7 +27,7 @@ The fastest way to have something in the timeline is the bundled [`demo/`](demo/
 (api-server, Prometheus, traffic) for NavFlow to ingest from, with fault injection:
 
 ```bash
-cd demo && docker compose up -d --build && cd -   # start the stack to ingest from
+cd demo && docker compose up -d && cd -   # start the stack to ingest from
 ```
 
 Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog (it
