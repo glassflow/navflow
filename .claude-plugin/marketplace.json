@@ -1,0 +1,13 @@
+{
+  "name": "navflow",
+  "owner": { "name": "GlassFlow", "url": "https://navflow.ai" },
+  "description": "NavFlow — data plane for AI agents. Query NavFlow from Claude Code and stream sessions back in.",
+  "plugins": [
+    {
+      "name": "navflow",
+      "source": "./claude-plugin",
+      "description": "Connect Claude Code to NavFlow (MCP read-back + session capture).",
+      "version": "0.1.0"
+    }
+  ]
+}
