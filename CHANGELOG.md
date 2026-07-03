@@ -3,6 +3,20 @@
 Notable changes to NavFlow. Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] — 2026-07-03
+
+### Added
+- **`include_payload` on `read`/`query`** — opt-in flag that returns the full lossless stored
+  record as `raw` on each row, alongside the summary `text`. Exposed over HTTP and the MCP
+  `read`/`query` tools; covers all connectors.
+
+### Fixed
+- **Claude Code plugin install** — publish a root `marketplace.json` (`/plugin marketplace add
+  glassflow/navflow`) and fix `plugin.json` load errors on Claude Code 2.1 (duplicate hooks ref,
+  missing `ingest_token` default, `navflow_url` required flag hiding its default).
+- **Double-ingest for `claude_code`** — the first pushed event flips a poll-mode source to push
+  mode, so a source fed by the plugin no longer also tails files and ingests every event twice.
+
 ## [0.1.2] — 2026-07-02
 
 ### Added
