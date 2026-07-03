@@ -3,6 +3,13 @@
 Notable changes to NavFlow. Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] — 2026-07-03
+
+### Removed
+- **`changelog` and `config` connectors** — dummy, demo-only connectors that had outlived their
+  use. Also drops the demo api-server's unused `/admin/changelog` and `/admin/config` endpoints and
+  renames its fault switch `/admin/inject` → `/demo/inject`.
+
 ## [0.1.3] — 2026-07-03
 
 ### Added
