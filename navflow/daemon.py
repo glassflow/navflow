@@ -91,12 +91,14 @@ class QueryReq(BaseModel):
     where: dict = {}             # {label: value} on any named label — the label-native selector
     window: str = "15m"
     client: str = "http"   # http | mcp | ui — tags the query in the activity log
+    include_payload: bool = False  # also return the raw lossless record as `raw` on each row
 
 
 class ReadReq(BaseModel):
     selector: dict = {}          # {label: value, ...} — strict-AND conjunction; must be non-empty
     window: str = "15m"
     client: str = "http"   # http | mcp | ui — tags the read in the activity log
+    include_payload: bool = False  # also return the raw lossless record as `raw` on each row
 
 
 class SubReq(BaseModel):
@@ -246,7 +248,8 @@ def make_app() -> FastAPI:
         if not req.key and not req.where:
             _err(ValueError("query needs a key or a where selector"))
         payload, nrows, rows = resolve_query_full(store, runtime.catalog, req.view, req.key,
-                                                  req.window, where=req.where or None)
+                                                  req.window, where=req.where or None,
+                                                  include_payload=req.include_payload)
         log_key = req.key if req.key else ", ".join(f"{k}={v}" for k, v in req.where.items())
         store.log_query("q_" + uuid.uuid4().hex[:12], req.view, log_key, req.window,
                         nrows, req.client)
@@ -259,7 +262,8 @@ def make_app() -> FastAPI:
         derive() a view once you know which sources matter."""
         if not req.selector:
             _err(ValueError('read needs a selector, e.g. {"project": "frontend"}'))
-        payload, nrows, sources, rows = resolve_read(store, runtime.catalog, req.selector, req.window)
+        payload, nrows, sources, rows = resolve_read(store, runtime.catalog, req.selector, req.window,
+                                                     include_payload=req.include_payload)
         log_key = ", ".join(f"{k}={v}" for k, v in req.selector.items())
         store.log_query("r_" + uuid.uuid4().hex[:12], "(read)", log_key, req.window,
                         nrows, req.client)
