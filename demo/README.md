@@ -11,8 +11,8 @@ from this stack, exactly as it would read from your real systems.
  │  api-server   │◄──────────│Promethe│◄─── metrics (:9090 PromQL)
  │  :8080        │           │ us     │
  │  /metrics     │──logs────────────────── docker logs
- │  /admin/*     │──changelog + config──── admin API (:8080)
- └───────────────┘                         → one correlated timeline + triggers
+ │  /admin/*     │  (fault injection)      → one correlated timeline + triggers
+ └───────────────┘
         ▲ traffic-generator
 ```
 
@@ -47,15 +47,14 @@ The console opens at http://127.0.0.1:8787. (`navflow up` reads the catalog on f
 
 ## 3. Look around
 
-- **Explore** — pick the `api-server` entity and watch metrics, logs, deploys, and config merge
-  into one time-ordered timeline. Flip **Agent view** to see the exact read an agent gets over MCP.
+- **Explore** — pick the `api-server` entity and watch metrics, logs, and alerts merge into one
+  time-ordered timeline. Flip **Agent view** to see the exact read an agent gets over MCP.
 - **Views / Triggers** — `service_timeline` is the saved read; `error_spike` and `slow_responses`
   are watching it.
 
 ## 4. Cause an incident
 
-Flip a fault (each ships as a "deploy" in the changelog, so NavFlow can tie the incident to the
-change that caused it):
+Flip a fault:
 
 ```bash
 ./inject.sh error_spike          # 5xx storm  → the error_spike trigger fires
