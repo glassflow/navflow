@@ -189,8 +189,10 @@ class Store:
 
     # ── reads ───────────────────────────────────────────────────────────────
     def read_view_window(self, sources: list[str], key: str | None, since: datetime, cap: int = 12,
-                         filters: list | None = None, where: dict | None = None):
-        """Rows (event_time, source, text, labels) for an entity across sources, time-ordered.
+                         filters: list | None = None, where: dict | None = None,
+                         include_payload: bool = False):
+        """Rows for an entity across sources, time-ordered: (event_time, source, text, labels), plus
+        the raw lossless `payload` as a 5th column when `include_payload` is set.
 
         The entity is selected by `key` (legacy primary key_value) and/or `where` (a
         {label: value} map matching named labels). Passing key=None with a `where` is the
@@ -199,15 +201,18 @@ class Store:
         Caps each source to its most-recent `cap` events so a lossless store doesn't return a
         bloated payload (e.g. thousands of identical log lines or every 5s metric sample). Ingest
         stays lossless; this bound is a read-path summary, matching what an SRE actually wants.
+        `include_payload` pulls the full stored record per row (bounded by the same cap) for callers
+        that need fidelity beyond the summary `text`.
         """
+        cols = "event_time, source, text, labels" + (", payload" if include_payload else "")
         ph = ", ".join(["?"] * len(sources))
         fsql, fparams = _filter_sql(filters)
         wsql, wparams = _where_sql(where)
         ksql, kparams = (" AND key_value = ?", [key]) if key is not None else ("", [])
         with self._lock:
             return self.con.execute(
-                f"SELECT event_time, source, text, labels FROM ("
-                f"  SELECT event_time, source, text, labels, "
+                f"SELECT {cols} FROM ("
+                f"  SELECT {cols}, "
                 f"  ROW_NUMBER() OVER (PARTITION BY source ORDER BY event_time DESC) AS rn "
                 f"  FROM events WHERE source IN ({ph}) AND event_time >= ?{ksql}{fsql}{wsql}"
                 f") WHERE rn <= {int(cap)} ORDER BY event_time",

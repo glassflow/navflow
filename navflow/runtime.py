@@ -136,8 +136,23 @@ class Runtime:
                                 affected_sources={source_name})
         return len(envelopes)
 
+    def _ensure_push_wins(self, cfg) -> None:
+        """Push wins: the first pushed event to a poll-mode source that also accepts pushes
+        (claude_code — tailable locally *or* fed by its Claude Code plugin) flips it to push mode,
+        so the daemon stops tailing files the plugin is now feeding. Without this, a source created
+        as a local tail (e.g. via the console's Connect card) and *also* fed by the plugin ingests
+        every event twice. Persisted + reloaded so the running poller actually stops. No-op for
+        native push connectors (no poll() to conflict with) and for sources already in push mode."""
+        if SPECS.get(cfg.connector, {}).get("mode") == "push" or cfg.config.get("push"):
+            return
+        self.store.upsert_catalog_source(cfg.name, cfg.type, cfg.connector, cfg.poll,
+                                         {**cfg.config, "push": True},
+                                         paused=cfg.paused, ingest_key=cfg.ingest_key)
+        self.reload_catalog()
+
     async def ingest(self, token: str, payload) -> int:
         cfg = self._push_cfg(token)   # token may be the ingest_key or the source name
+        self._ensure_push_wins(cfg)   # first push flips a tail source to push mode (no double-ingest)
         conn = build_connector(cfg, self.store)
         return await self._store_envelopes(cfg.name, conn.map_payload(payload))
 

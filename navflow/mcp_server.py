@@ -13,6 +13,7 @@ all, so a connected agent sees only the read surface (the daemon refuses the wri
 """
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -46,34 +47,45 @@ def writable():
 
 @mcp.tool()
 async def query(view: str, key: str = "", window: str = "15m",
-                where: dict | None = None) -> str:
+                where: dict | None = None, include_payload: bool = False) -> str:
     """Pull one correlated, time-ordered view of everything that happened to an entity over a
     window (metrics, logs, config, deploys, alerts) — already merged. Prefer this over many small
     reads. Select the entity with `key` (the primary key) OR `where`, a {label: value} map on any
     named label, e.g. {"env": "prod"} or {"env": "prod", "app": "ui"}. Use catalog_describe to
-    see a source's labels."""
-    body = {"view": view, "window": window, "client": "mcp"}
+    see a source's labels. Set `include_payload` when you need each event's full lossless record
+    (not just the one-line summary) — the return becomes JSON {timeline, events[]} where each event
+    carries a `raw` field."""
+    body = {"view": view, "window": window, "client": "mcp", "include_payload": include_payload}
     if where:
         body["where"] = where
     if key:
         body["key"] = key
     async with _cx(30) as cx:
         r = await cx.post(f"{NAVFLOWD}/query", json=body)
-    return r.json()["payload"]
+    data = r.json()
+    if include_payload:
+        return json.dumps({"timeline": data["payload"], "events": data["rows"]}, default=str)
+    return data["payload"]
 
 
 @mcp.tool()
-async def read(selector: dict, window: str = "15m") -> str:
+async def read(selector: dict, window: str = "15m", include_payload: bool = False) -> str:
     """Read one correlated, time-ordered timeline of everything matching `selector` across ALL
     sources — no view needed. `selector` is a {label: value} conjunction, matched with strict AND,
     e.g. {"project": "frontend"} or {"service": "api-server", "endpoint": "/login"}. An event
     matches only if it carries every named label with that value, so adding a label narrows and
     removing one widens. Use this to investigate any entity on the fly; once you know which sources
-    matter, save the slice with derive() to create a reusable view you can attach triggers to."""
+    matter, save the slice with derive() to create a reusable view you can attach triggers to. Set
+    `include_payload` when the one-line summaries aren't enough and you need each event's full
+    lossless record — the return becomes JSON {timeline, events[]} where each event carries `raw`."""
     async with _cx(30) as cx:
         r = await cx.post(f"{NAVFLOWD}/read",
-                          json={"selector": selector, "window": window, "client": "mcp"})
-    return r.json()["payload"]
+                          json={"selector": selector, "window": window, "client": "mcp",
+                                "include_payload": include_payload})
+    data = r.json()
+    if include_payload:
+        return json.dumps({"timeline": data["payload"], "events": data["rows"]}, default=str)
+    return data["payload"]
 
 
 @writable()
