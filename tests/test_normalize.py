@@ -43,10 +43,10 @@ async def main():
     check("alerts: threshold==default dropped, legacy key kept",
           a == {"url": "u", "ratio_promql": "r", "key": "leg"}, str(a))
     try:
-        normalize_config("changelog", {"url": "u", "bogus": 1})
-        check("changelog rejects unknown key", False)
+        normalize_config("docker_logs", {"container": "c", "bogus": 1})
+        check("docker_logs rejects unknown key", False)
     except CatalogError:
-        check("changelog rejects unknown key", True)
+        check("docker_logs rejects unknown key", True)
 
     print("== unit: normalize is terse + ordered ==")
     canon = normalize_config("prometheus", {
