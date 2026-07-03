@@ -7,8 +7,8 @@
 name: navflow-demo
 
 services:
-  # The monitored app: Prometheus metrics on /metrics, request logs, admin changelog/config,
-  # and /admin/inject to cause an incident.
+  # The monitored app: Prometheus metrics on /metrics, request logs, and /demo/inject to
+  # cause an incident.
   api-server:
     build: ./api-server
     ports:

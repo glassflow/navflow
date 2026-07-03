@@ -1,7 +1,7 @@
 # NavFlow demo
 
 A self-contained stack to see NavFlow in action. It stands up a small **`api-server`** (Prometheus
-metrics, request logs, and an admin API) plus **Prometheus** and a **traffic generator** — the
+metrics, request logs, and a `/demo/inject` fault switch) plus **Prometheus** and a **traffic generator** — the
 *upstream systems NavFlow ingests from*. NavFlow itself is installed separately (below) and reads
 from this stack, exactly as it would read from your real systems.
 
@@ -11,7 +11,7 @@ from this stack, exactly as it would read from your real systems.
  │  api-server   │◄──────────│Promethe│◄─── metrics (:9090 PromQL)
  │  :8080        │           │ us     │
  │  /metrics     │──logs────────────────── docker logs
- │  /admin/*     │  (fault injection)      → one correlated timeline + triggers
+ │  /demo/inject │  (fault injection)      → one correlated timeline + triggers
  └───────────────┘
         ▲ traffic-generator
 ```
@@ -74,7 +74,7 @@ docker compose down              # from demo/
 
 ## Files
 - `docker-compose.yml` — the three services.
-- `api-server/` — the monitored app (`app.py`): metrics, logs, admin API, fault injection.
+- `api-server/` — the monitored app (`app.py`): metrics, logs, and the `/demo/inject` fault switch.
 - `prometheus/prometheus.yml` — scrape config.
 - `catalog.demo.yaml` — NavFlow's view of the stack (sources, views, triggers).
 - `inject.sh` — cause/clear an incident.

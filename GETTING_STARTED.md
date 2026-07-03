@@ -202,8 +202,8 @@ reproduces your whole setup on first boot.
 
 ## The full demo (real upstream systems)
 
-The curl path above is self-contained. For the full experience — an api-server with metrics, logs,
-and an admin API, plus Prometheus and traffic — use the bundled demo:
+The curl path above is self-contained. For the full experience — an api-server with metrics and
+logs, plus Prometheus and traffic — use the bundled demo:
 
 ```bash
 cd demo && docker compose up -d --build && cd -

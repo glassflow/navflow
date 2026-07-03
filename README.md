@@ -47,8 +47,8 @@ response — nothing to stitch together across systems. Other clients, stdio, an
 
 ## Try the demo
 
-[`demo/`](demo/) stands up a small stack for NavFlow to ingest from (an api-server exposing metrics,
-logs, and an admin API, plus Prometheus and traffic), with fault injection so you can cause an
+[`demo/`](demo/) stands up a small stack for NavFlow to ingest from (an api-server exposing metrics
+and logs, plus Prometheus and traffic), with fault injection so you can cause an
 incident and watch NavFlow correlate it:
 
 ```bash
