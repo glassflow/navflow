@@ -1,6 +1,6 @@
 # NavFlow catalog for the demo stack (demo/docker-compose.yml).
-# Prometheus on :9090, api-server admin on :8080, logs via docker. All sources share
-# key=api-server so deploys, config, logs, metrics, and alerts correlate in one timeline.
+# Prometheus on :9090, logs via docker. All sources share key=api-server so logs, metrics,
+# and alerts correlate in one timeline.
 #
 # Use it from the repo root, e.g.:
 #   NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up
@@ -37,20 +37,6 @@ sources:
           field: dependency_up
           text: "dependency {dependency} up={val}"
 
-  - name: deploys
-    connector: changelog
-    poll: 5s
-    config:
-      url: http://localhost:8080/admin/changelog
-      key: api-server
-
-  - name: config
-    connector: config
-    poll: 10s
-    config:
-      url: http://localhost:8080/admin/config
-      key: api-server
-
   - name: logs
     connector: docker_logs
     poll: 5s
@@ -71,7 +57,7 @@ sources:
 views:
   - name: service_timeline
     key_field: service
-    sources: [deploys, config, logs, metrics, alerts]
+    sources: [logs, metrics, alerts]
 
 triggers:
   # 5xx storm — fires on an actual error spike.

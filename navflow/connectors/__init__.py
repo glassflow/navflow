@@ -11,9 +11,7 @@ import re as _re
 from ..config import CatalogError
 from .alerts import AlertsConnector
 from .base import UNIVERSAL_CONFIG
-from .changelog import ChangelogConnector
 from .claude_code import ClaudeCodeConnector
-from .config_snapshot import ConfigConnector
 from .docker_logs import DockerLogsConnector
 from .github import GithubConnector
 from .memory import MemoryConnector
@@ -26,8 +24,6 @@ from .webhook import WebhookConnector
 
 REGISTRY = {
     "prometheus": PrometheusConnector,
-    "changelog": ChangelogConnector,
-    "config": ConfigConnector,
     "docker_logs": DockerLogsConnector,
     "alerts": AlertsConnector,
     "static": StaticConnector,
@@ -45,10 +41,6 @@ REGISTRY = {
 SPECS = {
     "prometheus": {"label": "Prometheus", "mode": "poll", "discover": True,
                    "description": "Instant-query snapshots of PromQL expressions on every poll tick."},
-    "changelog": {"label": "Changelog / deploy log", "mode": "poll",
-                  "description": "Cursor-based pull of a deploy/changelog endpoint; one event per new entry."},
-    "config": {"label": "Config snapshot", "mode": "poll",
-               "description": "Polls a config endpoint; emits only when the snapshot hash changes."},
     "docker_logs": {"label": "Docker logs", "mode": "poll", "discover": True,
                     "description": "Tails a running container's logs — all lines by default; "
                                    "optional match/drop regex filters."},

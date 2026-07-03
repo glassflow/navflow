@@ -22,7 +22,7 @@ No upstream systems required.
 
 | Noun | What it is | Where you manage it |
 |---|---|---|
-| **Source** | Where data comes from. *Poll* sources (Prometheus, changelogs, docker logs…) are pulled on a timer; *push* sources (webhooks, agent memory) receive POSTs. | Console → Sources |
+| **Source** | Where data comes from. *Poll* sources (Prometheus, docker logs, GitHub…) are pulled on a timer; *push* sources (webhooks, agent memory) receive POSTs. | Console → Sources |
 | **View** | What agents read: a named correlation — "these sources, keyed by `service`", optionally filtered. | Console → Views & Triggers |
 | **Trigger** | What wakes agents: a condition over a view (`max(rate_5xx) > 1.0 over 1m`). On fire, the rendered timeline is POSTed to subscribers. | Console → Views & Triggers |
 | **The agent surface** | Six MCP tools: `catalog_list`, `catalog_describe`, `query`, `subscribe`, `derive`, `remember`. | Console → Agent Activity (to watch it) |
@@ -87,7 +87,7 @@ This is the generic inbound path for anything that can send JSON: GitHub webhook
 CI, cron jobs, your own services.
 
 > Polling instead: in the console, **Sources → Add source** shows all connectors
-> (Prometheus, changelog, config snapshot, docker logs…). The form is generated from the
+> (Prometheus, docker logs, GitHub, Postgres…). The form is generated from the
 > connector's spec, and **Test connection** runs one real poll server-side before you save.
 
 ## 2. Serve — make it readable with a view (30 seconds)
@@ -202,8 +202,8 @@ reproduces your whole setup on first boot.
 
 ## The full demo (real upstream systems)
 
-The curl path above is self-contained. For the full experience — an api-server with metrics, logs,
-and an admin API, plus Prometheus and traffic — use the bundled demo:
+The curl path above is self-contained. For the full experience — an api-server with metrics and
+logs, plus Prometheus and traffic — use the bundled demo:
 
 ```bash
 cd demo && docker compose up -d --build && cd -

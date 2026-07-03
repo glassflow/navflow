@@ -6,7 +6,7 @@
 #   ./inject.sh clear               # roll back — faults cleared
 set -euo pipefail
 scenario="${1:-error_spike}"
-curl -s -X POST http://localhost:8080/admin/inject \
+curl -s -X POST http://localhost:8080/demo/inject \
   -H 'content-type: application/json' \
   -d "{\"scenario\":\"${scenario}\"}"
 echo
