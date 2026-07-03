@@ -18,11 +18,36 @@ uv tool install navflow        # or: pipx install navflow
 navflow up                     # daemon + console on http://127.0.0.1:8787
 ```
 
-With Docker: `docker run -p 8787:8787 -v navflow-data:/data ghcr.io/glassflow/navflow:latest`.
-To self-host on a server (TLS, auth), see [Deployment](https://docs.navflow.ai/deployment).
+Docker images and server deployment (TLS, auth) are covered in
+[Deployment](https://docs.navflow.ai/deployment).
 
-> **Exposing it on a network?** The daemon binds `127.0.0.1` with no auth by default. Set
-> `NAVFLOW_AUTH_TOKEN` (and put it behind TLS) before you bind `0.0.0.0` — it warns you if you don't.
+## See it work
+
+The fastest way to have something in the timeline is the bundled [`demo/`](demo/) — a small stack
+(api-server, Prometheus, traffic) for NavFlow to ingest from, with fault injection:
+
+```bash
+cd demo && docker compose up -d --build && cd -   # start the stack to ingest from
+```
+
+Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog (it
+imports on first boot):
+
+```bash
+NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up
+```
+
+Open **Explore**, pick `api-server`, then cause an incident and watch it land:
+
+```bash
+./demo/inject.sh error_spike
+```
+
+Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console
+([connectors](https://docs.navflow.ai/connectors)).
+
+New here? The [quickstart](https://docs.navflow.ai/quickstart) is the guided path; prefer raw HTTP?
+[The HTTP API in five minutes](https://docs.navflow.ai/guides/http-api) drives the same loop with curl.
 
 ## Connect an agent
 
@@ -39,25 +64,11 @@ claude mcp add --transport http navflow http://localhost:8788/mcp
 
 Then, in your agent:
 
-> Use navflow to read the timeline for `service=checkout` over the last hour.
+> Use navflow: what happened to api-server in the last 15 minutes?
 
-The agent calls `read` and gets that entity's logs, metrics, and deploys merged into one time-ordered
+The agent calls `read` and gets that entity's logs, metrics, and alerts merged into one time-ordered
 response — nothing to stitch together across systems. Other clients, stdio, and auth are covered in
 [Connecting agents](https://docs.navflow.ai/agents).
-
-## Try the demo
-
-[`demo/`](demo/) stands up a small stack for NavFlow to ingest from (an api-server exposing metrics
-and logs, plus Prometheus and traffic), with fault injection so you can cause an
-incident and watch NavFlow correlate it:
-
-```bash
-cd demo && docker compose up -d --build && cd -              # the stack to ingest from
-NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up            # console at http://127.0.0.1:8787
-cd demo && ./inject.sh error_spike                           # cause an incident
-```
-
-New here? [GETTING_STARTED.md](GETTING_STARTED.md) is a five-minute, curl-only walkthrough.
 
 ## What you get
 
