@@ -30,24 +30,22 @@ The fastest way to have something in the timeline is the bundled [`demo/`](demo/
 cd demo && docker compose up -d && cd -   # start the stack to ingest from
 ```
 
-Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog (it
-imports on first boot):
+Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog —
+three sources, a correlated view, and two triggers:
 
 ```bash
 NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up
 ```
 
-Open **Explore**, pick `api-server`, then cause an incident and watch it land:
+(The catalog imports only while your catalog is still empty. Already added a source? Restart on a
+fresh data directory instead: `NAVFLOW_CATALOG=demo/catalog.demo.yaml navflow up --data-dir ~/navflow-demo`.)
 
-```bash
-./demo/inject.sh error_spike
-```
+Open **Explore** and pick `api-server`: request logs, latency and error-rate metrics, and alerts —
+three sources merged into one time-ordered timeline. That timeline is exactly what an agent gets,
+so connect one next and break the demo on purpose.
 
 Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console
 ([connectors](https://docs.navflow.ai/connectors)).
-
-New here? The [quickstart](https://docs.navflow.ai/quickstart) is the guided path; prefer raw HTTP?
-[The HTTP API in five minutes](https://docs.navflow.ai/guides/http-api) drives the same loop with curl.
 
 ## Connect an agent
 
@@ -62,12 +60,20 @@ navflow mcp --transport streamable-http --port 8788 --navflowd http://localhost:
 claude mcp add --transport http navflow http://localhost:8788/mcp
 ```
 
-Then, in your agent:
+Running the demo? Now cause the incident — a 5xx storm — and give it ~30 seconds to be ingested:
+
+```bash
+./demo/inject.sh error_spike
+```
+
+Then ask your agent:
 
 > Use navflow: what happened to api-server in the last 15 minutes?
 
-The agent calls `read` and gets that entity's logs, metrics, and alerts merged into one time-ordered
-response — nothing to stitch together across systems. Other clients, stdio, and auth are covered in
+The agent calls `read` and gets the incident correlated: the 5xx request logs, the error-rate
+spike, and the alert in one time-ordered response — nothing to stitch together across systems.
+(The `error_spike` trigger fires too — **Agents → Trigger dispatches**; `./demo/inject.sh clear`
+rolls the fault back.) Other clients, stdio, and auth are covered in
 [Connecting agents](https://docs.navflow.ai/agents).
 
 ## What you get
