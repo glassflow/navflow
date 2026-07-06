@@ -1,15 +1,11 @@
 # NavFlow
 
-A self-hostable data plane for AI agents. NavFlow ingests events from your systems — logs, metrics,
-deploys, Postgres, Vercel, GitHub, OpenTelemetry — stores them losslessly in an embedded DuckDB, and
-serves an agent **one correlated, time-ordered read** of any entity over MCP. It also **watches**:
-triggers fire on a condition and push the correlated timeline to a subscribed agent.
+NavFlow is an open-source, self-hosted data plane for AI agents. It ingests events from your systems — logs, metrics, deploys, Postgres, Vercel, GitHub, OpenTelemetry — stores them losslessly in embedded DuckDB, and serves them through an MCP server: one correlated, time-ordered read of any entity. It also watches — triggers fire on a condition and push the correlated timeline to a subscribed agent.
 
 It runs as two processes — `navflowd` (the daemon) and `navflow-mcp` (the MCP proxy) — writing to a
 single DuckDB file. No external database or broker.
 
-**Documentation:** [docs.navflow.ai](https://docs.navflow.ai) — quickstart, concepts, connectors,
-MCP, deployment, and guides.
+**Documentation:** [NavFlow Documentation](https://docs.navflow.ai) — quickstart, core concepts, connectors, MCP setup, and deployment guides.
 
 ## Install and run
 
@@ -18,8 +14,7 @@ uv tool install navflow        # or: pipx install navflow
 navflow up                     # daemon + console on http://127.0.0.1:8787
 ```
 
-Docker images and server deployment (TLS, auth) are covered in
-[Deployment](https://docs.navflow.ai/deployment).
+Docker images and server deployment (TLS, auth) are coveredin the [server deployment guide (Docker, TLS, auth)](https://docs.navflow.ai/deployment).
 
 ## See it work
 
@@ -44,12 +39,11 @@ Open **Explore** and pick `api-server`: request logs, latency and error-rate met
 three sources merged into one time-ordered timeline. That timeline is exactly what an agent gets,
 so connect one next and break the demo on purpose.
 
-Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console
-([connectors](https://docs.navflow.ai/connectors)).
+Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console — see the [list of supported connectors](https://docs.navflow.ai/connectors).
 
-## Connect an agent
+## Connect an agent over MCP
 
-NavFlow serves its read/watch surface over [MCP](https://docs.navflow.ai/agents). Run the MCP
+NavFlow serves its read/watch surface as an [MCP server for AI agents](https://docs.navflow.ai/agents). Run the MCP
 endpoint and point a client (Claude Code, Cursor, Claude Desktop, …) at it:
 
 ```bash
@@ -73,23 +67,22 @@ Then ask your agent:
 The agent calls `read` and gets the incident correlated: the 5xx request logs, the error-rate
 spike, and the alert in one time-ordered response — nothing to stitch together across systems.
 (The `error_spike` trigger fires too — **Agents → Trigger dispatches**; `./demo/inject.sh clear`
-rolls the fault back.) Other clients, stdio, and auth are covered in
-[Connecting agents](https://docs.navflow.ai/agents).
+rolls the fault back.) Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://docs.navflow.ai/agents).
 
-## What you get
+## What you get: connectors, reads, triggers, MCP tools
 
 - **Connectors** — Prometheus, Docker logs, GitHub, Postgres, Vercel, OpenTelemetry (OTLP), a generic
   webhook, agent memory, and Claude Code sessions. Add and configure sources at runtime; a **Discover**
-  step proposes config for connectors that can introspect. → [Connectors](https://docs.navflow.ai/connectors)
+  step proposes config for connectors that can introspect. → [Connector setup docs](https://docs.navflow.ai/connectors)
 - **Reads** — `read(selector, window)` returns any entity's correlated timeline across *all* sources
   with no view required; `query(view, …)` reads through a saved, narrowed view; agents `subscribe` to
-  be pushed the timeline when a trigger fires. → [Concepts](https://docs.navflow.ai/concepts)
+  be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://docs.navflow.ai/concepts)
 - **Console** — Sources (health + setup), **Explore** (pick an entity, read its timeline, human or
   agent view), Views & Triggers, Agents (connect a client and watch its reads and dispatches), and
   **Ask** (an in-console assistant over your data, summonable with ⌘K).
 - **MCP tools** — `read`, `query`, `subscribe`, `catalog_list` / `catalog_describe`, `derive` (an
   agent authors its own view), `remember` (write observations back), and source-setup tools.
-  → [MCP](https://docs.navflow.ai/agents)
+  → [MCP tools reference](https://docs.navflow.ai/agents)
 
 ## Architecture
 
