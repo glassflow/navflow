@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://docs.navflow.ai
+    url: https://www.navflow.ai/docs
     about: Install, quickstart, concepts, connectors, MCP, and deployment.

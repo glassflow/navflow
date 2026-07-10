@@ -17,4 +17,4 @@ NavFlow is self-hosted. By default the daemon binds `127.0.0.1` (local only) wit
 - Put it behind TLS (a reverse proxy such as Caddy — see the deployment docs).
 - Consider `NAVFLOW_INGEST_TOKEN` to gate push/ingest endpoints.
 
-See https://docs.navflow.ai for the full deployment guide.
+See https://www.navflow.ai/docs for the full deployment guide.
