@@ -28,7 +28,7 @@ def _warn_if_exposed(host: str) -> None:
         print(
             f"\n  ⚠  NavFlow is binding {host} (reachable off this machine) with NO auth token.\n"
             "     Anyone who can reach this port can read your data. Set NAVFLOW_AUTH_TOKEN and put\n"
-            "     it behind TLS before exposing it — see https://docs.navflow.ai (Deployment).\n",
+            "     it behind TLS before exposing it — see https://www.navflow.ai/docs (Deployment).\n",
             flush=True,
         )
 

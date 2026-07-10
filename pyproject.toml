@@ -27,7 +27,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://navflow.ai"
-Documentation = "https://docs.navflow.ai"
+Documentation = "https://www.navflow.ai/docs"
 Repository = "https://github.com/glassflow/navflow"
 
 [project.optional-dependencies]

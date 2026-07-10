@@ -5,7 +5,7 @@ NavFlow is an open-source, self-hosted data plane for AI agents. It ingests even
 It runs as two processes — `navflowd` (the daemon) and `navflow-mcp` (the MCP proxy) — writing to a
 single DuckDB file. No external database or broker.
 
-**Documentation:** [NavFlow Documentation](https://docs.navflow.ai) — quickstart, core concepts, connectors, MCP setup, and deployment guides.
+**Documentation:** [NavFlow Documentation](https://www.navflow.ai/docs) — quickstart, core concepts, connectors, MCP setup, and deployment guides.
 
 ## Install and run
 
@@ -14,7 +14,7 @@ uv tool install navflow        # or: pipx install navflow
 navflow up                     # daemon + console on http://127.0.0.1:8787
 ```
 
-Docker images and server deployment (TLS, auth) are coveredin the [server deployment guide (Docker, TLS, auth)](https://docs.navflow.ai/deployment).
+Docker images and server deployment (TLS, auth) are coveredin the [server deployment guide (Docker, TLS, auth)](https://www.navflow.ai/docs/deployment).
 
 ## See it work
 
@@ -39,11 +39,11 @@ Open **Explore** and pick `api-server`: request logs, latency and error-rate met
 three sources merged into one time-ordered timeline. That timeline is exactly what an agent gets,
 so connect one next and break the demo on purpose.
 
-Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console — see the [list of supported connectors](https://docs.navflow.ai/connectors).
+Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console — see the [list of supported connectors](https://www.navflow.ai/docs/connectors).
 
 ## Connect an agent over MCP
 
-NavFlow serves its read/watch surface as an [MCP server for AI agents](https://docs.navflow.ai/agents). Run the MCP
+NavFlow serves its read/watch surface as an [MCP server for AI agents](https://www.navflow.ai/docs/agents). Run the MCP
 endpoint and point a client (Claude Code, Cursor, Claude Desktop, …) at it:
 
 ```bash
@@ -67,22 +67,22 @@ Then ask your agent:
 The agent calls `read` and gets the incident correlated: the 5xx request logs, the error-rate
 spike, and the alert in one time-ordered response — nothing to stitch together across systems.
 (The `error_spike` trigger fires too — **Agents → Trigger dispatches**; `./demo/inject.sh clear`
-rolls the fault back.) Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://docs.navflow.ai/agents).
+rolls the fault back.) Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://www.navflow.ai/docs/agents).
 
 ## What you get: connectors, reads, triggers, MCP tools
 
 - **Connectors** — Prometheus, Docker logs, GitHub, Postgres, Vercel, OpenTelemetry (OTLP), a generic
   webhook, agent memory, and Claude Code sessions. Add and configure sources at runtime; a **Discover**
-  step proposes config for connectors that can introspect. → [Connector setup docs](https://docs.navflow.ai/connectors)
+  step proposes config for connectors that can introspect. → [Connector setup docs](https://www.navflow.ai/docs/connectors)
 - **Reads** — `read(selector, window)` returns any entity's correlated timeline across *all* sources
   with no view required; `query(view, …)` reads through a saved, narrowed view; agents `subscribe` to
-  be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://docs.navflow.ai/concepts)
+  be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://www.navflow.ai/docs/concepts)
 - **Console** — Sources (health + setup), **Explore** (pick an entity, read its timeline, human or
   agent view), Views & Triggers, Agents (connect a client and watch its reads and dispatches), and
   **Ask** (an in-console assistant over your data, summonable with ⌘K).
 - **MCP tools** — `read`, `query`, `subscribe`, `catalog_list` / `catalog_describe`, `derive` (an
   agent authors its own view), `remember` (write observations back), and source-setup tools.
-  → [MCP tools reference](https://docs.navflow.ai/agents)
+  → [MCP tools reference](https://www.navflow.ai/docs/agents)
 
 ## Architecture
 
@@ -98,7 +98,7 @@ continuously; `navflow-mcp` is a thin stdio proxy the agent spawns, reaching the
 ```
 
 DuckDB is single-writer, which is why the daemon owns the DB and everything else goes through its
-HTTP API. More in [Concepts](https://docs.navflow.ai/concepts).
+HTTP API. More in [Concepts](https://www.navflow.ai/docs/concepts).
 
 ## Feedback
 
