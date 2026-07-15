@@ -11,6 +11,7 @@ import SourceClaudeCode from "./pages/SourceClaudeCode";
 import SourceDetail from "./pages/SourceDetail";
 import SourceDiscover from "./pages/SourceDiscover";
 import SourceNew from "./pages/SourceNew";
+import Security from "./pages/Security";
 import Settings from "./pages/Settings";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
       { path: "triggers", element: <TriggersPage /> },
       { path: "agents", element: <Activity /> },
       { path: "ask", element: <Ask /> },
+      { path: "security", element: <Security /> },
       { path: "settings", element: <Settings /> },
       // legacy paths → new homes (bookmarks, the old Entities/Activity/Catalog nav). Catalog
       // dissolved: source schema/freshness now lives on the source detail; the agent's-eye read

@@ -57,6 +57,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; readonly: boolean; auth_required: boolean }>("/health"),
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
+  security: () =>
+    request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
 
   sources: () => request<Source[]>("/api/sources"),
   source: (name: string) => request<Source>(`/api/sources/${name}`),

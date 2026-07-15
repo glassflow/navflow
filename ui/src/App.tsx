@@ -42,6 +42,7 @@ const SECTION_LABEL: Record<string, string> = {
   agents: "Agents",
   catalog: "Catalog",
   ask: "Ask",
+  security: "Security",
   settings: "Settings",
 };
 
@@ -138,6 +139,10 @@ export default function App() {
           <Chat className="ico" />
           <span className="nav-label">Ask</span>
           <kbd className="nav-kbd" title="Ask from anywhere">⌘K</kbd>
+        </NavLink>
+        <NavLink to="/security" className={link}>
+          <Lock className="ico" />
+          <span className="nav-label">Security</span>
         </NavLink>
         <NavLink to="/settings" className={link}>
           <SettingsIco className="ico" />
