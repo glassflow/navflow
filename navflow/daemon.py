@@ -536,6 +536,13 @@ def make_app() -> FastAPI:
     async def connectors():
         return {name: spec for name, spec in SPECS.items()}
 
+    @app.get("/api/security")
+    async def security():
+        """Instance credentials, for the authenticated operator. The ingest token is the shared,
+        machine-facing secret producers send as X-NavFlow-Token / Bearer on /ingest and /v1/*; the
+        console surfaces it here so the operator can hand it to producers without shell access."""
+        return {"ingest_token": INGEST_TOKEN or None, "ingest_required": bool(INGEST_TOKEN)}
+
     @app.post("/api/sources/discover")
     async def discover_source(body: dict = Body(...)):
         from .connectors import REGISTRY
