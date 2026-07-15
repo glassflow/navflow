@@ -20,9 +20,9 @@ extras). **CI builds and publishes it to GHCR** on every push to `main` and on `
 **pull** a prebuilt image rather than building on the box. The image ref is
 `${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-…}`.
 
-- **Version:** the **self-host** compose defaults to a **pinned** tag (e.g. `0.0.1`) for reproducible
-  deploys; the **demo** tracks `:latest`. Pin a different version without editing files via
-  `NAVFLOW_VERSION=0.0.2`, or `git pull` to pick up a release's bumped default.
+- **Version:** both compose files default to **`:latest`** — CI publishes only on release tags, so
+  `:latest` tracks the newest **release** (not `main`). For a reproducible deploy, pin a specific
+  release without editing files via `NAVFLOW_VERSION=0.1.4`.
 - **Registry:** `NAVFLOW_REGISTRY=registry.example.com/navflow` points at another registry (DOCR,
   Docker Hub).
 - **GHCR access:** make the package public (GitHub → package settings) or `docker login ghcr.io` on
@@ -33,16 +33,16 @@ extras). **CI builds and publishes it to GHCR** on every push to `main` and on `
   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/docker-compose.build.yml build
   ```
 
-### Cutting a release (pinned versions)
+### Cutting a release
 
 ```sh
-scripts/release.sh 0.0.2          # bumps pyproject + the self-host pin, commits, tags v0.0.2
+scripts/release.sh 0.0.2          # bumps pyproject version, commits, tags v0.0.2
 git push && git push origin v0.0.2
 ```
 
-Pushing the tag triggers CI to publish `ghcr.io/glassflow/navflow:0.1.0` (plus `:0.0` and `:latest`
-on main). Self-host deploys then upgrade by `git pull && docker compose -f …selfhost.yml pull && up -d`,
-or by setting `NAVFLOW_VERSION=0.0.2`. **Tag `v0.0.1` once to publish the current pinned default.**
+Pushing the tag triggers CI to publish `ghcr.io/glassflow/navflow:<version>` (plus `:<major>.<minor>`
+and `:latest`). Self-host deploys on `:latest` upgrade with
+`docker compose -f …selfhost.yml pull && up -d`; pinned deploys bump `NAVFLOW_VERSION=<version>`.
 
 ## Scenario 2 — the public read-only demo
 
@@ -92,7 +92,7 @@ export NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24)   # the access token (humans +
 export NAVFLOW_DOMAIN=navflow.acme.com
 docker compose -f deploy/compose/docker-compose.selfhost.yml pull   # fetch the prebuilt image
 docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
-# update later:  git pull && docker compose -f …selfhost.yml pull && up -d
+# update later:  docker compose -f …selfhost.yml pull && up -d   (:latest → newest release)
 ```
 
 - **Console:** browse to the host; the login screen takes the token.
