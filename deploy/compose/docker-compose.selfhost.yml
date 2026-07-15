@@ -1,6 +1,7 @@
 # NavFlow self-hosted single-tenant (Scenario 3) — a writable instance for one team, behind a token.
-# Pulls a PINNED prebuilt image (default :0.0.1). Bump it with NAVFLOW_VERSION (or `git pull` after a
-# release bumps the default); NAVFLOW_REGISTRY points at another registry. Build with build override.
+# Pulls the latest released image (:latest) — CI publishes only on release tags, so :latest tracks
+# the newest release. Pin a specific one with NAVFLOW_VERSION=0.1.4 for reproducible deploys;
+# NAVFLOW_REGISTRY points at another registry. Build locally with the build override.
 #   NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24) NAVFLOW_DOMAIN=navflow.acme.com \
 #     docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
 #
@@ -11,7 +12,7 @@ name: navflow
 
 services:
   navflowd:
-    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-0.1.0}
+    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
     command: ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
     environment:
       NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN (e.g. openssl rand -hex 24)}"
@@ -22,7 +23,7 @@ services:
     restart: unless-stopped
 
   mcp:
-    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-0.1.0}
+    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
     command: ["navflow", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0",
               "--port", "8788", "--navflowd", "http://navflowd:8787"]
     environment:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Cut a pinned release: bump the package version, pin the self-host compose to it, commit + tag.
-# Pushing the tag triggers CI (.github/workflows/docker-publish.yml) to build and publish
-#   ghcr.io/glassflow/navflow:<version>  (+ :<major>.<minor> and :latest on main).
+# Cut a release: bump the package version, commit + tag. The compose files track :latest, so there
+# is no pinned tag to bump here. Pushing the tag triggers CI (.github/workflows/docker-publish.yml)
+# to build and publish ghcr.io/glassflow/navflow:<version> (+ :<major>.<minor> and :latest).
 #
 #   scripts/release.sh 0.0.2
 #   git push && git push origin v0.0.2     # then publish (review first)
@@ -13,15 +13,12 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SELFHOST="$ROOT/deploy/compose/docker-compose.selfhost.yml"
 
 # package version
 sed -i.bak -E "s/^version = \".*\"/version = \"$VERSION\"/" "$ROOT/pyproject.toml"
-# the self-host compose's pinned default tag (NAVFLOW_VERSION:-<here>)
-sed -i.bak -E "s/(NAVFLOW_VERSION:-)[0-9][^}]*/\1$VERSION/g" "$SELFHOST"
-rm -f "$ROOT/pyproject.toml.bak" "$SELFHOST.bak"
+rm -f "$ROOT/pyproject.toml.bak"
 
-git -C "$ROOT" add pyproject.toml "$SELFHOST"
+git -C "$ROOT" add pyproject.toml
 git -C "$ROOT" commit -m "Release v$VERSION"
 git -C "$ROOT" tag "v$VERSION"
 
