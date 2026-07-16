@@ -33,6 +33,7 @@ export interface ConnectorSpec {
   label: string;
   mode: "poll" | "push";
   discover?: boolean;
+  poll?: string;   // connector-specific default poll interval (e.g. github: "2m")
   description: string;
   fields: ConnectorField[];
   provides?: { name: string; primary?: boolean; help?: string }[];   // synthesized label fields

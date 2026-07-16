@@ -11,6 +11,11 @@ const DEFAULT_LABELS: Record<string, Array<Record<string, unknown>>> = {
   otlp: [{ name: "service", field: "service.name", primary: true }],
 };
 
+// Connector-appropriate example names; the generic fallback suits metric-ish sources.
+const NAME_PLACEHOLDER: Record<string, string> = {
+  github: "e.g. my-repo-commits",
+};
+
 interface Props {
   connector: string;
   spec: ConnectorSpec;
@@ -27,7 +32,7 @@ interface Props {
 export default function SourceForm({ connector, spec, initial, lockName, submitLabel, onSubmit }: Props) {
   const [name, setName] = useState(initial?.name ?? "");
   const type = initial?.type ?? "event_stream";  // ignored by the daemon; derived from connector
-  const [poll, setPoll] = useState(initial?.poll ?? "5s");
+  const [poll, setPoll] = useState(initial?.poll ?? spec.poll ?? "5s");
   const [values, setValues] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {};
     for (const f of spec.fields) {
@@ -109,7 +114,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       .map((r) => ({ name: r.name.trim(), [r.kind]: r.value, ...(r.primary ? { primary: true } : {}) }));
     if (labels.length) config.labels = labels;
     if (!name.trim()) throw new Error("name is required");
-    return { name: name.trim(), type, connector, poll: poll.trim() || "5s", config };
+    return { name: name.trim(), type, connector, poll: poll.trim() || spec.poll || "5s", config };
   };
 
   const run = async (fn: () => Promise<void>) => {
@@ -197,7 +202,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
 
       <label className="field" style={{ maxWidth: 360 }}>
         <span className="lbl">name <span className="req">*</span></span>
-        <input type="text" value={name} disabled={lockName} placeholder="e.g. metrics"
+        <input type="text" value={name} disabled={lockName}
+               placeholder={NAME_PLACEHOLDER[connector] ?? "e.g. metrics"}
                onChange={(e) => setName(e.target.value)} />
         <span className="help">logical source name; events carry it forever</span>
       </label>
