@@ -1,11 +1,19 @@
 {
   "name": "navflow",
   "displayName": "NavFlow",
-  "version": "0.1.0",
-  "description": "Connect Claude Code to NavFlow — query your data plane over MCP, and stream this session into NavFlow's claude_code source.",
-  "author": { "name": "GlassFlow", "url": "https://glassflow.dev" },
+  "version": "0.1.1",
+  "description": "Connect Claude Code to NavFlow \u2014 query your data plane over MCP, and stream this session into NavFlow's claude_code source.",
+  "author": {
+    "name": "GlassFlow",
+    "url": "https://glassflow.dev"
+  },
   "homepage": "https://glassflow.dev",
-  "keywords": ["navflow", "data-plane", "agents", "observability"],
+  "keywords": [
+    "navflow",
+    "data-plane",
+    "agents",
+    "observability"
+  ],
   "mcpServers": "./.mcp.json",
   "userConfig": {
     "navflow_url": {
@@ -16,8 +24,8 @@
     },
     "ingest_token": {
       "type": "string",
-      "title": "Auth token (optional)",
-      "description": "Only if your NavFlow requires auth (NAVFLOW_AUTH_TOKEN / INGEST_TOKEN). Sent as a Bearer header to the MCP proxy and the ingest endpoint.",
+      "title": "API key / token (optional)",
+      "description": "Only if your NavFlow requires auth. Recommended: an API key with the read + ingest scopes (console -> Security -> API keys) \u2014 streams sessions and enables MCP read-back without admin rights. The root auth token also works.",
       "sensitive": true,
       "default": ""
     },
