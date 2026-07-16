@@ -27,7 +27,8 @@ export default function SourceNew() {
           <thead><tr><th>connector</th><th>mode</th><th>what it does</th></tr></thead>
           <tbody>
             {Object.entries(specs).map(([key, s]) => (
-              <tr key={key} className="clickable" onClick={() => setConnector(key)}>
+              <tr key={key} className="clickable"
+                  onClick={() => key === "claude_code" ? nav("/sources/claude-code") : setConnector(key)}>
                 <td className="mono">{key}</td>
                 <td><span className={`badge ${s.mode === "push" ? "push" : "ok"}`}>{s.mode}</span></td>
                 <td>{s.description}</td>

@@ -1,30 +1,24 @@
-"""Claude Code sessions connector — tails local session transcripts into the data plane.
+"""Claude Code sessions connector — receives pushed session transcripts from the NavFlow Claude Code
+plugin and maps them into the data plane.
 
-Claude Code writes one JSONL file per session at ~/.claude/projects/<project-slug>/<sessionId>.jsonl,
-appending one structured event per line (user / assistant / tool_use / tool_result / summary, each
-with a timestamp, sessionId, cwd, gitBranch, and — for assistant turns — model + token usage).
+Claude Code writes one structured JSONL event per line (user / assistant / tool_use / tool_result /
+summary, each with a timestamp, sessionId, cwd, gitBranch, and — for assistant turns — model + token
+usage). The plugin's hook POSTs new transcript lines to /ingest/claude_code (local *or* remote); each
+line becomes an Envelope keyed by `session`, with project/branch/model labels and token-usage as
+numeric fields. Sub-agent (sidechain) transcripts land in the SAME source, tagged `sidechain=true`.
+Secrets are redacted before storage (thin PII guard).
 
-Because navflowd runs on the same machine as ~/.claude (the local scenario), it just reads these
-files directly — no hook, no pusher. Each line becomes an Envelope keyed by `session`, with
-project/branch/model labels and token-usage as numeric fields. Sub-agent (sidechain) transcripts
-are ingested into the SAME source, tagged `sidechain=true`.
-
-Cursor: a JSON map of {filepath: byte_offset}, so growing files resume where we left off and new
-session files get picked up on the next poll. Secrets are redacted before storage (thin PII guard).
+Push-only: install the plugin (claude-plugin/) to feed it. Local file tailing was removed in favor of
+the plugin, which covers both local and remote NavFlow with one path.
 """
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
 
 from ..envelope import Envelope, now_utc
 from .base import Connector
-
-# Cap how many events one poll ingests, so the first poll over a big ~/.claude history drains over
-# several polls instead of one daemon-stalling batch (same idea as the docker_logs backlog cap).
-MAX_PER_POLL = 2000
 
 # Thin PII guard: redact obvious secrets/tokens before anything is stored. Not exhaustive — a real
 # ship would add a configurable redaction pass — but it covers the common credential shapes that
@@ -62,69 +56,30 @@ def _short(v, n: int = 80) -> str:
 
 class ClaudeCodeConnector(Connector):
     CONFIG_SCHEMA = {
-        "root": {"type": "string", "default": "~/.claude/projects",
-                 "help": "directory holding Claude Code session transcripts (one <session>.jsonl per session)"},
         "redact": {"type": "bool", "default": True,
                    "help": "redact obvious secrets/tokens before storing (PII guard)"},
         "include_thinking": {"type": "bool", "default": False,
                              "help": "include assistant <thinking> blocks in the rendered text"},
-        "push": {"type": "bool", "default": False, "advanced": True,
-                 "help": "fed by the Claude Code plugin via /ingest (don't tail files locally)"},
+        # Set by the plugin when it auto-creates the source; kept for compatibility. This connector
+        # is push-only, so poll() is a no-op regardless.
+        "push": {"type": "bool", "default": True, "advanced": True,
+                 "help": "fed by the Claude Code plugin via /ingest (this connector is push-only)"},
     }
     # synthesized correlation axes (surfaced in the source form; set on every event)
-    PROVIDES = ["session", "project", "branch", "model", "type", "sidechain"]
-    # this connector also accepts pushed events (the Claude Code plugin posts transcript lines to
-    # /ingest); the same source can tail locally OR be fed by the plugin (set `push` to skip tailing).
+    PROVIDES = [
+        {"name": "session", "primary": True, "help": "Claude Code session id (the key)"},
+        {"name": "project", "help": "working-directory project name"},
+        {"name": "branch", "help": "git branch"},
+        {"name": "model", "help": "model on assistant turns"},
+        {"name": "type", "help": "message type (user / assistant / tool_use / …)"},
+        {"name": "sidechain", "help": "sub-agent (sidechain) message"},
+    ]
+    # Push-only: the Claude Code plugin POSTs transcript lines to /ingest/claude_code; events are
+    # mapped by map_payload(). There is no local file tail.
     ACCEPTS_PUSH = True
 
     async def poll(self) -> list[Envelope]:
-        c = self.cfg.config
-        if c.get("push"):
-            return []   # plugin-fed source: events arrive via map_payload(), nothing to tail
-        root = Path(str(c.get("root", "~/.claude/projects"))).expanduser()
-        redact = c.get("redact", True)
-        include_thinking = c.get("include_thinking", False)
-        if not root.is_dir():
-            return []
-
-        try:
-            cursor = json.loads(self.store.get_cursor(self.cfg.name) or "{}")
-        except (ValueError, TypeError):
-            cursor = {}
-
-        out: list[Envelope] = []
-        # one level deep: <project-slug>/<sessionId>.jsonl (and sidechain agent-*.jsonl alongside)
-        for f in sorted(root.glob("*/*.jsonl")):
-            key = str(f)
-            try:
-                size = f.stat().st_size
-            except OSError:
-                continue
-            offset = cursor.get(key, 0)
-            if offset > size:        # file was truncated/rotated — re-read from the top
-                offset = 0
-            if offset >= size:
-                continue
-            with f.open("rb") as fh:
-                fh.seek(offset)
-                for raw in fh:
-                    if not raw.endswith(b"\n"):
-                        break        # partial last line still being written; resume next poll
-                    offset += len(raw)
-                    line = raw.decode("utf-8", "replace").strip()
-                    if not line:
-                        continue
-                    env = self._to_envelope(line, redact, include_thinking)
-                    if env is not None:
-                        out.append(env)
-                    if len(out) >= MAX_PER_POLL:
-                        break
-            cursor[key] = offset
-            if len(out) >= MAX_PER_POLL:
-                break
-
-        self.store.set_cursor(self.cfg.name, json.dumps(cursor))
-        return out
+        return []   # push-only: events arrive via map_payload() from the plugin
 
     # ── push ingestion (the Claude Code plugin posts transcript lines to /ingest) ──
     def map_payload(self, payload) -> list[Envelope]:
@@ -143,16 +98,7 @@ class ClaudeCodeConnector(Connector):
                     out.append(env)
         return out
 
-    # ── mapping: one JSONL line / object → one Envelope ───────────────────────
-    def _to_envelope(self, line: str, redact: bool, include_thinking: bool):
-        try:
-            o = json.loads(line)
-        except ValueError:
-            return None
-        if not isinstance(o, dict):
-            return None
-        return self._obj_to_envelope(o, redact, include_thinking)
-
+    # ── mapping: one JSONL object → one Envelope ───────────────────────────────
     def _obj_to_envelope(self, o: dict, redact: bool, include_thinking: bool):
         sid = o.get("sessionId")
         if not sid:
