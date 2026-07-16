@@ -112,6 +112,17 @@ class Runtime:
                     if c.ingest_key and c.ingest_key == token), None)
         if cfg is None:
             cfg = self.catalog.sources.get(token)
+        if cfg is None and token == "claude_code":
+            # zero-setup, like the OTLP source: the Claude Code plugin ships with only the ingest
+            # token, and on a hosted cell it can't call the (auth-token-guarded) management API to
+            # create its source — so provision it on first ingest instead.
+            from .connectors import normalize_config, source_type_for
+            self.store.upsert_catalog_source(
+                "claude_code", source_type_for("claude_code"), "claude_code", "10s",
+                normalize_config("claude_code", {"push": True}))
+            self.reload_catalog()
+            cfg = self.catalog.sources.get("claude_code")
+            print("navflowd: auto-provisioned Claude Code source 'claude_code'")
         if cfg is None:
             raise KeyError(f"unknown source {token!r}")
         # push sources, plus poll connectors that opt into accepting pushes too (claude_code can be

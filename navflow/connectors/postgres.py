@@ -64,7 +64,9 @@ def _connect(dsn: str):
         import asyncpg
     except ImportError:
         raise CatalogError("the postgres connector needs asyncpg — pip install navflow[postgres]")
-    return asyncpg.connect(dsn)
+    # bounded connect: an unreachable host (firewalled DB, wrong IP) should fail in seconds with a
+    # clear error, not sit on asyncpg's 60s default while the console appears hung
+    return asyncpg.connect(dsn, timeout=10)
 
 
 class PostgresConnector(Connector):
