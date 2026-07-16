@@ -321,7 +321,7 @@ label.field.invalid input:focus, label.field.invalid textarea:focus { box-shadow
 label.field.invalid .help { color: var(--err); }
 label.field .help { display: block; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
 .help { color: var(--ink-soft); }
-input[type="text"], input[type="number"], select, textarea {
+input[type="text"], input[type="number"], input[type="password"], select, textarea {
   font: inherit;
   font-size: 13.5px;
   width: 100%;

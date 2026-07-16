@@ -21,7 +21,7 @@ const NAME_PLACEHOLDER: Record<string, string> = {
 const DISCOVER_HINT: Record<string, string> = {
   docker_logs: "list the containers navflowd can see, then pick one to fill this form",
   github: "enter the repo above, then Discover its default branch + author labels",
-  postgres: "enter the table (and DSN) above, then Discover proposes the cursor, entity key and labels from the table's columns",
+  postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
 };
 
 interface Props {
@@ -75,6 +75,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState<DiscoverProposal>();
   const [colProposal, setColProposal] = useState<ColumnsProposal>();
+  const [tables, setTables] = useState<string[]>();
   const [containers, setContainers] = useState<EnvScan["containers"]>();
 
   const jsonErrors = useMemo(() => {
@@ -133,7 +134,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     setBusy(false);
   };
 
-  const discover = () => run(async () => {
+  const discover = (override?: Record<string, unknown>) => run(async () => {
     if (connector === "docker_logs") {
       setContainers((await api.discoverEnvironment("docker")).containers);
       return;
@@ -143,20 +144,31 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       const raw = values[f.name]?.trim();
       if (raw && f.type !== "json") cfg[f.name] = f.type === "number" ? Number(raw) : raw;
     }
+    Object.assign(cfg, override);
     const p = await api.discoverSource(connector, cfg);
     // connectors whose discover proposes a config to confirm in a panel set `proposal`
-    // (prometheus: metrics) or `colProposal` (postgres: table columns); simpler ones (github)
-    // just apply the proposed config and report a one-line summary
+    // (prometheus: metrics), `colProposal` (postgres: table columns) or `tables` (postgres
+    // without a table yet: pick one); simpler ones (github) just apply the proposed config
+    // and report a one-line summary
     if (Array.isArray((p as { metrics?: unknown[] }).metrics)) {
       setProposal(p);
     } else if (Array.isArray((p as { columns?: unknown[] }).columns)) {
       setColProposal(p as unknown as ColumnsProposal);
+    } else if (Array.isArray((p as { tables?: unknown[] }).tables)) {
+      setTables((p as unknown as { tables: string[] }).tables);
     } else {
       applyConfig((p as { proposed_config?: Record<string, unknown> }).proposed_config ?? {});
       const summary = (p as { summary?: unknown }).summary;
       if (typeof summary === "string") setTest({ ok: true, note: summary });
     }
   });
+
+  const pickTable = (t: string) => {
+    setValues((v) => ({ ...v, table: t }));
+    if (!name.trim()) setName(`${t.split(".").pop()}-table`);
+    setTables(undefined);
+    void discover({ table: t });   // straight to the columns proposal for the picked table
+  };
 
   const pickContainer = (c: { name: string; service: string; project: string }) => {
     setValues((v) => ({ ...v, container: c.name }));
@@ -252,7 +264,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       {spec.discover && (
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
           <div className="btnrow" style={{ alignItems: "center" }}>
-            <button type="button" disabled={busy} onClick={discover}>
+            <button type="button" disabled={busy} onClick={() => discover()}>
               ✦ {connector === "docker_logs" ? "Discover containers" : "Discover"}
             </button>
             <span className="help" style={{ margin: 0 }}>
@@ -261,6 +273,21 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
             </span>
           </div>
           {proposal && <ProposalView proposal={proposal} onApply={applyProposal} />}
+          {tables && (
+            <table style={{ marginTop: 10 }}>
+              <thead><tr><th>table</th><th style={{ width: 100 }}></th></tr></thead>
+              <tbody>
+                {tables.map((t) => (
+                  <tr key={t}>
+                    <td className="mono">{t}</td>
+                    <td style={{ textAlign: "right" }}>
+                      <button type="button" disabled={busy} onClick={() => pickTable(t)}>use this</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {colProposal && (
             <ColumnsProposalView proposal={colProposal}
               onApply={() => {
