@@ -51,11 +51,11 @@ def _headers(token: str | None) -> dict:
 
 class GithubConnector(Connector):
     CONFIG_SCHEMA = {
-        "repo": {"type": "string", "required": True,
+        "repo": {"type": "string", "required": True, "discover_input": True,
                  "help": "owner/name, e.g. glassflow/navflow (a pasted GitHub URL works too)"},
         "branch": {"type": "string",
                    "help": "branch to follow (default: the repo's default branch)"},
-        "token": {"type": "string",
+        "token": {"type": "string", "secret": True, "discover_input": True,
                   "help": "GitHub token — required for private repos, recommended otherwise: "
                           "without one GitHub allows 60 API requests/hour per IP "
                           "(or set the GITHUB_TOKEN env var — kept out of the catalog)"},

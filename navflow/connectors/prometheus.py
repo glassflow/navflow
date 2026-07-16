@@ -30,7 +30,7 @@ class PrometheusConnector(Connector):
     # The authoritative config schema — the source of truth every entry path (form, discover,
     # YAML, API) normalizes to. `SPECS["prometheus"].fields` is generated from it.
     CONFIG_SCHEMA = {
-        "url": {"type": "string", "required": True,
+        "url": {"type": "string", "required": True, "discover_input": True,
                 "help": "Prometheus base URL, e.g. http://localhost:9090"},
         "default_key": {"type": "string", "default": "unknown",
                         "help": "entity key for series that carry no key label"},

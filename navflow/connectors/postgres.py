@@ -69,10 +69,16 @@ def _connect(dsn: str):
 
 class PostgresConnector(Connector):
     CONFIG_SCHEMA = {
-        "table": {"type": "string", "required": True,
+        "table": {"type": "string", "required": True, "discover_input": True,
                   "help": "table to poll, e.g. orders or public.orders"},
+        "dsn": {"type": "string", "secret": True, "discover_input": True,
+                "help": "postgresql://user:pass@host:port/db — must be reachable from the NavFlow "
+                        "host (local installs can leave this empty and set PG_DSN on the daemon)"},
         "cursor_column": {"type": "string", "required": True,
-                          "help": "monotonic column to track new rows: an id or updated_at"},
+                          "help": "column that only ever grows, used to fetch just the new rows on "
+                                  "each poll: an autoincrement id (captures inserts only) or "
+                                  "updated_at (also captures row updates) — Discover picks this "
+                                  "for you"},
         "cursor_type": {"type": "string", "default": "int",
                         "help": "int (autoincrement id) or timestamp (updated_at)"},
         "key_column": {"type": "string",
@@ -82,8 +88,6 @@ class PostgresConnector(Connector):
                         "help": "timestamp column for event_time (default: the cursor column if it "
                                 "is a timestamp, else ingest time)"},
         "limit": {"type": "number", "default": 200, "help": "rows to fetch per poll"},
-        "dsn": {"type": "string", "advanced": True,
-                "help": "postgresql://user:pass@host:port/db (or set PG_DSN — kept out of the catalog)"},
     }
 
     async def poll(self) -> list[Envelope]:
