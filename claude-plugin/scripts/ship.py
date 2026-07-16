@@ -24,6 +24,15 @@ def _truthy(v: str) -> bool:
     return str(v).strip().lower() not in ("0", "false", "off", "no", "")
 
 
+def _opt(name: str, default: str = "") -> str:
+    """userConfig option from the hook env. Claude Code injects CLAUDE_PLUGIN_OPTION_<KEY> with
+    the key UPPERCASED (user_config.ingest_token -> CLAUDE_PLUGIN_OPTION_INGEST_TOKEN); check the
+    verbatim casing too for robustness across versions."""
+    return (os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name.upper()}")
+            or os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name}")
+            or default)
+
+
 def _post(url: str, data: bytes, headers: dict):
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     return urllib.request.urlopen(req, timeout=5)
@@ -55,11 +64,11 @@ def main() -> None:
     except Exception:
         return
 
-    if not _truthy(os.environ.get("CLAUDE_PLUGIN_OPTION_stream_sessions", "true")):
+    if not _truthy(_opt("stream_sessions", "true")):
         return
 
-    base = os.environ.get("CLAUDE_PLUGIN_OPTION_navflow_url", "http://127.0.0.1:8787").rstrip("/")
-    token = os.environ.get("CLAUDE_PLUGIN_OPTION_ingest_token", "").strip()
+    base = (_opt("navflow_url") or "http://127.0.0.1:8787").rstrip("/")
+    token = (_opt("ingest_token") or "").strip()
     headers = {"Content-Type": "application/x-ndjson"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

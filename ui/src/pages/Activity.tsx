@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api, auth } from "../api";
 import { Close, Search } from "../components/icons";
@@ -151,7 +152,11 @@ function Connect() {
             </div>
           </div>
           <p className="help" style={{ marginTop: 6, whiteSpace: "normal" }}>
-            This is your console access token — agents authenticate with the same bearer token. Keep it secret.
+            This is your console access token — it works in the snippets below, but it carries{" "}
+            <strong>full admin rights</strong>. For an agent, prefer a{" "}
+            <span className="mono">read</span>-scoped API key from the{" "}
+            <Link to="/security">Security page</Link> (add <span className="mono">ingest</span> if
+            the agent also writes memories) and paste it in place of the token.
           </p>
         </div>
       )}
