@@ -59,7 +59,7 @@ SPECS = {
              "description": "Receives OTLP/HTTP logs, traces and metrics at POST /v1/{logs,traces,"
                             "metrics}. One source ingests every service; resource attributes "
                             "(service.name) become labels."},
-    "github": {"label": "GitHub commits", "mode": "poll", "discover": True,
+    "github": {"label": "GitHub commits", "mode": "poll", "discover": True, "poll": "2m",
                "description": "Polls a repo's commits (cursor by SHA); one event per commit, "
                               "keyed by repo, with author as a label."},
     "vercel": {"label": "Vercel logs", "mode": "push",

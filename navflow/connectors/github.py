@@ -42,9 +42,11 @@ class GithubConnector(Connector):
         "branch": {"type": "string",
                    "help": "branch to follow (default: the repo's default branch)"},
         "token": {"type": "string",
-                  "help": "GitHub token for private repos / higher rate limits "
+                  "help": "GitHub token — required for private repos, recommended otherwise: "
+                          "without one GitHub allows 60 API requests/hour per IP "
                           "(or set the GITHUB_TOKEN env var — kept out of the catalog)"},
-        "limit": {"type": "number", "default": 20, "help": "commits to fetch per poll"},
+        "limit": {"type": "number", "default": 20,
+                  "help": "newest commits fetched per poll (the first poll imports this many)"},
         "api_url": {"type": "string", "advanced": True,
                     "help": "GitHub API base for GitHub Enterprise (default https://api.github.com)"},
     }
@@ -63,13 +65,29 @@ class GithubConnector(Connector):
         params = {"per_page": int(c.get("limit", 20))}
         if c.get("branch"):
             params["sha"] = c["branch"]
+        headers = _headers(token)
+        # Conditional request: a 304 costs nothing against the rate limit (60/h unauthenticated),
+        # so steady polling only spends quota when there are actually new commits.
+        etag = getattr(self, "_etag", None)
+        if etag:
+            headers["If-None-Match"] = etag
         try:
             async with httpx.AsyncClient(timeout=15) as cx:
-                r = await cx.get(f"{api}/repos/{repo}/commits", params=params, headers=_headers(token))
-        except Exception:
-            return []
+                r = await cx.get(f"{api}/repos/{repo}/commits", params=params, headers=headers)
+        except Exception as e:
+            raise ValueError(f"could not reach GitHub: {e}")
+        if r.status_code == 304:
+            return []   # unchanged since last poll
+        if r.status_code in (403, 429) and r.headers.get("x-ratelimit-remaining") == "0":
+            raise ValueError("GitHub rate limit exhausted (unauthenticated: 60 requests/hour per IP)"
+                             " — set a token or raise the poll interval")
+        if r.status_code == 404:
+            raise ValueError(f"repo {repo!r} not found — private repos need a token")
+        if r.status_code == 401:
+            raise ValueError("GitHub rejected the token (401 unauthorized)")
         if r.status_code != 200:
-            return []
+            raise ValueError(f"GitHub returned {r.status_code} for {repo!r}")
+        self._etag = r.headers.get("etag")
         commits = r.json()
         if not isinstance(commits, list) or not commits:
             return []

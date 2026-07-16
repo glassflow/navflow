@@ -448,6 +448,9 @@ pre.payload {
 }
 .ingest-url button { white-space: nowrap; }
 .ingest-card .muted { margin: 0.4rem 0 0; font-size: 13px; }
+.ingest-setup { margin-top: 0.9rem; }
+.ingest-setup .muted { margin: 0 0 0.4rem; font-size: 13px; }
+.ingest-setup .ingest-url { margin-bottom: 0.6rem; align-items: flex-start; }
 
 /* field coverage bars (source detail) */
 .cov { height: 6px; background: var(--wash-2); border-radius: 3px; overflow: hidden; margin-bottom: 3px; }

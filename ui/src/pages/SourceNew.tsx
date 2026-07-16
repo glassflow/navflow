@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import IngestSetup from "../components/IngestSetup";
 import SourceForm from "../components/SourceForm";
 import type { ConnectorSpec } from "../types";
 
@@ -10,8 +11,14 @@ export default function SourceNew() {
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>();
   const [connector, setConnector] = useState<string>();
   const [created, setCreated] = useState<{ name: string; key: string }>();
+  // Host capabilities gate local-only connectors: docker_logs shells out to `docker logs` on the
+  // NavFlow host, so on a hosted cell (no Docker socket) it can only ever ingest nothing.
+  // Enabled until known false, matching Sources.tsx.
+  const [caps, setCaps] = useState<{ discover_docker: boolean }>();
 
-  useEffect(() => { api.connectors().then(setSpecs); }, []);
+  useEffect(() => { api.connectors().then(setSpecs); api.capabilities().then(setCaps); }, []);
+
+  const unavailable = (key: string) => key === "docker_logs" && caps?.discover_docker === false;
 
   const spec = specs && connector ? specs[connector] : undefined;
 
@@ -27,12 +34,20 @@ export default function SourceNew() {
           <thead><tr><th>connector</th><th>mode</th><th>what it does</th></tr></thead>
           <tbody>
             {Object.entries(specs).map(([key, s]) => (
-              <tr key={key} className="clickable"
-                  onClick={() => key === "claude_code" ? nav("/sources/claude-code") : setConnector(key)}>
-                <td className="mono">{key}</td>
-                <td><span className={`badge ${s.mode === "push" ? "push" : "ok"}`}>{s.mode}</span></td>
-                <td>{s.description}</td>
-              </tr>
+              unavailable(key) ? (
+                <tr key={key} className="dim">
+                  <td className="mono">{key}</td>
+                  <td><span className="badge starting">unavailable</span></td>
+                  <td>{s.description} <em>Needs Docker on the NavFlow host — not available on this deployment.</em></td>
+                </tr>
+              ) : (
+                <tr key={key} className="clickable"
+                    onClick={() => key === "claude_code" ? nav("/sources/claude-code") : setConnector(key)}>
+                  <td className="mono">{key}</td>
+                  <td><span className={`badge ${s.mode === "push" ? "push" : "ok"}`}>{s.mode}</span></td>
+                  <td>{s.description}</td>
+                </tr>
+              )
             ))}
           </tbody>
         </table>
@@ -97,6 +112,7 @@ function IngestUrl({ connector, sourceKey }: { connector: string; sourceKey: str
       {connector === "otlp"
         ? <p className="muted">Point an OTLP/HTTP exporter here (also <span className="mono">/v1/traces</span>, <span className="mono">/v1/metrics</span>).</p>
         : <p className="muted">It accepts JSON or NDJSON; data flows in as soon as the producer posts.</p>}
+      <IngestSetup connector={connector} url={url} />
     </>
   );
 }

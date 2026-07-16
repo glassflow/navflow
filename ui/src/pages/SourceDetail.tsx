@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
+import IngestSetup from "../components/IngestSetup";
 import SourceForm from "../components/SourceForm";
 import { StatusBadge, TimeAgo, usePolling } from "../components/bits";
 import type { ConnectorSpec, Source } from "../types";
@@ -214,14 +215,17 @@ function IngestEndpoint({ source }: { source: Source }) {
         <div className="k">OTLP endpoint</div>
         <CopyableUrl url={`${origin}/v1/logs`} />
         <p className="muted">Point an OTLP/HTTP exporter here (also <span className="mono">/v1/traces</span>, <span className="mono">/v1/metrics</span>).</p>
+        <IngestSetup connector="otlp" url={`${origin}/v1/logs`} />
       </div>
     );
   }
+  const url = `${origin}/ingest/${source.ingest_key || source.name}`;
   return (
     <div className="card ingest-card">
       <div className="k">ingest endpoint · POST</div>
-      <CopyableUrl url={`${origin}/ingest/${source.ingest_key || source.name}`} />
+      <CopyableUrl url={url} />
       <p className="muted">Point your producer (e.g. a Vercel log drain) at this URL.</p>
+      <IngestSetup connector={source.connector} url={url} />
     </div>
   );
 }
