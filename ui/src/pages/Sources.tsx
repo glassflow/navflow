@@ -8,6 +8,9 @@ import { StatusBadge, TimeAgo, usePolling } from "../components/bits";
 export default function Sources() {
   const nav = useNavigate();
   const { data: sources, error } = usePolling(() => api.sources());
+  // Host capabilities gate local-only actions: hide Auto-discover where Docker isn't reachable
+  // (a hosted cell, or a local box without Docker). Shown until known false.
+  const { data: caps } = usePolling(() => api.capabilities());
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -37,8 +40,9 @@ export default function Sources() {
           <p className="subtitle">everything NavFlow ingests — <em>lossless, normalized, one project</em></p>
         </div>
         <span className="btnrow">
-          <Link to="/sources/discover" className="btn">✦ Auto-discover</Link>
-          <Link to="/sources/claude-code" className="btn">Claude Code</Link>
+          {caps?.discover_docker !== false && (
+            <Link to="/sources/discover" className="btn">✦ Auto-discover</Link>
+          )}
           <Link to="/sources/new" className="btn primary">Add source</Link>
         </span>
       </div>
@@ -55,8 +59,10 @@ export default function Sources() {
 
       {sources && sources.length === 0 && (
         <div className="empty">
-          No sources yet. <Link to="/sources/discover">Auto-discover from Docker</Link>,{" "}
-          <Link to="/sources/new">add one by hand</Link>, or import a catalog YAML.
+          No sources yet — <Link to="/sources/new">add one by hand</Link> or import a catalog YAML
+          {caps?.discover_docker !== false && (
+            <>, or <Link to="/sources/discover">auto-discover from Docker</Link></>
+          )}.
         </div>
       )}
 

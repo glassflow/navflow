@@ -543,6 +543,16 @@ def make_app() -> FastAPI:
         console surfaces it here so the operator can hand it to producers without shell access."""
         return {"ingest_token": INGEST_TOKEN or None, "ingest_required": bool(INGEST_TOKEN)}
 
+    @app.get("/api/capabilities")
+    async def capabilities():
+        """Host capabilities that gate local-only console features, so the UI can hide actions that
+        can't work on this deployment — e.g. a hosted cell has no Docker socket, so Auto-discover
+        would be a dead end. (Claude Code is plugin-based and works everywhere, so it's not gated.)"""
+        import shutil
+        return {
+            "discover_docker": shutil.which("docker") is not None or os.path.exists("/var/run/docker.sock"),
+        }
+
     @app.post("/api/sources/discover")
     async def discover_source(body: dict = Body(...)):
         from .connectors import REGISTRY
@@ -567,17 +577,6 @@ def make_app() -> FastAPI:
         except ValueError as e:
             _err(e)
 
-    @app.get("/api/integrations/claude_code")
-    def claude_code_integration():
-        """Local detection for the console's one-click "Connect Claude Code" card. Reports whether
-        Claude Code session transcripts exist on this (the daemon's) machine and whether a source is
-        already wired. Creating/removing the source is the normal source lifecycle (POST/DELETE
-        /api/sources) — this endpoint only powers the detect + status of the card."""
-        root = Path(os.path.expanduser("~/.claude/projects"))
-        available = root.is_dir()
-        sessions = len(list(root.glob("*/*.jsonl"))) if available else 0
-        connected = any(s.connector == "claude_code" for s in runtime.catalog.sources.values())
-        return {"available": available, "root": str(root), "sessions": sessions, "connected": connected}
 
     # ── management API: sources ───────────────────────────────────────────────
     @app.get("/api/sources")

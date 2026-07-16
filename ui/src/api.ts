@@ -57,6 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; readonly: boolean; auth_required: boolean }>("/health"),
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
+  capabilities: () => request<{ discover_docker: boolean }>("/api/capabilities"),
   security: () =>
     request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
 
@@ -78,9 +79,6 @@ export const api = {
       { method: "POST", body: JSON.stringify({ connector, config }) }),
   discoverEnvironment: (provider = "docker") =>
     request<EnvScan>(`/api/discover/environment?provider=${provider}`),
-  claudeCodeStatus: () =>
-    request<{ available: boolean; root: string; sessions: number; connected: boolean }>(
-      "/api/integrations/claude_code"),
   sourceEvents: (name: string, limit = 50) =>
     request<SourceEvent[]>(`/api/sources/${name}/events?limit=${limit}`),
   sourceFields: (name: string) =>

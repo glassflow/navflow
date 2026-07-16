@@ -1,132 +1,118 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { api } from "../api";
-import ConfirmDialog from "../components/ConfirmDialog";
 import { usePolling } from "../components/bits";
 
-type Status = { available: boolean; root: string; sessions: number; connected: boolean };
+function Copy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      className="copybtn"
+      onClick={() => {
+        navigator.clipboard?.writeText(text);
+        setDone(true);
+        setTimeout(() => setDone(false), 1500);
+      }}
+    >
+      {done ? "copied" : "copy"}
+    </button>
+  );
+}
 
-// Dedicated setup page for the Claude Code source — reached from the "Claude Code" button on the
-// Sources page. Treats Claude Code like any other source: detect, choose what to ingest, connect.
-// Nothing is ingested until the user connects; disconnecting removes the source.
+const INSTALL = "/plugin marketplace add glassflow/navflow\n/plugin install navflow@navflow";
+
+// Claude Code is fed by the NavFlow plugin (push), not by tailing files — so this page shows the
+// install command wired to THIS instance's URL, identical for local and remote.
 export default function SourceClaudeCode() {
-  const nav = useNavigate();
-  const { data: sources, reload } = usePolling(() => api.sources(), 10000);
-  const [st, setSt] = useState<Status>();
-  const [redact, setRedact] = useState(true);
-  const [includeThinking, setIncludeThinking] = useState(false);
-  const [pushMode, setPushMode] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
-  const [confirmDisc, setConfirmDisc] = useState(false);
+  const origin = window.location.origin;
+  const { data: sources } = usePolling(() => api.sources(), 10000);
+  const [sec, setSec] = useState<{ ingest_token: string | null; ingest_required: boolean }>();
 
-  const refresh = () => api.claudeCodeStatus().then(setSt).catch(() => setSt(undefined));
-  useEffect(() => { refresh(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    api.security().then(setSec).catch(() => setSec(undefined));
+  }, []);
 
-  const connected = (sources?.some((s) => s.connector === "claude_code")) ?? st?.connected ?? false;
-
-  const connect = async () => {
-    setBusy(true); setErr(undefined);
-    const config: Record<string, unknown> = {};
-    if (!redact) config.redact = false;            // redact defaults on; only store the override
-    if (includeThinking) config.include_thinking = true;
-    if (pushMode) config.push = true;              // fed by the plugin via /ingest, not tailed here
-    try {
-      await api.createSource({ name: "claude_code", connector: "claude_code", poll: "10s", config });
-      reload();
-      nav("/sources/claude_code");                 // hand off to the normal source detail page
-    } catch (e) { setErr(String((e as Error).message ?? e)); setBusy(false); }
-  };
-
-  const disconnect = async () => {
-    setBusy(true); setErr(undefined);
-    try { await api.deleteSource("claude_code", false); await refresh(); reload(); }
-    catch (e) { setErr(String((e as Error).message ?? e)); }
-    finally { setBusy(false); }
-  };
+  const connected = sources?.some((s) => s.connector === "claude_code") ?? false;
+  const token = sec?.ingest_token ?? "";
 
   return (
     <>
-      <h1>Claude Code sessions</h1>
+      <h1>Connect Claude Code</h1>
       <p className="subtitle">
-        Stream this machine's Claude Code sessions into NavFlow — keyed by session, with project,
-        branch and model labels. Secrets are redacted. Nothing is ingested until you connect.
+        Install the NavFlow plugin for Claude Code — it streams your sessions into the{" "}
+        <span className="mono">claude_code</span> source (keyed by session, with project / branch /
+        model labels; secrets redacted server-side) and adds MCP read-back. Same steps local or remote.
       </p>
 
-      {err && <div className="alert error">{err}</div>}
+      {connected && (
+        <div className="panel">
+          <div className="pagehead">
+            <h2 style={{ margin: 0 }}>Status</h2>
+            <span className="badge ok">connected</span>
+          </div>
+          <p className="help" style={{ marginTop: 8 }}>
+            A <span className="mono">claude_code</span> source exists — sessions are streaming in.{" "}
+            <Link to="/sources/claude_code">Manage source</Link>.
+          </p>
+        </div>
+      )}
 
       <div className="panel">
-        <div className="pagehead" style={{ marginBottom: st?.available || !st ? 8 : 0 }}>
-          <h2 style={{ margin: 0 }}>Detection</h2>
-          {connected && <span className="badge ok">connected</span>}
-        </div>
-        {!st && <div className="dim">checking this machine…</div>}
-        {st && (
-          <div className="help" style={{ whiteSpace: "normal" }}>
-            {st.available
-              ? <><span className="mono">{st.sessions}</span> session{st.sessions === 1 ? "" : "s"} found in <span className="mono">{st.root}</span></>
-              : <>No Claude Code sessions found here (<span className="mono">~/.claude/projects</span> not present). If NavFlow is running remotely, you'll connect from your own machine instead.</>}
+        <h2 style={{ marginTop: 0 }}>1. Install the plugin</h2>
+        <p className="help" style={{ marginTop: 0 }}>In Claude Code, run:</p>
+        <div className="codeblock">
+          <div className="codeblock-head">
+            <span>claude code</span>
+            <Copy text={INSTALL} />
           </div>
-        )}
+          <pre className="payload">{INSTALL}</pre>
+        </div>
       </div>
 
-      {connected ? (
-        <div className="panel">
-          <p className="subtitle" style={{ marginTop: 0 }}>
-            Connected — sessions are tailing into the <span className="mono">claude_code</span> source.
-            Edit what's ingested or remove it from the source page.
-          </p>
-          <div className="btnrow">
-            <Link className="btn primary" to="/sources/claude_code">Manage source</Link>
-            <button className="danger" onClick={() => setConfirmDisc(true)} disabled={busy}>{busy ? "…" : "Disconnect"}</button>
-          </div>
-        </div>
-      ) : (
-        <div className="panel">
-          <h2 style={{ marginTop: 0 }}>What to ingest</h2>
-          <label className="field" style={{ marginBottom: 12 }}>
-            <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 600, fontSize: 13 }}>
-              <input type="checkbox" checked={redact} onChange={(e) => setRedact(e.target.checked)} />
-              Redact secrets <span className="dim" style={{ fontWeight: 400 }}>(recommended)</span>
-            </span>
-            <span className="help">Strip obvious API keys, tokens and private keys from text and payload before storage.</span>
-          </label>
-          <label className="field" style={{ marginBottom: 12 }}>
-            <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 600, fontSize: 13 }}>
-              <input type="checkbox" checked={includeThinking} onChange={(e) => setIncludeThinking(e.target.checked)} />
-              Include assistant thinking
-            </span>
-            <span className="help">Ingest the model's private reasoning blocks into the event text. Off by default.</span>
-          </label>
-          <label className="field">
-            <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 600, fontSize: 13 }}>
-              <input type="checkbox" checked={pushMode} onChange={(e) => setPushMode(e.target.checked)} />
-              Stream via the Claude Code plugin <span className="dim" style={{ fontWeight: 400 }}>(don't read files here)</span>
-            </span>
-            <span className="help">
-              For remote NavFlow, or to capture live via hooks: the plugin posts sessions to this source
-              instead of NavFlow tailing files on this machine. Install the plugin from <span className="mono">claude-plugin/</span>.
-            </span>
-          </label>
-          <div className="btnrow" style={{ marginTop: 8 }}>
-            <button className="primary" onClick={connect} disabled={busy || (!!st && !st.available)}>
-              {busy ? "Connecting…" : "Connect"}
-            </button>
-            <Link className="btn" to="/">Cancel</Link>
-          </div>
-        </div>
-      )}
+      <div className="panel">
+        <h2 style={{ marginTop: 0 }}>2. Point it at this NavFlow</h2>
+        <p className="help" style={{ marginTop: 0 }}>When the installer prompts you, enter:</p>
 
-      {confirmDisc && (
-        <ConfirmDialog
-          title="Disconnect Claude Code?"
-          message="The source is removed and new sessions stop streaming. Stored session events are kept unless you later delete the source with purge."
-          confirmLabel="Disconnect" danger
-          onCancel={() => setConfirmDisc(false)}
-          onConfirm={() => { setConfirmDisc(false); disconnect(); }}
-        />
-      )}
+        <label className="field">
+          <span className="lbl">NavFlow URL</span>
+          <div className="btnrow" style={{ alignItems: "center" }}>
+            <code className="payload" style={{ flex: 1, margin: 0 }}>{origin}</code>
+            <Copy text={origin} />
+          </div>
+        </label>
+
+        <label className="field" style={{ marginTop: 12 }}>
+          <span className="lbl">
+            Auth token{sec && !token && <span className="dim"> (not required)</span>}
+          </span>
+          {token ? (
+            <>
+              <div className="btnrow" style={{ alignItems: "center" }}>
+                <code className="payload" style={{ flex: 1, margin: 0, wordBreak: "break-all" }}>
+                  {token}
+                </code>
+                <Copy text={token} />
+              </div>
+              <span className="help">
+                This instance requires an ingest token — the plugin sends it when shipping sessions.
+              </span>
+            </>
+          ) : (
+            <span className="help">
+              This instance doesn&rsquo;t require an ingest token — leave it blank.
+            </span>
+          )}
+        </label>
+      </div>
+
+      <div className="panel">
+        <p className="help" style={{ marginTop: 0 }}>
+          Sessions stream <strong>from install onward</strong> (existing sessions aren&rsquo;t
+          backfilled). Once you run a session, the <span className="mono">claude_code</span> source
+          shows up under <Link to="/">Sources</Link>.
+        </p>
+      </div>
     </>
   );
 }

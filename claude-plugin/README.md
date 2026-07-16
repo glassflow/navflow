@@ -52,9 +52,9 @@ advances the offset on success (so failures retry). It runs on `UserPromptSubmit
 
 ## Notes / caveats (prototype)
 
-- **One transport per source.** A `claude_code` source either tails files locally **or** is fed by
-  this plugin (`config.push: true`). Don't enable both against the same source or events double up.
-- Secrets are redacted **server-side** by the `claude_code` connector before storage (the PII guard),
-  the same as the local tail.
+- **Push-only source.** The `claude_code` source is fed by this plugin over `/ingest` (`config.push:
+  true`, set automatically on first run). Local file tailing was removed — the plugin covers local
+  and remote alike. Capture is forward-only (sessions from install onward; no backfill of old files).
+- Secrets are redacted **server-side** by the `claude_code` connector before storage (the PII guard).
 - `sensitive` config (the token) is passed to hook/MCP processes only as
   `CLAUDE_PLUGIN_OPTION_ingest_token`; the URL is also available as `${user_config.navflow_url}`.
