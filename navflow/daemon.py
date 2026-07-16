@@ -8,8 +8,10 @@ view/trigger management happens over /api (or the UI at /).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -215,20 +217,71 @@ def make_app() -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 
+    # ── auth: scoped credentials ──────────────────────────────────────────────
+    # Three scopes — read (consume: queries, catalog reads, derive/subscribe), ingest (contribute:
+    # /ingest, /v1/*, remember), admin (configure: catalog CRUD, discover, credentials, keys).
+    # Credentials: the env tokens act as implicit root keys (AUTH_TOKEN = admin, INGEST_TOKEN =
+    # ingest, non-revocable), plus revocable scoped keys in the api_keys table (docs/design).
+    _ADMIN_PATHS = ("/api/security", "/api/catalog/export", "/api/catalog/import", "/api/agent/chat")
+
+    def _required_scope(method: str, path: str) -> str | None:
+        """None = public. 'any' = any valid credential. Reads of credentials and all catalog
+        mutation are admin; a trigger changes what the daemon computes for everyone, so trigger
+        CRUD is admin too — but derive/subscribe stay read: they expose nothing a reader couldn't
+        pull and forward, they only persist that reader's own delivery."""
+        if method == "POST" and (_is_ingest(path) or path == "/remember"):
+            return "ingest"   # before _public(): ingest paths are "public" only in the sense of
+                              # not needing the auth token — they have their own scope
+        if _public(method, path):
+            return None
+        if path == "/api/whoami":
+            return "any"
+        if path in _ADMIN_PATHS or path.startswith("/api/keys") or path.startswith("/api/discover"):
+            return "admin"
+        if method != "GET" and (path.startswith("/api/sources")
+                                or path.startswith("/api/views") or path.startswith("/api/triggers")):
+            return "admin"
+        return "read"
+
+    def _resolve_credential(request) -> tuple[set, dict] | tuple[None, None]:
+        """Token from the request -> (scopes, identity), or (None, None) if unknown/absent."""
+        tok = _bearer(request.headers.get("authorization")) or request.headers.get("x-navflow-token", "")
+        if not tok:
+            return None, None
+        if AUTH_TOKEN and tok == AUTH_TOKEN:
+            return {"read", "ingest", "admin"}, {"id": "env:auth", "name": "auth token (env)"}
+        if INGEST_TOKEN and tok == INGEST_TOKEN:
+            return {"ingest"}, {"id": "env:ingest", "name": "ingest token (env)"}
+        key = store.find_api_key(hashlib.sha256(tok.encode()).hexdigest())
+        if key:
+            last = key.get("last_used_at")
+            if last is None or (now_utc() - last).total_seconds() > 60:   # throttle write churn
+                store.touch_api_key(key["id"])
+            return set(key["scopes"]), {"id": f"key:{key['id']}", "name": key["name"]}
+        return None, None
+
     if READONLY or INGEST_TOKEN or AUTH_TOKEN:
         @app.middleware("http")
         async def _guard(request, call_next):
             path, method = request.url.path, request.method
-            if INGEST_TOKEN and method == "POST" and _is_ingest(path):
-                tok = request.headers.get("x-navflow-token") or _bearer(request.headers.get("authorization"))
-                # the auth token also ingests: it's strictly more privileged, and clients that carry
-                # one token for both directions (the Claude Code plugin) can then just use it
-                if tok != INGEST_TOKEN and not (AUTH_TOKEN and tok == AUTH_TOKEN):
+            required = _required_scope(method, path)
+            # activation matches the pre-keys behavior: ingest is gated only when an ingest token
+            # is configured; reads/management only when an auth token is (open local installs
+            # stay open — keys are meaningful once the root tokens exist, i.e. always on hosted).
+            if required == "ingest" and (INGEST_TOKEN or AUTH_TOKEN):
+                scopes, ident = _resolve_credential(request)
+                if not scopes or not ({"ingest", "admin"} & scopes):
                     return JSONResponse({"detail": "invalid or missing ingest token"}, status_code=401)
-            if AUTH_TOKEN and not _public(method, path):
-                tok = _bearer(request.headers.get("authorization")) or request.headers.get("x-navflow-token", "")
-                if tok != AUTH_TOKEN:
+                request.state.credential = ident
+            elif required in ("read", "admin", "any") and AUTH_TOKEN:
+                scopes, ident = _resolve_credential(request)
+                if not scopes:
                     return JSONResponse({"detail": "authentication required"}, status_code=401)
+                if required != "any" and required not in scopes and "admin" not in scopes:
+                    return JSONResponse({"detail": f"this credential lacks the {required!r} scope"},
+                                        status_code=403)
+                request.state.credential = ident
+                request.state.scopes = sorted(scopes)
             if (READONLY and method not in ("GET", "HEAD", "OPTIONS")
                     and path not in _READ_POST and not _is_ingest(path)):
                 return JSONResponse({"detail": "this NavFlow instance is read-only (control plane "
@@ -273,11 +326,14 @@ def make_app() -> FastAPI:
         return {"payload": payload, "count": nrows, "sources": sources, "rows": rows}
 
     @app.post("/subscribe")
-    async def subscribe(req: SubReq):
+    async def subscribe(req: SubReq, request: Request):
         if req.trigger not in {t.name for t in runtime.catalog.triggers}:
             _err(KeyError(f"unknown trigger {req.trigger!r}"), 404)
         sid = "sub_" + uuid.uuid4().hex[:8]
-        store.add_subscription(sid, req.trigger, req.url)
+        # record the creating credential: revoking a key removes its subscriptions (a revoked
+        # agent must stop receiving trigger dispatches)
+        ident = getattr(request.state, "credential", None)
+        store.add_subscription(sid, req.trigger, req.url, created_by=ident["id"] if ident else None)
         return {"subscription_id": sid}
 
     @app.post("/unsubscribe")
@@ -544,7 +600,49 @@ def make_app() -> FastAPI:
         """Instance credentials, for the authenticated operator. The ingest token is the shared,
         machine-facing secret producers send as X-NavFlow-Token / Bearer on /ingest and /v1/*; the
         console surfaces it here so the operator can hand it to producers without shell access."""
-        return {"ingest_token": INGEST_TOKEN or None, "ingest_required": bool(INGEST_TOKEN)}
+        # ingest is gated whenever ANY root token is configured (a secured instance doesn't accept
+        # anonymous events); auth_required tells the UI whether this instance enforces at all
+        return {"ingest_token": INGEST_TOKEN or None,
+                "ingest_required": bool(INGEST_TOKEN or AUTH_TOKEN),
+                "auth_required": bool(AUTH_TOKEN)}
+
+    # ── API keys: scoped, revocable credentials (admin scope; see docs/design) ─
+    _SCOPES = {"read", "ingest", "admin"}
+
+    @app.get("/api/keys")
+    async def list_keys():
+        return {"keys": store.list_api_keys(),
+                "enforced": bool(AUTH_TOKEN),   # without a root auth token the instance is open
+                "scopes": sorted(_SCOPES)}
+
+    @app.post("/api/keys", status_code=201)
+    async def create_key(body: dict = Body(...)):
+        name = str(body.get("name") or "").strip()
+        scopes = sorted(set(body.get("scopes") or []))
+        if not name:
+            _err(ValueError("name is required"))
+        if not scopes or not set(scopes) <= _SCOPES:
+            _err(ValueError(f"scopes must be a non-empty subset of {sorted(_SCOPES)}"))
+        kid = uuid.uuid4().hex[:8]
+        secret = f"nvf_{kid}_{secrets.token_urlsafe(24)}"
+        store.insert_api_key(kid, name, f"nvf_{kid}", hashlib.sha256(secret.encode()).hexdigest(),
+                             scopes)
+        # the secret exists only in this response; the store keeps its hash
+        return {"id": kid, "name": name, "scopes": scopes, "secret": secret}
+
+    @app.delete("/api/keys/{kid}")
+    async def revoke_key(kid: str):
+        if not store.revoke_api_key(kid):
+            _err(KeyError(f"no active key {kid!r}"), 404)
+        return {"ok": True, "note": "key revoked; its subscriptions were removed"}
+
+    @app.get("/api/whoami")
+    async def whoami(request: Request):
+        ident = getattr(request.state, "credential", None)
+        scopes = getattr(request.state, "scopes", None)
+        if ident is None:   # guard not active (open instance) or ingest-path credential
+            return {"id": "open", "name": "no auth configured", "scopes": sorted(_SCOPES)}
+        return {**ident, "scopes": scopes or []}
 
     @app.get("/api/capabilities")
     async def capabilities():

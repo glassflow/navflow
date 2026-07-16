@@ -41,7 +41,18 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   subscription_id TEXT PRIMARY KEY,
   trigger         TEXT,
   url             TEXT,
-  created_at      TIMESTAMPTZ
+  created_at      TIMESTAMPTZ,
+  created_by      TEXT
+);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id           TEXT PRIMARY KEY,
+  name         TEXT,
+  prefix       TEXT,
+  hash         TEXT,
+  scopes       JSON,
+  created_at   TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  revoked_at   TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS catalog_sources (
   name       TEXT PRIMARY KEY,
@@ -99,6 +110,7 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_views ADD COLUMN IF NOT EXISTS created_by TEXT",
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS labels JSON",
     "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS ingest_key TEXT",
+    "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_by TEXT",
 ]
 
 _FILTER_COLS = {"event_type", "source", "text", "key_value"}
@@ -581,12 +593,12 @@ class Store:
         return n
 
     # ── subscriptions ─────────────────────────────────────────────────────────
-    def add_subscription(self, sid: str, trigger: str, url: str) -> None:
+    def add_subscription(self, sid: str, trigger: str, url: str, created_by: str | None = None) -> None:
         with self._lock:
             self.con.execute(
-                "INSERT INTO subscriptions VALUES (?, ?, ?, ?) "
+                "INSERT INTO subscriptions VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT (subscription_id) DO UPDATE SET trigger = excluded.trigger, url = excluded.url",
-                [sid, trigger, url, now_utc()],
+                [sid, trigger, url, now_utc(), created_by],
             )
 
     def list_subscriptions(self, trigger: str):
@@ -608,3 +620,43 @@ class Store:
     def remove_subscription(self, sid: str) -> None:
         with self._lock:
             self.con.execute("DELETE FROM subscriptions WHERE subscription_id = ?", [sid])
+
+    # ── API keys (scoped credentials; only the SHA-256 of the secret is stored) ─
+    def insert_api_key(self, kid: str, name: str, prefix: str, hash_: str, scopes: list[str]) -> None:
+        with self._lock:
+            self.con.execute("INSERT INTO api_keys VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)",
+                             [kid, name, prefix, hash_, json.dumps(scopes), now_utc()])
+
+    def list_api_keys(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT id, name, prefix, scopes, created_at, last_used_at, revoked_at "
+                "FROM api_keys ORDER BY created_at DESC").fetchall()
+        return [{"id": r[0], "name": r[1], "prefix": r[2], "scopes": json.loads(r[3]),
+                 "created_at": r[4], "last_used_at": r[5], "revoked_at": r[6]} for r in rows]
+
+    def find_api_key(self, hash_: str) -> dict | None:
+        """Active (non-revoked) key by secret hash, or None."""
+        with self._lock:
+            r = self.con.execute(
+                "SELECT id, name, scopes, last_used_at FROM api_keys "
+                "WHERE hash = ? AND revoked_at IS NULL", [hash_]).fetchone()
+        if not r:
+            return None
+        return {"id": r[0], "name": r[1], "scopes": json.loads(r[2]), "last_used_at": r[3]}
+
+    def touch_api_key(self, kid: str) -> None:
+        with self._lock:
+            self.con.execute("UPDATE api_keys SET last_used_at = ? WHERE id = ?", [now_utc(), kid])
+
+    def revoke_api_key(self, kid: str) -> bool:
+        """Revoke the key and delete its subscriptions (a revoked agent must stop receiving
+        trigger dispatches — otherwise its webhook is a post-revocation exfiltration path)."""
+        with self._lock:
+            hit = self.con.execute("SELECT 1 FROM api_keys WHERE id = ? AND revoked_at IS NULL",
+                                   [kid]).fetchone()
+            if not hit:
+                return False
+            self.con.execute("UPDATE api_keys SET revoked_at = ? WHERE id = ?", [now_utc(), kid])
+            self.con.execute("DELETE FROM subscriptions WHERE created_by = ?", [f"key:{kid}"])
+        return True
