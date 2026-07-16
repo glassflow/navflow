@@ -28,6 +28,20 @@ def _parse_iso(s):
         return None
 
 
+def _normalize_repo(repo) -> str:
+    """Accept 'owner/name' but also pasted URLs (https://github.com/owner/name[.git][/…])."""
+    r = str(repo or "").strip().rstrip("/")
+    if "://" in r:
+        r = r.split("://", 1)[1]
+    parts = r.split("/")
+    if parts and "." in parts[0]:   # a hostname (github.com, GHE) — owner names can't contain dots
+        parts = parts[1:]
+    if len(parts) < 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"repo must be owner/name (got {repo!r})")
+    name = parts[1][:-4] if parts[1].endswith(".git") else parts[1]
+    return f"{parts[0]}/{name}"
+
+
 def _headers(token: str | None) -> dict:
     h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
@@ -38,7 +52,7 @@ def _headers(token: str | None) -> dict:
 class GithubConnector(Connector):
     CONFIG_SCHEMA = {
         "repo": {"type": "string", "required": True,
-                 "help": "owner/name, e.g. glassflow/navflow"},
+                 "help": "owner/name, e.g. glassflow/navflow (a pasted GitHub URL works too)"},
         "branch": {"type": "string",
                    "help": "branch to follow (default: the repo's default branch)"},
         "token": {"type": "string",
@@ -59,7 +73,7 @@ class GithubConnector(Connector):
 
     async def poll(self):
         c = self.cfg.config
-        repo = c["repo"]
+        repo = _normalize_repo(c["repo"])
         api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
         token = c.get("token") or os.getenv("GITHUB_TOKEN")
         params = {"per_page": int(c.get("limit", 20))}
@@ -82,7 +96,9 @@ class GithubConnector(Connector):
             raise ValueError("GitHub rate limit exhausted (unauthenticated: 60 requests/hour per IP)"
                              " — set a token or raise the poll interval")
         if r.status_code == 404:
-            raise ValueError(f"repo {repo!r} not found — private repos need a token")
+            raise ValueError(f"repo {repo!r} not found"
+                             + (" — check owner/name (the token may also lack access)" if token
+                                else " — private repos need a token"))
         if r.status_code == 401:
             raise ValueError("GitHub rejected the token (401 unauthorized)")
         if r.status_code != 200:
@@ -111,7 +127,11 @@ class GithubConnector(Connector):
         cm = commit.get("commit") or {}
         cm_author = cm.get("author") or {}
         login = (commit.get("author") or {}).get("login") or cm_author.get("name") or "unknown"
-        return {"repo": c.get("repo"), "branch": c.get("branch") or "", "author": login,
+        try:
+            repo = _normalize_repo(c.get("repo"))
+        except ValueError:
+            repo = c.get("repo")
+        return {"repo": repo, "branch": c.get("branch") or "", "author": login,
                 "author_name": cm_author.get("name"), "sha": commit.get("sha", "")}
 
     def _commit_envelope(self, commit: dict, ctx_base: dict) -> Envelope:
@@ -131,9 +151,9 @@ class GithubConnector(Connector):
 
     @classmethod
     async def discover(cls, config: dict) -> dict:
-        repo = config.get("repo")
-        if not repo:
+        if not config.get("repo"):
             raise ValueError("enter the repo (owner/name) first, then Discover")
+        repo = _normalize_repo(config["repo"])
         api = (config.get("api_url") or _API_DEFAULT).rstrip("/")
         token = config.get("token") or os.getenv("GITHUB_TOKEN")
         async with httpx.AsyncClient(timeout=15) as cx:
@@ -142,7 +162,9 @@ class GithubConnector(Connector):
             except Exception as e:
                 raise ValueError(f"could not reach GitHub: {e}")
             if meta.status_code == 404:
-                raise ValueError(f"repo {repo!r} not found (private repos need a token)")
+                raise ValueError(f"repo {repo!r} not found"
+                                 + (" — check owner/name (the token may also lack access)" if token
+                                    else " (private repos need a token)"))
             if meta.status_code != 200:
                 raise ValueError(f"GitHub returned {meta.status_code} for {repo!r}")
             info = meta.json()
