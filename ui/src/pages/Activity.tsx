@@ -6,30 +6,56 @@ import { Close, Search } from "../components/icons";
 import { TimeAgo, usePolling } from "../components/bits";
 import type { DispatchLogEntry } from "../types";
 
-type Tab = "connect" | "queries" | "dispatches" | "subscriptions";
-const LABELS: Record<Tab, string> = {
-  connect: "Connect", queries: "Reads", dispatches: "Trigger dispatches",
-  subscriptions: "Subscriptions",
+// Two pages share this module: Connect (how an agent hooks up — one tab per integration mode)
+// and AgentActivity (what agents have been doing — reads + trigger dispatches).
+type ConnectTab = "mcp" | "push" | "rest";
+const CONNECT_LABELS: Record<ConnectTab, string> = {
+  mcp: "MCP (pull)", push: "Webhook (push)", rest: "REST",
 };
 
-export default function Activity() {
-  const [tab, setTab] = useState<Tab>("connect");
+export function ConnectPage() {
+  const [tab, setTab] = useState<ConnectTab>("mcp");
 
   return (
     <>
-      <h1>Agents</h1>
-      <p className="subtitle">connect an external agent to this NavFlow instance, and watch what they do</p>
+      <h1>Connect</h1>
+      <p className="subtitle">
+        hook an agent up to this NavFlow — <em>it pulls (MCP), gets pushed (webhook), or calls
+        plain REST</em>
+      </p>
 
       <div className="tabs">
-        {(Object.keys(LABELS) as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{LABELS[t]}</button>
+        {(Object.keys(CONNECT_LABELS) as ConnectTab[]).map((t) => (
+          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{CONNECT_LABELS[t]}</button>
         ))}
       </div>
 
-      {tab === "connect" && <Connect />}
+      <Connect tab={tab} />
+    </>
+  );
+}
+
+type ActivityTab = "queries" | "dispatches";
+const ACTIVITY_LABELS: Record<ActivityTab, string> = {
+  queries: "Reads", dispatches: "Trigger dispatches",
+};
+
+export default function AgentActivity() {
+  const [tab, setTab] = useState<ActivityTab>("queries");
+
+  return (
+    <>
+      <h1>Activity</h1>
+      <p className="subtitle">what agents have been doing — every read, every trigger dispatch</p>
+
+      <div className="tabs">
+        {(Object.keys(ACTIVITY_LABELS) as ActivityTab[]).map((t) => (
+          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{ACTIVITY_LABELS[t]}</button>
+        ))}
+      </div>
+
       {tab === "queries" && <Queries />}
       {tab === "dispatches" && <Dispatches />}
-      {tab === "subscriptions" && <Subscriptions />}
     </>
   );
 }
@@ -68,12 +94,14 @@ function CodeBlock({ title, code }: { title: string; code: string }) {
   );
 }
 
-function Connect() {
+function Connect({ tab }: { tab: ConnectTab }) {
   const origin = window.location.origin;
   const [authReq, setAuthReq] = useState<boolean>();
   const [status, setStatus] = useState<"checking" | "live" | "absent">("checking");
   const [url, setUrl] = useState(`${origin}/mcp`);
   const [tools, setTools] = useState<{ name: string; description: string }[]>();
+  const [triggers, setTriggers] = useState<{ name: string }[]>();
+  const [trig, setTrig] = useState<string>();
   const [reveal, setReveal] = useState(false);
   const [toolQ, setToolQ] = useState("");
   const token = auth.get();
@@ -81,6 +109,8 @@ function Connect() {
   useEffect(() => {
     api.health().then((h) => setAuthReq(h.auth_required)).catch(() => setAuthReq(false));
     api.mcpTools().then(setTools).catch(() => setTools([]));
+    api.triggers().then((t) => { setTriggers(t); if (t.length) setTrig(t[0].name); })
+      .catch(() => setTriggers([]));
 
     // The MCP endpoint sits in one of two places: same host/port behind a reverse proxy
     // (the compose deployment — Caddy routes /mcp to the MCP server), or on its own port
@@ -127,6 +157,16 @@ function Connect() {
   const stdioJson = (t: string) => JSON.stringify({
     mcpServers: { navflow: { command: "navflow-mcp", env: { NAVFLOWD_URL: origin, ...(authReq ? { NAVFLOW_AUTH_TOKEN: t } : {}) } } },
   }, null, 2);
+  const subscribeCurl = (t: string) =>
+    `curl -X POST ${origin}/subscribe \\\n` +
+    `  -H 'Content-Type: application/json' \\\n` +
+    (authReq ? `  -H 'Authorization: Bearer ${t}' \\\n` : "") +
+    `  -d '{"trigger": "${trig ?? "<trigger>"}", "url": "https://your-agent.example.com/hook"}'`;
+  const queryCurl = (t: string) =>
+    `curl -X POST ${origin}/query \\\n` +
+    `  -H 'Content-Type: application/json' \\\n` +
+    (authReq ? `  -H 'Authorization: Bearer ${t}' \\\n` : "") +
+    `  -d '{"view": "<view>", "key": "<entity>", "window": "15m"}'`;
 
   const shownTools = useMemo(() => {
     const needle = toolQ.trim().toLowerCase();
@@ -136,13 +176,15 @@ function Connect() {
 
   return (
     <div className="connect">
-      <div className={`mcp-status ${status}`}>
-        {status === "checking" && "checking the MCP endpoint…"}
-        {status === "live" && <span>MCP endpoint is live at <span className="mono">{url}</span></span>}
-        {status === "absent" && <span>No MCP endpoint found — neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">navflow mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
-      </div>
+      {tab === "mcp" && (
+        <div className={`mcp-status ${status}`}>
+          {status === "checking" && "checking the MCP endpoint…"}
+          {status === "live" && <span>MCP endpoint is live at <span className="mono">{url}</span></span>}
+          {status === "absent" && <span>No MCP endpoint found — neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">navflow mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
+        </div>
+      )}
 
-      {authReq && (
+      {tab === "mcp" && authReq && (
         <div className="panel" style={{ marginTop: 14 }}>
           <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
             <div><span className="lbl">access token</span> <span className="mono">{shownTok}</span></div>
@@ -161,11 +203,108 @@ function Connect() {
         </div>
       )}
 
+      {tab === "push" && (
+        <>
+          <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
+            Flip the loop: NavFlow watches, the agent sleeps. When a trigger&rsquo;s condition
+            trips, NavFlow POSTs the <strong>correlated timeline</strong> to a URL your agent
+            listens on — the investigation starts with the evidence already attached,{" "}
+            <strong>zero reads</strong>. (In our SRE incident benchmark the same diagnosis took 6
+            fan-out reads baseline, 1 correlated read over MCP, 0 when pushed.)
+          </p>
+
+          <h3 style={{ marginBottom: 4 }}>1 · Give your agent an HTTP endpoint</h3>
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            Anything that accepts a POST and starts your agent with the request body as context — a
+            small FastAPI/Express route, a serverless function, a workflow-engine webhook. It must
+            be reachable <em>from this NavFlow server</em>. Every delivery is JSON shaped like:
+          </p>
+          <CodeBlock title="what your endpoint receives on each firing" code={JSON.stringify({
+            dispatch_id: "9f2c81d4…",
+            trigger: trig ?? "error_spike",
+            kind: "alert",
+            key: "api-server",
+            fired_at: "2026-07-17T09:14:03+00:00",
+            payload: "…the correlated timeline for this entity, ready to hand to the model…",
+          }, null, 2)} />
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            Delivery is <strong>at-least-once</strong> with retries — dedupe on{" "}
+            <span className="mono">dispatch_id</span>. Answer anything below 500 to acknowledge.
+          </p>
+
+          <h3 style={{ marginBottom: 4 }}>2 · Subscribe that endpoint to a trigger</h3>
+          {triggers && triggers.length > 0 ? (
+            <>
+              <p className="help" style={{ whiteSpace: "normal" }}>
+                A trigger is a condition NavFlow evaluates continuously over a view. Pick one,
+                replace the URL with your endpoint, and run (needs a{" "}
+                <span className="mono">read</span>-scoped <Link to="/security">API key</Link>;
+                revoking the key removes its subscriptions):
+              </p>
+              {triggers.length > 1 && (
+                <label className="field" style={{ maxWidth: 300 }}>
+                  <span className="lbl">trigger</span>
+                  <select value={trig} onChange={(e) => setTrig(e.target.value)}>
+                    {triggers.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} />
+            </>
+          ) : (
+            <p className="help" style={{ whiteSpace: "normal" }}>
+              This instance has no triggers yet, so there is nothing to subscribe to — create one
+              under <Link to="/triggers">Triggers</Link> (a condition over a view), then come back
+              here.
+            </p>
+          )}
+
+          <h3 style={{ marginBottom: 4 }}>3 · That&rsquo;s the loop</h3>
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            From now on every firing wakes your agent with the timeline attached; it can query back
+            over MCP or REST if it needs more, and <span className="mono">remember</span> its
+            conclusion so the next dispatch arrives with prior findings included. Watch real
+            deliveries under <Link to="/activity">Activity → Trigger dispatches</Link> (every
+            firing is logged there, even with no subscribers — useful to test a trigger before
+            wiring the agent). Full walkthrough and a runnable incident-response example:{" "}
+            <a href="https://www.navflow.ai/docs/agents" target="_blank" rel="noreferrer">
+              navflow.ai/docs/agents</a>.
+          </p>
+
+          <h3 style={{ marginTop: 22 }}>Subscribed agents</h3>
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            The endpoints currently wired to be woken — one row per <span className="mono">subscribe</span>.
+          </p>
+          <Subscriptions />
+        </>
+      )}
+
+      {tab === "rest" && (
+        <>
+          <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
+            No MCP client? The same read surface is plain HTTP — one call returns the correlated
+            timeline. Agents can also write conclusions back with{" "}
+            <span className="mono">POST /remember</span> (needs <span className="mono">ingest</span>),
+            so the next timeline arrives with prior findings attached.
+          </p>
+          <CodeBlock title="read a correlated timeline" code={queryCurl(shownTok)} />
+        </>
+      )}
+
+      {tab === "mcp" && (
+        <>
+      <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
+        The agent connects as an MCP client and reads on demand: <span className="mono">read</span>,{" "}
+        <span className="mono">query</span>, <span className="mono">catalog_*</span> — one correlated
+        timeline per call instead of fanning out across your systems. Needs a{" "}
+        <span className="mono">read</span>-scoped key.
+      </p>
+
+      <h3 style={{ marginBottom: 4 }}>Any MCP client (HTTP)</h3>
+      <CodeBlock title="add to the client's MCP config" code={httpJson(shownTok)} />
+
       <h3 style={{ marginBottom: 4 }}>Claude Code</h3>
       <CodeBlock title="run in your terminal" code={claudeCode(tok)} />
-
-      <h3 style={{ marginBottom: 4 }}>Claude Desktop · Cursor · generic MCP client (HTTP)</h3>
-      <CodeBlock title="add to the client's MCP config" code={httpJson(shownTok)} />
 
       <h3 style={{ marginBottom: 4 }}>stdio (agent on the same machine, or no /mcp endpoint)</h3>
       <p className="help" style={{ whiteSpace: "normal" }}>
@@ -196,6 +335,8 @@ function Connect() {
               )}
             </tbody>
           </table>
+        </>
+      )}
         </>
       )}
     </div>

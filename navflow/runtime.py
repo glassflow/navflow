@@ -119,7 +119,11 @@ class Runtime:
             from .connectors import normalize_config, source_type_for
             self.store.upsert_catalog_source(
                 "claude_code", source_type_for("claude_code"), "claude_code", "10s",
-                normalize_config("claude_code", {"push": True}))
+                normalize_config("claude_code", {"push": True, "labels": [
+                    {"name": "session", "field": "session", "primary": True},
+                    {"name": "project", "field": "project"},
+                    {"name": "branch", "field": "branch"},
+                    {"name": "model", "field": "model"}]}))
             self.reload_catalog()
             cfg = self.catalog.sources.get("claude_code")
             print("navflowd: auto-provisioned Claude Code source 'claude_code'")

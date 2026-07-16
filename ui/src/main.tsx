@@ -4,7 +4,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 
 import App from "./App";
 import AuthGate from "./components/AuthGate";
-import Activity from "./pages/Activity";
+import AgentActivity, { ConnectPage } from "./pages/Activity";
 import Ask from "./pages/Ask";
 import Explore from "./pages/Explore";
 import SourceClaudeCode from "./pages/SourceClaudeCode";
@@ -30,7 +30,9 @@ const router = createBrowserRouter([
       { path: "explore", element: <Explore /> },
       { path: "views", element: <ViewsPage /> },
       { path: "triggers", element: <TriggersPage /> },
-      { path: "agents", element: <Activity /> },
+      { path: "connect", element: <ConnectPage /> },
+      { path: "activity", element: <AgentActivity /> },
+      { path: "agents", element: <Navigate to="/connect" replace /> },
       { path: "ask", element: <Ask /> },
       { path: "security", element: <Security /> },
       { path: "settings", element: <Settings /> },
@@ -38,7 +40,6 @@ const router = createBrowserRouter([
       // dissolved: source schema/freshness now lives on the source detail; the agent's-eye read
       // is Explore's Agent-view toggle.
       { path: "entities", element: <Navigate to="/explore" replace /> },
-      { path: "activity", element: <Navigate to="/agents" replace /> },
       { path: "catalog", element: <Navigate to="/" replace /> },
     ],
   },
