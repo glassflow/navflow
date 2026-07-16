@@ -77,6 +77,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [colProposal, setColProposal] = useState<ColumnsProposal>();
   const [tables, setTables] = useState<string[]>();
   const [containers, setContainers] = useState<EnvScan["containers"]>();
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverErr, setDiscoverErr] = useState<string>();
 
   const jsonErrors = useMemo(() => {
     const errs: Record<string, string> = {};
@@ -134,7 +136,20 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     setBusy(false);
   };
 
+  // discover errors surface inside the Discover panel (the top-of-form alert can be scrolled
+  // out of view on long forms — the user is looking at the button they just clicked)
   const discover = (override?: Record<string, unknown>) => run(async () => {
+    setDiscovering(true);
+    setDiscoverErr(undefined);
+    try {
+      await doDiscover(override);
+    } catch (e) {
+      setDiscoverErr(String((e as Error).message ?? e));
+    }
+    setDiscovering(false);
+  });
+
+  const doDiscover = async (override?: Record<string, unknown>) => {
     if (connector === "docker_logs") {
       setContainers((await api.discoverEnvironment("docker")).containers);
       return;
@@ -161,7 +176,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       const summary = (p as { summary?: unknown }).summary;
       if (typeof summary === "string") setTest({ ok: true, note: summary });
     }
-  });
+  };
 
   const pickTable = (t: string) => {
     setValues((v) => ({ ...v, table: t }));
@@ -265,13 +280,15 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
           <div className="btnrow" style={{ alignItems: "center" }}>
             <button type="button" disabled={busy} onClick={() => discover()}>
-              ✦ {connector === "docker_logs" ? "Discover containers" : "Discover"}
+              {discovering ? "⏳ discovering…"
+                : `✦ ${connector === "docker_logs" ? "Discover containers" : "Discover"}`}
             </button>
             <span className="help" style={{ margin: 0 }}>
               {DISCOVER_HINT[connector]
                 ?? "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
             </span>
           </div>
+          {discoverErr && <div className="alert error" style={{ marginTop: 10, marginBottom: 0 }}>{discoverErr}</div>}
           {proposal && <ProposalView proposal={proposal} onApply={applyProposal} />}
           {tables && (
             <table style={{ marginTop: 10 }}>

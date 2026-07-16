@@ -7,6 +7,7 @@ view/trigger management happens over /api (or the UI at /).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -220,7 +221,9 @@ def make_app() -> FastAPI:
             path, method = request.url.path, request.method
             if INGEST_TOKEN and method == "POST" and _is_ingest(path):
                 tok = request.headers.get("x-navflow-token") or _bearer(request.headers.get("authorization"))
-                if tok != INGEST_TOKEN:
+                # the auth token also ingests: it's strictly more privileged, and clients that carry
+                # one token for both directions (the Claude Code plugin) can then just use it
+                if tok != INGEST_TOKEN and not (AUTH_TOKEN and tok == AUTH_TOKEN):
                     return JSONResponse({"detail": "invalid or missing ingest token"}, status_code=401)
             if AUTH_TOKEN and not _public(method, path):
                 tok = _bearer(request.headers.get("authorization")) or request.headers.get("x-navflow-token", "")
@@ -560,9 +563,17 @@ def make_app() -> FastAPI:
         if connector not in REGISTRY:
             _err(ValueError(f"unknown connector {connector!r}"), 404)
         try:
-            proposal = await REGISTRY[connector].discover(body.get("config", {}) or {})
-        except ValueError as e:
-            _err(e)
+            # bounded + catch-all: driver errors (asyncpg timeouts/auth/network) are not ValueError
+            # and would otherwise 500 with nothing shown to the user
+            proposal = await asyncio.wait_for(
+                REGISTRY[connector].discover(body.get("config", {}) or {}), timeout=30)
+        except (TimeoutError, asyncio.TimeoutError):
+            _err(ValueError("discover timed out — is the target reachable from the NavFlow "
+                            "server? (a hosted NavFlow can only reach public endpoints)"))
+        except HTTPException:
+            raise
+        except Exception as e:
+            _err(ValueError(f"discover failed: {e}"))
         if proposal is None:
             _err(ValueError(f"connector {connector!r} doesn't support discovery yet"))
         return proposal
