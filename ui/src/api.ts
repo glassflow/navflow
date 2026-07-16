@@ -1,4 +1,5 @@
 import type {
+  ApiKey,
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchLogEntry, Entity, EnvScan,
   LabelFacet, QueryLogEntry, Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
   TimelineEventRow, Trigger, View,
@@ -60,6 +61,12 @@ export const api = {
   capabilities: () => request<{ discover_docker: boolean }>("/api/capabilities"),
   security: () =>
     request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
+  keys: () => request<{ keys: ApiKey[]; enforced: boolean; scopes: string[] }>("/api/keys"),
+  createKey: (name: string, scopes: string[]) =>
+    request<{ id: string; name: string; scopes: string[]; secret: string }>(
+      "/api/keys", { method: "POST", body: JSON.stringify({ name, scopes }) }),
+  revokeKey: (id: string) => request<{ ok: boolean }>(`/api/keys/${id}`, { method: "DELETE" }),
+  whoami: () => request<{ id: string; name: string; scopes: string[] }>("/api/whoami"),
 
   sources: () => request<Source[]>("/api/sources"),
   source: (name: string) => request<Source>(`/api/sources/${name}`),

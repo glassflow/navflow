@@ -119,6 +119,16 @@ export interface DiscoverProposal {
   proposed_config: { url: string; default_key: string; queries: unknown[]; labels: { name: string; field: string }[] };
 }
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
 // Discover response for table-shaped connectors (postgres): the columns found plus a proposed
 // config to review and apply. (Prometheus uses the richer DiscoverProposal above.)
 export interface ColumnsProposal {

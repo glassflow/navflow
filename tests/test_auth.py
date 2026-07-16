@@ -56,9 +56,12 @@ async def main():
             ck("POST /query with token -> not 401", (await cx.post(f"{B}/query", json={"view": "x"}, headers=auth)).status_code != 401)
             ck("catalog export protected", (await cx.get(f"{B}/api/catalog/export")).status_code == 401)
 
-            # ingest is NOT gated by the auth token (it has its own; none set here -> open)
+            # a secured instance gates ingest too: with any root token configured, anonymous
+            # events would poison the timelines agents trust. The auth token itself ingests.
             ig = await cx.post(f"{B}/ingest/evt", json={"app": "a", "msg": "hi"})
-            ck("ingest not gated by auth token (202)", ig.status_code == 202, str(ig.status_code))
+            ck("anonymous ingest denied when auth is on (401)", ig.status_code == 401, str(ig.status_code))
+            ig2 = await cx.post(f"{B}/ingest/evt", json={"app": "a", "msg": "hi"}, headers=auth)
+            ck("auth token ingests (202)", ig2.status_code == 202, str(ig2.status_code))
     finally:
         proc.send_signal(signal.SIGTERM)
         try: proc.wait(timeout=5)

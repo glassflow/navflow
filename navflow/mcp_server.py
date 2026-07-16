@@ -13,6 +13,7 @@ all, so a connected agent sees only the read surface (the daemon refuses the wri
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 
@@ -21,15 +22,18 @@ from mcp.server.fastmcp import FastMCP
 
 NAVFLOWD = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
 READONLY = os.getenv("NAVFLOW_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
-# Shared bearer token (self-hosted single-tenant): connecting agents must present it, and we forward
-# it to navflowd (whose API now requires it too).
+# Bearer credentials. Over HTTP transports each caller presents its own token (the root auth token
+# or a scoped API key) and we forward it per-request — the daemon enforces scopes per route. Over
+# stdio (a local agent spawned the proxy) there is no inbound token; the env token is used.
 AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
-_AUTH_HEADERS = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
+_CALLER_TOKEN = contextvars.ContextVar("navflow_caller_token", default="")
 
 
 def _cx(timeout: float = 10):
-    """An httpx client that carries the auth token to navflowd (a no-op when none is set)."""
-    return httpx.AsyncClient(timeout=timeout, headers=_AUTH_HEADERS)
+    """An httpx client that carries the caller's token to navflowd (env token as stdio fallback)."""
+    tok = _CALLER_TOKEN.get() or AUTH_TOKEN
+    return httpx.AsyncClient(timeout=timeout,
+                             headers={"Authorization": f"Bearer {tok}"} if tok else {})
 
 # stdio (default) is what a local agent spawns. For remote agents (the demo / a server), run with
 # NAVFLOW_MCP_TRANSPORT=streamable-http (or sse) and the server listens on MCP_HOST:MCP_PORT — at
@@ -208,21 +212,24 @@ async def list_sources() -> str:
 
 
 class _BearerGate:
-    """Pure-ASGI middleware: every HTTP request to the MCP server must carry the bearer token.
+    """Pure-ASGI middleware: every HTTP request to the MCP server must carry *a* bearer token —
+    the root auth token or a scoped API key. The token is forwarded to navflowd per-request, which
+    validates it and enforces scopes per tool call (the proxy can't check key hashes itself).
     Non-HTTP scopes (lifespan/websocket) pass through untouched."""
-    def __init__(self, app, token: str):
-        self.app, self.token = app, token
+    def __init__(self, app):
+        self.app = app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers") or []}
             auth = headers.get("authorization", "")
             tok = auth[7:].strip() if auth.lower().startswith("bearer ") else headers.get("x-navflow-token", "")
-            if tok != self.token:
+            if not tok:
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": b'{"detail":"unauthorized"}'})
                 return
+            _CALLER_TOKEN.set(tok)
         await self.app(scope, receive, send)
 
 
@@ -234,7 +241,7 @@ def main():
     # HTTP transports: build the ASGI app, gate it with the bearer token, run it under uvicorn.
     app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
     if AUTH_TOKEN:
-        app = _BearerGate(app, AUTH_TOKEN)
+        app = _BearerGate(app)
     import uvicorn
     uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port)
 
