@@ -69,11 +69,14 @@ def _connect(dsn: str):
 
 class PostgresConnector(Connector):
     CONFIG_SCHEMA = {
-        "table": {"type": "string", "required": True, "discover_input": True,
-                  "help": "table to poll, e.g. orders or public.orders"},
         "dsn": {"type": "string", "secret": True, "discover_input": True,
-                "help": "postgresql://user:pass@host:port/db — must be reachable from the NavFlow "
-                        "host (local installs can leave this empty and set PG_DSN on the daemon)"},
+                "help": "postgresql://user:pass@host:port/dbname — the path after the slash picks "
+                        "the database (omitted, Postgres silently defaults to a db named after "
+                        "the user). Must be reachable from the NavFlow host; local installs can "
+                        "leave this empty and set PG_DSN on the daemon"},
+        "table": {"type": "string", "required": True, "discover_input": True,
+                  "help": "table to poll, e.g. orders or public.orders — leave empty and Discover "
+                          "lists the tables it can see"},
         "cursor_column": {"type": "string", "required": True,
                           "help": "column that only ever grows, used to fetch just the new rows on "
                                   "each poll: an autoincrement id (captures inserts only) or "
@@ -159,9 +162,31 @@ class PostgresConnector(Connector):
 
     @classmethod
     async def discover(cls, config: dict) -> dict:
-        """Introspect a table: pick a cursor column (updated_at > id), guess the entity key
+        """Two-stage introspection. Without a table: list the tables the DSN can see, for the user
+        to pick. With a table: pick a cursor column (updated_at > id), guess the entity key
         (a *_id column), infer cursor_type from the column's data type, and propose labels."""
-        table = _ident(config.get("table") or "", "table", _TABLE)
+        if not config.get("table"):
+            conn = await _connect(_dsn(config))
+            try:
+                db = await conn.fetchval("SELECT current_database()")
+                rows = await conn.fetch(
+                    "SELECT table_schema, table_name FROM information_schema.tables "
+                    "WHERE table_type = 'BASE TABLE' "
+                    "AND table_schema NOT IN ('pg_catalog', 'information_schema') "
+                    "ORDER BY table_schema, table_name")
+            finally:
+                await conn.close()
+            if not rows:
+                raise ValueError(f"connected to database {db!r}, but no tables are visible — "
+                                 "wrong database in the DSN (the path after the slash), or the "
+                                 "user lacks privileges")
+            tables = [r["table_name"] if r["table_schema"] == "public"
+                      else f"{r['table_schema']}.{r['table_name']}" for r in rows]
+            return {"connector": "postgres", "tables": tables,
+                    "summary": f"connected to database {db!r} — {len(tables)} tables; "
+                               "pick one to introspect (another database needs its own "
+                               "source with its DSN)"}
+        table = _ident(config["table"], "table", _TABLE)
         schema, name = (table.split(".") + [None])[:2] if "." in table else (None, table)
         name = name or table
         conn = await _connect(_dsn(config))
