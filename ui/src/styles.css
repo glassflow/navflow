@@ -374,6 +374,19 @@ pre.payload {
 .empty { color: var(--ink-soft); padding: 32px 28px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+
+/* combobox — a styled replacement for native <datalist> suggestions */
+.combo { position: relative; }
+.combo-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--input-bg); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 8px 24px var(--sheet-shadow); max-height: 240px; overflow-y: auto; padding: 4px;
+}
+.combo-item {
+  padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  font-family: var(--mono); font-size: 12.5px;
+}
+.combo-item:hover, .combo-item.active { background: var(--row-hover); }
 .pagehead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 
 /* labels & key editor (SourceForm) */

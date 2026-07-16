@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
-  Activity, Bolt, Book, Chat, ChevronRight, Database, Lock, Moon,
+  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon,
   Settings as SettingsIco, SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
@@ -29,9 +29,10 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     { to: "/explore", label: "Explore", icon: Activity },
   ] },
   { section: "Serve to agents", items: [
+    { to: "/connect", label: "Connect", icon: Terminal },
     { to: "/views", label: "Views", icon: Book },
     { to: "/triggers", label: "Triggers", icon: Bolt },
-    { to: "/agents", label: "Agents", icon: Terminal },
+    { to: "/activity", label: "Activity", icon: Filter },
   ] },
 ];
 
@@ -39,7 +40,8 @@ const SECTION_LABEL: Record<string, string> = {
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",
-  agents: "Agents",
+  connect: "Connect",
+  activity: "Activity",
   catalog: "Catalog",
   ask: "Ask",
   security: "Security",
