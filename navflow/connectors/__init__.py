@@ -66,7 +66,7 @@ SPECS = {
                "description": "Push source for Vercel logs — point a Vercel log drain (JSON) at this "
                               "source's ingest endpoint; one event per log entry, keyed by project, "
                               "with environment + source labels."},
-    "postgres": {"label": "Postgres table", "mode": "poll", "discover": True,
+    "postgres": {"label": "Postgres table", "mode": "poll", "discover": True, "poll": "30s",
                  "description": "Polls a table incrementally (cursor by an id or updated_at); one "
                                 "event per new/changed row, keyed by an entity column (tenant_id). "
                                 "Your application's source-of-truth data in the timeline."},
@@ -176,7 +176,8 @@ def _fields_from_schema(schema: dict) -> list:
     def scalar(name, spec):
         ftype = "number" if spec["type"] == "number" else "string"
         return {"name": name, "type": ftype, "required": spec.get("required", False),
-                "help": spec.get("help", "")}
+                "help": spec.get("help", ""), "secret": spec.get("secret", False),
+                "discover_input": spec.get("discover_input", False)}
 
     fields = []
     for name, spec in schema.items():

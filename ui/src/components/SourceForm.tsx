@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import { api } from "../api";
-import type { ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, TestResult } from "../types";
+import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, TestResult } from "../types";
 
 // Structured push connectors know their entity shape, so a fresh source starts with sensible
 // label axes (the user can still edit/remove them).
@@ -14,6 +14,14 @@ const DEFAULT_LABELS: Record<string, Array<Record<string, unknown>>> = {
 // Connector-appropriate example names; the generic fallback suits metric-ish sources.
 const NAME_PLACEHOLDER: Record<string, string> = {
   github: "e.g. my-repo-commits",
+  postgres: "e.g. orders-table",
+};
+
+// What Discover does, per connector (fallback: the prometheus introspection copy).
+const DISCOVER_HINT: Record<string, string> = {
+  docker_logs: "list the containers navflowd can see, then pick one to fill this form",
+  github: "enter the repo above, then Discover its default branch + author labels",
+  postgres: "enter the table (and DSN) above, then Discover proposes the cursor, entity key and labels from the table's columns",
 };
 
 interface Props {
@@ -66,6 +74,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [test, setTest] = useState<TestResult>();
   const [busy, setBusy] = useState(false);
   const [proposal, setProposal] = useState<DiscoverProposal>();
+  const [colProposal, setColProposal] = useState<ColumnsProposal>();
   const [containers, setContainers] = useState<EnvScan["containers"]>();
 
   const jsonErrors = useMemo(() => {
@@ -135,10 +144,13 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       if (raw && f.type !== "json") cfg[f.name] = f.type === "number" ? Number(raw) : raw;
     }
     const p = await api.discoverSource(connector, cfg);
-    // connectors whose discover proposes a config to confirm in a panel (prometheus) set `proposal`;
-    // simpler ones (github) just apply the proposed config and report a one-line summary
+    // connectors whose discover proposes a config to confirm in a panel set `proposal`
+    // (prometheus: metrics) or `colProposal` (postgres: table columns); simpler ones (github)
+    // just apply the proposed config and report a one-line summary
     if (Array.isArray((p as { metrics?: unknown[] }).metrics)) {
       setProposal(p);
+    } else if (Array.isArray((p as { columns?: unknown[] }).columns)) {
+      setColProposal(p as unknown as ColumnsProposal);
     } else {
       applyConfig((p as { proposed_config?: Record<string, unknown> }).proposed_config ?? {});
       const summary = (p as { summary?: unknown }).summary;
@@ -188,6 +200,25 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     JSON.stringify(rs.filter((r) => r.name.trim()).map((r) => [r.name.trim(), r.kind, r.value, r.primary]));
   const labelsChanged = !!initial && canonRows(labelRows) !== canonRows(labelsToRows(initial?.config?.labels));
 
+  const renderField = (f: ConnectorField) =>
+    f.type === "list" ? (
+      <ListFieldEditor key={f.name} field={f} rows={rows[f.name] ?? []}
+                       onChange={(r) => setRows({ ...rows, [f.name]: r })} />
+    ) : (
+      <label className={"field" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
+        <span className="lbl">{f.name} {f.required && <span className="req">*</span>}</span>
+        {f.type === "json" ? (
+          <textarea className="code" value={values[f.name]}
+                    onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
+        ) : (
+          <input type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
+                 value={values[f.name]} autoComplete={f.secret ? "off" : undefined}
+                 onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
+        )}
+        <span className="help">{jsonErrors[f.name] ?? f.help}</span>
+      </label>
+    );
+
   return (
     <form onSubmit={(e) => { e.preventDefault(); run(async () => onSubmit(build())); }}>
       {error && <div className="alert error">{error}</div>}
@@ -216,24 +247,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </label>
       )}
 
-      {spec.fields.map((f) => (
-        f.type === "list" ? (
-          <ListFieldEditor key={f.name} field={f} rows={rows[f.name] ?? []}
-                           onChange={(r) => setRows({ ...rows, [f.name]: r })} />
-        ) : (
-          <label className={"field" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
-            <span className="lbl">{f.name} {f.required && <span className="req">*</span>}</span>
-            {f.type === "json" ? (
-              <textarea className="code" value={values[f.name]}
-                        onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
-            ) : (
-              <input type={f.type === "number" ? "number" : "text"} value={values[f.name]}
-                     onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
-            )}
-            <span className="help">{jsonErrors[f.name] ?? f.help}</span>
-          </label>
-        )
-      ))}
+      {(spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)}
 
       {spec.discover && (
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
@@ -242,14 +256,19 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
               ✦ {connector === "docker_logs" ? "Discover containers" : "Discover"}
             </button>
             <span className="help" style={{ margin: 0 }}>
-              {connector === "docker_logs"
-                ? "list the containers navflowd can see, then pick one to fill this form"
-                : connector === "github"
-                ? "enter the repo above, then Discover its default branch + author labels"
-                : "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
+              {DISCOVER_HINT[connector]
+                ?? "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
             </span>
           </div>
           {proposal && <ProposalView proposal={proposal} onApply={applyProposal} />}
+          {colProposal && (
+            <ColumnsProposalView proposal={colProposal}
+              onApply={() => {
+                applyConfig(colProposal.proposed_config);
+                setTest({ ok: true, note: colProposal.summary });
+                setColProposal(undefined);
+              }} />
+          )}
           {containers && (
             <table style={{ marginTop: 10 }}>
               <thead><tr><th>service</th><th>image</th><th></th></tr></thead>
@@ -271,6 +290,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
           )}
         </div>
       )}
+
+      {spec.discover && spec.fields.filter((f) => !f.discover_input).map(renderField)}
 
       <LabelsEditor rows={labelRows} onChange={setLabelRows}
                     fields={(spec.provides ?? []).map((p) => p.name)} />
@@ -408,6 +429,40 @@ function ListFieldEditor({ field, rows, onChange }:
       <button type="button" onClick={() => onChange([...rows, blank()])}>
         + Add {field.name === "queries" ? "query" : "row"}
       </button>
+    </div>
+  );
+}
+
+// Table-shaped discover result (postgres): every column with its type, badged with the role the
+// proposal assigns it (cursor / key / label), so the user sees the possible values before applying.
+function ColumnsProposalView({ proposal, onApply }: { proposal: ColumnsProposal; onApply: () => void }) {
+  const cfg = proposal.proposed_config as { cursor_column?: string; key_column?: string;
+                                            labels?: { field?: string }[] };
+  const labelFields = new Set((cfg.labels ?? []).map((l) => l.field).filter(Boolean));
+  const role = (col: string) =>
+    col === cfg.cursor_column ? "cursor" : col === cfg.key_column ? "key"
+      : labelFields.has(col) ? "label" : "";
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p className="subtitle" style={{ marginTop: 0 }}>{proposal.summary}</p>
+      <table>
+        <thead><tr><th>column</th><th style={{ width: 180 }}>type</th><th style={{ width: 90 }}>proposed as</th></tr></thead>
+        <tbody>
+          {proposal.columns.map((c) => (
+            <tr key={c.name}>
+              <td className="mono">{c.name}</td>
+              <td className="help">{c.type}</td>
+              <td>{role(c.name) && <span className="chip">{role(c.name)}</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="primary" style={{ marginTop: 10 }} onClick={onApply}>
+        Apply to form
+      </button>
+      <span className="help" style={{ marginLeft: 10 }}>
+        fills the fields below — review, Test connection, then Create
+      </span>
     </div>
   );
 }

@@ -26,6 +26,8 @@ export interface ConnectorField {
   type: "string" | "number" | "json" | "list";
   required: boolean;
   help: string;
+  secret?: boolean;          // render as a password input (tokens, DSNs)
+  discover_input?: boolean;  // Discover needs this field — shown above the Discover panel
   item?: ConnectorField[];   // for type "list": the sub-fields of each row
 }
 
@@ -115,6 +117,15 @@ export interface DiscoverProposal {
   metrics: DiscoverMetric[];
   derived_suggestions: { id: string; label: string; promql: string; event_type: string; field: string; reason: string }[];
   proposed_config: { url: string; default_key: string; queries: unknown[]; labels: { name: string; field: string }[] };
+}
+
+// Discover response for table-shaped connectors (postgres): the columns found plus a proposed
+// config to review and apply. (Prometheus uses the richer DiscoverProposal above.)
+export interface ColumnsProposal {
+  connector: string;
+  summary: string;
+  columns: { name: string; type: string }[];
+  proposed_config: Record<string, unknown>;
 }
 
 export interface ViewFilter {
