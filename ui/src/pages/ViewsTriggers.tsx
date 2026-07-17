@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Search } from "../components/icons";
-import { TimeAgo, usePolling } from "../components/bits";
+import { Combo, TimeAgo, usePolling } from "../components/bits";
 import type { Trigger, View, ViewFilter } from "../types";
 
 const AGGREGATES = ["max", "min", "sum", "avg", "count", "any"];
@@ -50,47 +50,6 @@ function FilterBar({ q, setQ, placeholder, shown, total }: {
       </div>
       <span className="grow" />
       <span className="count">{shown} of {total}</span>
-    </div>
-  );
-}
-
-/** Input with styled suggestions — replaces native <datalist> (which can't be themed).
- *  Free text stays allowed; suggestions filter as you type. */
-function Combo({ value, onChange, options, placeholder, style }: {
-  value: string; onChange: (v: string) => void; options: string[];
-  placeholder?: string; style?: React.CSSProperties;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hi, setHi] = useState(0);
-  const needle = value.trim().toLowerCase();
-  const shown = options.filter((o) => !needle || o.toLowerCase().includes(needle));
-
-  const pick = (o: string) => { onChange(o); setOpen(false); };
-
-  return (
-    <div className="combo" style={style}>
-      <input type="text" value={value} placeholder={placeholder}
-             onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(0); }}
-             onFocus={() => setOpen(true)}
-             onBlur={() => setOpen(false)}
-             onKeyDown={(e) => {
-               if (!open || !shown.length) return;
-               if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, shown.length - 1)); }
-               else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
-               else if (e.key === "Enter") { e.preventDefault(); pick(shown[hi]); }
-               else if (e.key === "Escape") setOpen(false);
-             }} />
-      {open && shown.length > 0 && (
-        <div className="combo-list">
-          {shown.map((o, i) => (
-            <div key={o} className={"combo-item" + (i === hi ? " active" : "")}
-                 onMouseDown={(e) => { e.preventDefault(); pick(o); }}
-                 onMouseEnter={() => setHi(i)}>
-              {o}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

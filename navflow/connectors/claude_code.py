@@ -98,6 +98,22 @@ class ClaudeCodeConnector(Connector):
                     out.append(env)
         return out
 
+    def label_context(self, o: dict | None) -> dict:
+        """Synthesized label axes from a raw transcript object — the SAME mapping ingest uses
+        (base-class contract: profiling and retroactive relabel must reproduce ingest labels;
+        without this override the field profile showed the raw transcript keys and 0-coverage
+        phantoms for session/project/…)."""
+        o = o or {}
+        msg = o.get("message") if isinstance(o.get("message"), dict) else {}
+        cwd = o.get("cwd")
+        sid = o.get("sessionId")
+        return {"session": str(sid) if sid else None,
+                "project": Path(str(cwd)).name if cwd else None,
+                "branch": str(o["gitBranch"]) if o.get("gitBranch") else None,
+                "model": str(msg["model"]) if msg.get("model") else None,
+                "type": str(o.get("type")) if o.get("type") else None,
+                "sidechain": "true" if o.get("isSidechain") else "false"}
+
     # ── mapping: one JSONL object → one Envelope ───────────────────────────────
     def _obj_to_envelope(self, o: dict, redact: bool, include_thinking: bool):
         sid = o.get("sessionId")
@@ -105,15 +121,8 @@ class ClaudeCodeConnector(Connector):
             return None  # can't key it to a timeline
 
         msg = o.get("message") if isinstance(o.get("message"), dict) else {}
-        cwd = o.get("cwd")
-        labels = {"session": str(sid), "type": str(o.get("type") or "event")}
-        if cwd:
-            labels["project"] = Path(str(cwd)).name
-        if o.get("gitBranch"):
-            labels["branch"] = str(o["gitBranch"])
-        if msg.get("model"):
-            labels["model"] = str(msg["model"])
-        labels["sidechain"] = "true" if o.get("isSidechain") else "false"
+        labels = {k: v for k, v in self.label_context(o).items() if v not in (None, "")}
+        labels.setdefault("type", "event")
 
         text = self._render_text(o, msg, include_thinking)[:500]
         if redact:

@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
+import { Combo } from "./bits";
 import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, TestResult } from "../types";
 
 // Structured push connectors know their entity shape, so a fresh source starts with sensible
@@ -73,6 +74,27 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [error, setError] = useState<string>();
   const [test, setTest] = useState<TestResult>();
   const [busy, setBusy] = useState(false);
+  // For an existing source, what the data actually carries beats the connector's static
+  // `provides` list — merge the observed field profile into the labels editor's suggestions,
+  // keeping coverage so the dropdown can show how many sampled events carry each field.
+  const [observed, setObserved] = useState<{ sampled: number; fields: { name: string; coverage: number }[] }>();
+  useEffect(() => {
+    if (!initial?.name) return;
+    api.sourceFields(initial.name)
+      .then((p) => setObserved({ sampled: p.sampled,
+                                 fields: p.fields.map((f) => ({ name: f.name, coverage: f.coverage })) }))
+      .catch(() => {});
+  }, [initial?.name]);
+  const coverage = new Map((observed?.fields ?? []).map((f) => [f.name, f.coverage]));
+  const labelFieldOpts = Array.from(new Set([
+    ...(spec.provides ?? []).map((p) => p.name),
+    ...(observed?.fields ?? []).map((f) => f.name),
+  ])).sort((a, b) => (coverage.get(b) ?? -1) - (coverage.get(a) ?? -1) || a.localeCompare(b));
+  const labelFieldHints = observed
+    ? Object.fromEntries(labelFieldOpts
+        .filter((n) => coverage.has(n))
+        .map((n) => [n, `${coverage.get(n)} / ${observed.sampled} events`]))
+    : undefined;
   const [proposal, setProposal] = useState<DiscoverProposal>();
   const [colProposal, setColProposal] = useState<ColumnsProposal>();
   const [tables, setTables] = useState<string[]>();
@@ -338,7 +360,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       {spec.discover && spec.fields.filter((f) => !f.discover_input).map(renderField)}
 
       <LabelsEditor rows={labelRows} onChange={setLabelRows}
-                    fields={(spec.provides ?? []).map((p) => p.name)} />
+                    fields={labelFieldOpts} fieldHints={labelFieldHints} />
 
       {labelsChanged && (
         <div className="alert info">
@@ -375,8 +397,9 @@ function labelsToRows(arr: unknown): LabelRow[] {
   return rows;
 }
 
-function LabelsEditor({ rows, onChange, fields = [] }:
-  { rows: LabelRow[]; onChange: (r: LabelRow[]) => void; fields?: string[] }) {
+function LabelsEditor({ rows, onChange, fields = [], fieldHints }:
+  { rows: LabelRow[]; onChange: (r: LabelRow[]) => void; fields?: string[];
+    fieldHints?: Record<string, string> }) {
   const set = (i: number, patch: Partial<LabelRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const makePrimary = (i: number) => onChange(rows.map((r, j) => ({ ...r, primary: j === i })));
@@ -414,10 +437,15 @@ function LabelsEditor({ rows, onChange, fields = [] }:
             <option value="const">const (fixed)</option>
             <option value="field">field (per event)</option>
           </select>
-          <input className={"label-col-grow" + (row.kind === "field" ? " mono" : "")}
-                 list={row.kind === "field" && fields.length ? "provided-fields" : undefined}
-                 placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
-                 value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
+          {row.kind === "field" && fields.length ? (
+            <Combo className="label-col-grow" value={row.value} options={fields}
+                   hints={fieldHints} placeholder="field, e.g. service"
+                   onChange={(v) => set(i, { value: v })} />
+          ) : (
+            <input className="label-col-grow"
+                   placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
+                   value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
+          )}
           <button type="button" className="danger label-col-x" onClick={() => remove(i)}>×</button>
         </div>
       ))}
@@ -427,7 +455,6 @@ function LabelsEditor({ rows, onChange, fields = [] }:
       </button>
       {fields.length > 0 && (
         <>
-          <datalist id="provided-fields">{fields.map((f) => <option key={f} value={f} />)}</datalist>
           <div className="help" style={{ marginTop: 6 }}>
             this connector provides: {fields.map((f, i) => <span key={f}><code>{f}</code>{i < fields.length - 1 ? ", " : ""}</span>)}
             {" "}— pick a <code>field</code> from these (the source's page shows each field's coverage once data flows).
