@@ -143,9 +143,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       else if (f.type === "number") config[f.name] = Number(raw);
       else config[f.name] = raw;
     }
-    const labels = labelRows
-      .filter((r) => r.name.trim())
-      .map((r) => ({ name: r.name.trim(), [r.kind]: r.value, ...(r.primary ? { primary: true } : {}) }));
+    const labels = labelRows.filter((r) => r.name.trim()).map(rowToSpec);
     if (labels.length) config.labels = labels;
     if (!name.trim()) throw new Error("name is required");
     return { name: name.trim(), type, connector, poll: poll.trim() || spec.poll || "5s", config };
@@ -246,7 +244,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   // Editing labels re-processes every stored event for the source; warn before that happens.
   // Only meaningful when editing (initial present) — a fresh source has no stored events.
   const canonRows = (rs: LabelRow[]) =>
-    JSON.stringify(rs.filter((r) => r.name.trim()).map((r) => [r.name.trim(), r.kind, r.value, r.primary]));
+    JSON.stringify(rs.filter((r) => r.name.trim()).map(rowToSpec));
   const labelsChanged = !!initial && canonRows(labelRows) !== canonRows(labelsToRows(initial?.config?.labels));
 
   const renderField = (f: ConnectorField) =>
@@ -359,7 +357,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
 
       {spec.discover && spec.fields.filter((f) => !f.discover_input).map(renderField)}
 
-      <LabelsEditor rows={labelRows} onChange={setLabelRows}
+      <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
                     fields={labelFieldOpts} fieldHints={labelFieldHints} />
 
       {labelsChanged && (
@@ -384,22 +382,41 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   );
 }
 
-type LabelRow = { name: string; kind: "const" | "field"; value: string; primary: boolean };
+type MapRow = { from: string; to: string };
+type LabelRow = { name: string; kind: "const" | "field"; value: string; primary: boolean;
+                  pattern: string; replace: string; map: MapRow[]; normOpen: boolean };
 
 function labelsToRows(arr: unknown): LabelRow[] {
   if (!Array.isArray(arr)) return [];
   const rows = arr.map((x) => {
     const o = x as Record<string, unknown>;
     const kind: "const" | "field" = "field" in o ? "field" : "const";
-    return { name: String(o.name ?? ""), kind, value: String(o[kind] ?? ""), primary: !!o.primary };
+    const map = o.map && typeof o.map === "object"
+      ? Object.entries(o.map as Record<string, string>).map(([from, to]) => ({ from, to: String(to) }))
+      : [];
+    return { name: String(o.name ?? ""), kind, value: String(o[kind] ?? ""), primary: !!o.primary,
+             pattern: String(o.pattern ?? ""), replace: String(o.replace ?? ""), map,
+             normOpen: !!(o.pattern || map.length) };
   });
   if (rows.length && !rows.some((r) => r.primary)) rows[0].primary = true;  // first is the key by default
   return rows;
 }
 
-function LabelsEditor({ rows, onChange, fields = [], fieldHints }:
+/** Row -> label spec, including the optional value normalization (pattern/replace + alias map). */
+function rowToSpec(r: LabelRow): Record<string, unknown> {
+  const spec: Record<string, unknown> = { name: r.name.trim(), [r.kind]: r.value,
+                                          ...(r.primary ? { primary: true } : {}) };
+  if (r.kind === "field") {
+    if (r.pattern.trim()) { spec.pattern = r.pattern; spec.replace = r.replace; }
+    const map = Object.fromEntries(r.map.filter((m) => m.from.trim()).map((m) => [m.from, m.to]));
+    if (Object.keys(map).length) spec.map = map;
+  }
+  return spec;
+}
+
+function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
   { rows: LabelRow[]; onChange: (r: LabelRow[]) => void; fields?: string[];
-    fieldHints?: Record<string, string> }) {
+    fieldHints?: Record<string, string>; sourceName?: string }) {
   const set = (i: number, patch: Partial<LabelRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const makePrimary = (i: number) => onChange(rows.map((r, j) => ({ ...r, primary: j === i })));
@@ -426,31 +443,42 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints }:
         </div>
       )}
       {rows.map((row, i) => (
-        <div key={i} className="label-row">
-          <span className="label-col-key" title="make this the primary key">
-            <input type="radio" checked={row.primary} onChange={() => makePrimary(i)} />
-          </span>
-          <input className="label-col-grow" placeholder="e.g. service" value={row.name}
-                 onChange={(e) => set(i, { name: e.target.value })} />
-          <select className="label-col-from" value={row.kind}
-                  onChange={(e) => set(i, { kind: e.target.value as LabelRow["kind"] })}>
-            <option value="const">const (fixed)</option>
-            <option value="field">field (per event)</option>
-          </select>
-          {row.kind === "field" && fields.length ? (
-            <Combo className="label-col-grow" value={row.value} options={fields}
-                   hints={fieldHints} placeholder="field, e.g. service"
-                   onChange={(v) => set(i, { value: v })} />
-          ) : (
-            <input className="label-col-grow"
-                   placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
-                   value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
+        <div key={i}>
+          <div className="label-row">
+            <span className="label-col-key" title="make this the primary key">
+              <input type="radio" checked={row.primary} onChange={() => makePrimary(i)} />
+            </span>
+            <input className="label-col-grow" placeholder="e.g. service" value={row.name}
+                   onChange={(e) => set(i, { name: e.target.value })} />
+            <select className="label-col-from" value={row.kind}
+                    onChange={(e) => set(i, { kind: e.target.value as LabelRow["kind"] })}>
+              <option value="const">const (fixed)</option>
+              <option value="field">field (per event)</option>
+            </select>
+            {row.kind === "field" && fields.length ? (
+              <Combo className="label-col-grow" value={row.value} options={fields}
+                     hints={fieldHints} placeholder="field, e.g. service"
+                     onChange={(v) => set(i, { value: v })} />
+            ) : (
+              <input className="label-col-grow"
+                     placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
+                     value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
+            )}
+            {row.kind === "field" && (
+              <button type="button" title="normalize values (regex + aliases)"
+                      className={row.normOpen || row.pattern || row.map.length ? "active" : "dim"}
+                      onClick={() => set(i, { normOpen: !row.normOpen })}>≈</button>
+            )}
+            <button type="button" className="danger label-col-x" onClick={() => remove(i)}>×</button>
+          </div>
+          {row.kind === "field" && row.normOpen && (
+            <NormalizeEditor row={row} onChange={(patch) => set(i, patch)} sourceName={sourceName} />
           )}
-          <button type="button" className="danger label-col-x" onClick={() => remove(i)}>×</button>
         </div>
       ))}
       <button type="button"
-              onClick={() => onChange([...rows, { name: "", kind: "const", value: "", primary: rows.length === 0 }])}>
+              onClick={() => onChange([...rows, { name: "", kind: "const", value: "", primary: rows.length === 0,
+                                                  pattern: "", replace: "", map: [], normOpen: false }])}>
         + Add label
       </button>
       {fields.length > 0 && (
@@ -460,6 +488,181 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints }:
             {" "}— pick a <code>field</code> from these (the source's page shows each field's coverage once data flows).
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/** Merge value variants for one field label. User-first flow: show the values this field
+ *  actually has, let the user rename the odd ones onto a canonical one, and reflect the result
+ *  live. The regex lives behind an "advanced" toggle for whole families of variants. */
+function NormalizeEditor({ row, onChange, sourceName }:
+  { row: LabelRow; onChange: (patch: Partial<LabelRow>) => void; sourceName?: string }) {
+  const [preview, setPreview] = useState<{ sampled: number; distinct_before: number;
+    distinct_after: number; results: { from: string; to: string; events: number }[] }>();
+  const [pErr, setPErr] = useState<string>();
+  const [advanced, setAdvanced] = useState(!!row.pattern);
+
+  // live preview: on open (bare field -> the observed values), and after every edit (debounced)
+  useEffect(() => {
+    if (!sourceName || !row.value.trim()) return;
+    const t = setTimeout(async () => {
+      try {
+        setPErr(undefined);
+        setPreview(await api.labelPreview(sourceName, rowToSpec(row)));
+      } catch (e) { setPreview(undefined); setPErr(String((e as Error).message ?? e)); }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [sourceName, row.value, row.pattern, row.replace, JSON.stringify(row.map)]);
+
+  const observed = preview?.results ?? [];
+  const merges = observed.filter((r2) => r2.from !== r2.to).length;
+  const fromOpts = observed.map((r2) => r2.from);
+  const fromHints = Object.fromEntries(observed.map((r2) => [r2.from, `${r2.events} events`]));
+
+  const hasRules = !!row.pattern || row.map.length > 0;
+
+  return (
+    <div className="panel" style={{ margin: "2px 0 10px 28px", padding: 12 }}>
+      <div className="pagehead" style={{ marginBottom: 6 }}>
+        <strong>Merge value variants</strong>
+        <span className="btnrow">
+          {hasRules && (
+            <button type="button" className="danger"
+                    title="discard the pattern rule and all renames for this label"
+                    onClick={() => { onChange({ pattern: "", replace: "", map: [] }); }}>
+              Clear
+            </button>
+          )}
+          <button type="button" onClick={() => onChange({ normOpen: false })}>Done</button>
+        </span>
+      </div>
+      <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 8, whiteSpace: "normal" }}>
+        If the same thing appears under different names
+        (say <span className="mono">checkout</span> and <span className="mono">checkout-svc</span>),
+        they count as different entities and won&rsquo;t correlate. Rename the variants onto one
+        name here. Renaming never loses data — the original value stays in the stored event.
+      </span>
+
+      {pErr && <div className="alert error">{pErr}</div>}
+
+      {sourceName && preview && (
+        <div style={{ marginBottom: 10 }}>
+          <span className="help">
+            This field has <strong>{preview.distinct_before}</strong> distinct value{preview.distinct_before === 1 ? "" : "s"} in
+            recent events{merges > 0 && <> — with your renames it becomes <strong>{preview.distinct_after}</strong></>}:
+          </span>
+          <table style={{ marginTop: 6 }}>
+            <thead><tr><th>value seen</th><th className="num">events</th><th>will become</th></tr></thead>
+            <tbody>
+              {observed.slice(0, 12).map((r2, k) => (
+                <tr key={k}>
+                  <td className="mono">{r2.from}</td>
+                  <td className="num">{r2.events}</td>
+                  <td className="mono">
+                    {r2.from === r2.to
+                      ? <span className="dim">unchanged</span>
+                      : <><span className="badge ok" style={{ marginRight: 6 }}>→</span>{r2.to}</>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {sourceName && !preview && !pErr && <div className="dim" style={{ marginBottom: 10 }}>loading observed values…</div>}
+      {!sourceName && (
+        <span className="help" style={{ display: "block", marginBottom: 10 }}>
+          (once this source has data, its actual values will show here so you can pick what to rename)
+        </span>
+      )}
+
+      {row.map.map((m, j) => (
+        <div key={j} className="btnrow" style={{ marginBottom: 6, alignItems: "center" }}>
+          <span className="help">rename</span>
+          <Combo style={{ flex: 1 }} value={m.from} options={fromOpts} hints={fromHints}
+                 placeholder="value seen in the data"
+                 onChange={(v) => onChange({ map: row.map.map((x, k) => k === j ? { ...x, from: v } : x) })} />
+          <span className="help">to</span>
+          <input className="mono" style={{ flex: 1 }} placeholder="the name it should have"
+                 value={m.to}
+                 onChange={(e) => onChange({ map: row.map.map((x, k) => k === j ? { ...x, to: e.target.value } : x) })} />
+          <button type="button" className="danger" onClick={() => onChange({ map: row.map.filter((_, k) => k !== j) })}>×</button>
+        </div>
+      ))}
+      <div className="btnrow">
+        <button type="button" onClick={() => onChange({ map: [...row.map, { from: "", to: "" }] })}>
+          + Rename a value
+        </button>
+        <button type="button" className="dim" onClick={() => setAdvanced((a) => !a)}>
+          {advanced ? "hide pattern rule" : "advanced: pattern rule…"}
+        </button>
+      </div>
+
+      {advanced && (
+        <PatternRule key={row.pattern === "" ? "empty" : "set"} row={row} onChange={onChange} />
+      )}
+    </div>
+  );
+}
+
+const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+type RuleKind = "suffix" | "prefix" | "after" | "custom";
+
+/** Builds the pattern for the user from plain choices — "remove the ending -svc" — so nobody has
+ *  to write a regex unless they pick custom. The stored config is still just pattern/replace. */
+function PatternRule({ row, onChange }:
+  { row: LabelRow; onChange: (patch: Partial<LabelRow>) => void }) {
+  const [kind, setKind] = useState<RuleKind>(row.pattern ? "custom" : "suffix");
+  const [text, setText] = useState("");
+
+  const apply = (k: RuleKind, t: string) => {
+    if (k === "suffix") onChange({ pattern: t ? `${escRe(t)}$` : "", replace: "" });
+    else if (k === "prefix") onChange({ pattern: t ? `^${escRe(t)}` : "", replace: "" });
+    else if (k === "after") onChange({ pattern: t ? `${escRe(t)}.*$` : "", replace: "" });
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <span className="help" style={{ display: "block", marginBottom: 6, whiteSpace: "normal" }}>
+        A pattern rule fixes a whole family of values at once (it runs before the renames above).
+        The table shows its effect live.
+      </span>
+      <div className="btnrow" style={{ alignItems: "center" }}>
+        <select value={kind} style={{ maxWidth: 260 }}
+                onChange={(e) => { const k = e.target.value as RuleKind; setKind(k);
+                                   if (k === "custom") return; apply(k, text); }}>
+          <option value="suffix">remove this ending</option>
+          <option value="prefix">remove this beginning</option>
+          <option value="after">cut everything from … onwards</option>
+          <option value="custom">custom (regular expression)</option>
+        </select>
+        {kind !== "custom" ? (
+          <input className="mono" style={{ flex: 1 }}
+                 placeholder={kind === "suffix" ? "e.g. -svc" : kind === "prefix" ? "e.g. prod-" : "e.g. ."}
+                 value={text}
+                 onChange={(e) => { setText(e.target.value); apply(kind, e.target.value); }} />
+        ) : (
+          <>
+            <input className="mono" style={{ flex: 2 }} placeholder="regex, e.g. -(service|svc)$"
+                   value={row.pattern} onChange={(e) => onChange({ pattern: e.target.value })} />
+            <input className="mono" style={{ flex: 1 }} placeholder="replacement (empty = remove)"
+                   value={row.replace} onChange={(e) => onChange({ replace: e.target.value })} />
+          </>
+        )}
+      </div>
+      {kind === "suffix" && (
+        <span className="help">e.g. entering <span className="mono">-svc</span> turns{" "}
+          <span className="mono">checkout-svc</span> into <span className="mono">checkout</span></span>
+      )}
+      {kind === "prefix" && (
+        <span className="help">e.g. entering <span className="mono">prod-</span> turns{" "}
+          <span className="mono">prod-checkout</span> into <span className="mono">checkout</span></span>
+      )}
+      {kind === "after" && (
+        <span className="help">e.g. entering <span className="mono">.</span> turns{" "}
+          <span className="mono">checkout.internal.eu</span> into <span className="mono">checkout</span></span>
       )}
     </div>
   );

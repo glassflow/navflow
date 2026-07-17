@@ -7,6 +7,7 @@ import AuthGate from "./components/AuthGate";
 import AgentActivity, { ConnectPage } from "./pages/Activity";
 import Ask from "./pages/Ask";
 import Explore from "./pages/Explore";
+import Organize from "./pages/Organize";
 import SourceClaudeCode from "./pages/SourceClaudeCode";
 import SourceDetail from "./pages/SourceDetail";
 import SourceDiscover from "./pages/SourceDiscover";
@@ -27,6 +28,7 @@ const router = createBrowserRouter([
       { path: "sources/claude-code", element: <SourceClaudeCode /> },
       { path: "sources/new", element: <SourceNew /> },
       { path: "sources/:name", element: <SourceDetail /> },
+      { path: "organize", element: <Organize /> },
       { path: "explore", element: <Explore /> },
       { path: "views", element: <ViewsPage /> },
       { path: "triggers", element: <TriggersPage /> },

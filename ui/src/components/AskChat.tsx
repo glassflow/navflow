@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { anthropicKey, authHeader } from "../api";
+import { api, anthropicKey, authHeader } from "../api";
 
 // The Ask assistant, extracted so it can back both the dedicated /ask page and the global ⌘K
 // command palette. Same engine, two doors: the page for long sessions, the overlay to ask from
@@ -41,13 +41,21 @@ function compact(v: unknown): string {
 export default function AskChat() {
   const [key, setKeyState] = useState(anthropicKey.get());
   const [keyInput, setKeyInput] = useState("");
+  // A hosted cell can carry a server-provisioned key — then the console never prompts.
+  const [serverKey, setServerKey] = useState<boolean>();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    api.capabilities().then((c) => setServerKey(!!c.agent_key_configured)).catch(() => setServerKey(false));
+  }, []);
 
-  if (!key) return <KeySetup onSave={(k) => { anthropicKey.set(k); setKeyState(k); }}
-                            value={keyInput} onChange={setKeyInput} />;
+  if (serverKey === undefined) return <div className="dim">loading…</div>;
+  if (!key && !serverKey) {
+    return <KeySetup onSave={(k) => { anthropicKey.set(k); setKeyState(k); }}
+                     value={keyInput} onChange={setKeyInput} />;
+  }
 
   const mutLast = (fn: (parts: Part[]) => Part[]) =>
     setMsgs((cur) => cur.map((m, i) => (i === cur.length - 1 ? { ...m, parts: fn(m.parts) } : m)));
@@ -68,7 +76,8 @@ export default function AskChat() {
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
-        headers: { "content-type": "application/json", "X-Anthropic-Key": key, ...authHeader() },
+        headers: { "content-type": "application/json",
+                   ...(key ? { "X-Anthropic-Key": key } : {}), ...authHeader() },
         body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: textOf(m) })) }),
       });
       if (!res.ok || !res.body) {
@@ -104,7 +113,9 @@ export default function AskChat() {
   return (
     <div className="askchat">
       <div className="chat-tools">
-        <button className="dim" onClick={() => { anthropicKey.clear(); setKeyState(""); }}>change key</button>
+        {key
+          ? <button className="dim" onClick={() => { anthropicKey.clear(); setKeyState(""); }}>change key</button>
+          : <span className="dim">using this instance&rsquo;s key</span>}
       </div>
 
       <div className="chat" ref={scrollRef}>

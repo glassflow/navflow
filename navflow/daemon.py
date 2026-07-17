@@ -48,6 +48,10 @@ INGEST_TOKEN = os.getenv("NAVFLOW_INGEST_TOKEN", "").strip()
 # If set, the whole API + console require this token (self-hosted single-tenant). The SPA shell and
 # static assets stay public so the login screen can load; ingest uses its own token (above).
 AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
+# Server-provisioned Anthropic key for the in-app agent (Ask/Organize). Set at deploy time on
+# hosted cells so users never paste a key; absent locally, the console prompts (BYO, unchanged).
+# Never returned by any API — capabilities exposes only a boolean.
+ANTHROPIC_KEY = os.getenv("NAVFLOW_ANTHROPIC_KEY", "").strip()
 # Vercel verifies a log-drain endpoint by checking an x-vercel-verify response header. Set this to
 # the value Vercel shows when adding the drain (or rely on echoing the request's header).
 VERCEL_VERIFY = os.getenv("NAVFLOW_VERCEL_VERIFY", "").strip()
@@ -652,7 +656,51 @@ def make_app() -> FastAPI:
         import shutil
         return {
             "discover_docker": shutil.which("docker") is not None or os.path.exists("/var/run/docker.sock"),
+            "agent_key_configured": bool(ANTHROPIC_KEY),
         }
+
+    @app.post("/api/labels/preview")
+    async def label_preview(body: dict = Body(...)):
+        """Pure preview of a label spec's value normalization against a source's OBSERVED values:
+        before -> after with event counts, so the user sees the merge they're about to create
+        before saving (docs/design/label-value-normalization.md). No state is touched."""
+        from collections import Counter
+
+        from .config import extract_labels
+        from .connectors import build_connector, normalize_label_specs
+
+        source = body.get("source")
+        spec = body.get("label") or {}
+        cfg = runtime.catalog.sources.get(str(source))
+        if cfg is None:
+            _err(KeyError(f"unknown source {source!r}"), 404)
+        try:   # validate the label spec exactly like a save would (bad regex -> 400 here)
+            normalized = normalize_label_specs([spec])
+        except CatalogError as e:
+            _err(e)
+        if not normalized or "field" not in normalized[0]:
+            _err(ValueError("preview needs a field label spec"))
+        lspec = normalized[0]
+
+        conn = build_connector(cfg, store)
+        pairs: Counter = Counter()   # (before, after) -> events
+        sampled = 0
+        for payload in store.recent_payloads(cfg.name, 2000):
+            ctx = conn.label_context(payload)
+            if not isinstance(ctx, dict):
+                continue
+            sampled += 1
+            plain = extract_labels([{k: v for k, v in lspec.items() if k not in ("pattern", "replace", "map")}], ctx)
+            if lspec["name"] not in plain:
+                continue
+            before = plain[lspec["name"]]
+            after = extract_labels([lspec], ctx)[lspec["name"]]
+            pairs[(before, after)] += 1
+        results = [{"from": b, "to": a, "events": n}
+                   for (b, a), n in sorted(pairs.items(), key=lambda kv: -kv[1])]
+        return {"sampled": sampled, "results": results,
+                "distinct_before": len({b for b, _ in pairs}),
+                "distinct_after": len({a for _, a in pairs})}
 
     @app.post("/api/sources/discover")
     async def discover_source(body: dict = Body(...)):
@@ -842,7 +890,8 @@ def make_app() -> FastAPI:
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
         from .agent import run_agent
-        key = request.headers.get("x-anthropic-key", "").strip()
+        # per-request header key wins (a user override); the server-provisioned key is the fallback
+        key = request.headers.get("x-anthropic-key", "").strip() or ANTHROPIC_KEY
         if not key:
             _err(ValueError("add your Anthropic API key to use the assistant"), 400)
         body = await request.json()
