@@ -12,7 +12,7 @@ export default function SourceDetail() {
   const { name = "" } = useParams();
   const nav = useNavigate();
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>();
-  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<"fields" | "events" | "config">("fields");
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
@@ -46,7 +46,6 @@ export default function SourceDetail() {
           {source.paused
             ? <button onClick={act(() => api.resumeSource(name))}>Resume</button>
             : <button onClick={act(() => api.pauseSource(name))}>Pause</button>}
-          <button onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit config"}</button>
           <button className="danger" onClick={() => { setPurge(false); setConfirmDel(true); }}>Delete</button>
         </div>
       </div>
@@ -68,11 +67,18 @@ export default function SourceDetail() {
         </div>
       )}
 
-      <FieldsPanel name={name} />
+      <LabelsSummary source={source} onEdit={() => setTab("config")} />
 
-      {editing && spec && (
+      <div className="tabs" style={{ marginTop: 16 }}>
+        <button className={tab === "fields" ? "active" : ""} onClick={() => setTab("fields")}>Fields</button>
+        <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>Recent events</button>
+        <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
+      </div>
+
+      {tab === "fields" && <FieldsPanel name={name} />}
+
+      {tab === "config" && spec && (
         <div className="panel">
-          <h2 style={{ marginTop: 0 }}>Edit config</h2>
           <SourceForm
             connector={source.connector}
             spec={spec}
@@ -81,29 +87,32 @@ export default function SourceDetail() {
             submitLabel="Save changes"
             onSubmit={async (body) => {
               await api.updateSource(name, body);
-              setEditing(false);
+              setTab("fields");
               reload();
             }}
           />
         </div>
       )}
 
-      <h2>Recent events</h2>
-      {!events?.length && <div className="empty">nothing ingested from this source yet</div>}
-      {!!events?.length && (
-        <table>
-          <thead><tr><th>ingested</th><th>key</th><th>type</th><th>text</th></tr></thead>
-          <tbody>
-            {events.map((e, i) => (
-              <tr key={i}>
-                <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={e.ingest_time} /></td>
-                <td className="mono">{e.key}</td>
-                <td className="mono">{e.event_type}</td>
-                <td className="mono" style={{ whiteSpace: "pre-wrap" }}>{e.text}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {tab === "events" && (
+        <>
+          {!events?.length && <div className="empty">nothing ingested from this source yet</div>}
+          {!!events?.length && (
+            <table>
+              <thead><tr><th>ingested</th><th>key</th><th>type</th><th>text</th></tr></thead>
+              <tbody>
+                {events.map((e, i) => (
+                  <tr key={i}>
+                    <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={e.ingest_time} /></td>
+                    <td className="mono">{e.key}</td>
+                    <td className="mono">{e.event_type}</td>
+                    <td className="mono" style={{ whiteSpace: "pre-wrap" }}>{e.text}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
       )}
 
       {confirmDel && (
@@ -136,18 +145,70 @@ export default function SourceDetail() {
 // label set) are flattened to sub-fields (metric.service, …) so the real keyable axes are visible;
 // the backend marks which are declared labels/keys. Coverage is only shown when it varies (a full
 // 100%-everywhere column is noise), so partial fields stand out.
+// The declared entity axes — the single most important config of a source, so it lives on the
+// main screen (not buried in the edit form): every event carries these labels, the key names
+// the timeline agents read.
+function LabelsSummary({ source, onEdit }: { source: Source; onEdit: () => void }) {
+  const labels = (source.config?.labels ?? []) as Array<{
+    name: string; field?: string; const?: string; primary?: boolean }>;
+  return (
+    <div className="panel" style={{ marginTop: 14 }}>
+      <div className="pagehead" style={{ marginBottom: labels.length ? 8 : 0 }}>
+        <h2 style={{ margin: 0 }}>Labels &amp; key</h2>
+        <button onClick={onEdit}>Edit</button>
+      </div>
+      {labels.length ? (
+        <table>
+          <thead><tr><th>label</th><th>from</th></tr></thead>
+          <tbody>
+            {labels.map((l) => (
+              <tr key={l.name}>
+                <td className="mono">
+                  {l.name}
+                  {l.primary && <span className="badge ok" style={{ marginLeft: 8 }}>key</span>}
+                </td>
+                <td className="mono">
+                  {"field" in l && l.field
+                    ? <><span className="badge push" style={{ marginRight: 8 }}>field</span>{l.field}</>
+                    : <><span className="badge push" style={{ marginRight: 8 }}>const</span>{String(l.const ?? "")}</>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="help" style={{ margin: 0, whiteSpace: "normal" }}>
+          No labels declared — events fall back to the connector&rsquo;s default key, and agents
+          can&rsquo;t slice this source by any axis. Check <strong>Fields</strong> below for the
+          candidates observed in your data, then declare them here.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const FIELDS_PAGE = 12;
+
 function FieldsPanel({ name }: { name: string }) {
   const { data } = usePolling(() => api.sourceFields(name), 5000);
+  const [showAll, setShowAll] = useState(false);
   if (!data || !data.fields.length) return null;
   const allFull = data.fields.every((f) => f.coverage === data.sampled);
   const fmt = (v: string) => (v.length > 44 ? v.slice(0, 43) + "…" : v);
+  // keys and labels lead, then by how many events actually carry the field — the most
+  // promotable candidates come first, long tails of sparse fields fold behind "show all"
+  const sorted = [...data.fields].sort((a, b) =>
+    (a.is_key ? 0 : a.is_label ? 1 : 2) - (b.is_key ? 0 : b.is_label ? 1 : 2)
+    || b.coverage - a.coverage || a.name.localeCompare(b.name));
+  const shown = showAll ? sorted : sorted.slice(0, FIELDS_PAGE);
   return (
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Fields <small className="dim">· {data.sampled} events sampled</small></h2>
       <p className="subtitle">
-        What this source carries. <span className="badge ok">key</span> and{" "}
-        <span className="badge starting">label</span> mark the axes you read and alert by; the rest
-        are available to promote to a label.
+        The axes this connector can label events by, profiled from recent events (the full raw
+        payload is always stored regardless). <span className="badge ok">key</span> and{" "}
+        <span className="badge starting">label</span> mark what you read and alert by today; the
+        rest can be promoted to a label in <strong>Configuration</strong>.
       </p>
       <table>
         <thead><tr>
@@ -157,12 +218,19 @@ function FieldsPanel({ name }: { name: string }) {
           <th>top values</th>
         </tr></thead>
         <tbody>
-          {data.fields.map((f) => (
-            <tr key={f.name}>
+          {shown.map((f) => (
+            <tr key={f.name} style={f.coverage === 0 ? { opacity: 0.55 } : undefined}>
               <td className="mono">
                 {f.name}
                 {f.is_key ? <span className="badge ok" style={{ marginLeft: 6 }}>key</span>
                   : f.is_label ? <span className="badge starting" style={{ marginLeft: 6 }}>label</span> : null}
+                {f.coverage === 0 && (
+                  <div className="help" style={{ fontFamily: "inherit" }}>
+                    not observed in the sample{(f.is_key || f.is_label)
+                      ? " — declared as a label but no event carries it; check the field mapping"
+                      : ""}
+                  </div>
+                )}
               </td>
               {!allFull && (
                 <td>
@@ -186,6 +254,11 @@ function FieldsPanel({ name }: { name: string }) {
           ))}
         </tbody>
       </table>
+      {sorted.length > FIELDS_PAGE && (
+        <button style={{ marginTop: 10 }} onClick={() => setShowAll((s) => !s)}>
+          {showAll ? "show fewer" : `show all ${sorted.length} fields`}
+        </button>
+      )}
       {allFull && <p className="help" style={{ marginTop: 8 }}>Every field is present in all {data.sampled} sampled events.</p>}
     </div>
   );

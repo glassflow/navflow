@@ -220,6 +220,13 @@ def extract_labels(specs, context: dict | None = None) -> dict:
             out[name] = str(spec["const"])
         elif "field" in spec:
             v = ctx.get(spec["field"]) if isinstance(ctx, dict) else None
+            if v is None and isinstance(ctx, dict) and "." in str(spec["field"]):
+                # dotted path into a nested context (the field profile shows e.g. metric.service;
+                # promoting that name must extract it too)
+                head, _, tail = str(spec["field"]).partition(".")
+                sub = ctx.get(head)
+                if isinstance(sub, dict):
+                    v = sub.get(tail)
             if v is not None:
                 out[name] = str(v)
     return out
