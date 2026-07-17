@@ -102,6 +102,9 @@ def full_schema(connector: str) -> dict | None:
 _LABEL_NAME = _re.compile(r"^[A-Za-z0-9_]+$")
 
 
+_MAX_PATTERN_LEN = 256
+
+
 def _coerce_labels(val) -> list:
     out, primaries = [], 0
     for spec in val:
@@ -113,6 +116,29 @@ def _coerce_labels(val) -> list:
             raise CatalogError(f"label {spec['name']!r} needs exactly one of const or field")
         row = {"name": str(spec["name"]),
                **({"const": str(spec["const"])} if "const" in spec else {"field": str(spec["field"])})}
+        # value normalization (field labels only): one regex substitution, then one exact-alias
+        # map — validated here so a bad pattern is a save-time 400, never a per-event failure
+        # (docs/design/label-value-normalization.md)
+        if any(k in spec for k in ("pattern", "replace", "map")):
+            if "const" in spec:
+                raise CatalogError(f"label {row['name']!r}: normalization applies to field labels only")
+            if spec.get("pattern"):
+                pat = str(spec["pattern"])
+                if len(pat) > _MAX_PATTERN_LEN:
+                    raise CatalogError(f"label {row['name']!r}: pattern too long (max {_MAX_PATTERN_LEN})")
+                try:
+                    _re.compile(pat)
+                except _re.error as e:
+                    raise CatalogError(f"label {row['name']!r}: invalid pattern: {e}")
+                row["pattern"] = pat
+                row["replace"] = str(spec.get("replace") or "")
+            elif "replace" in spec and spec.get("replace"):
+                raise CatalogError(f"label {row['name']!r}: replace needs a pattern")
+            if spec.get("map"):
+                if not isinstance(spec["map"], dict):
+                    raise CatalogError(f"label {row['name']!r}: map must be an object of "
+                                       "observed-value -> canonical-value strings")
+                row["map"] = {str(k): str(v) for k, v in spec["map"].items()}
         if spec.get("primary"):       # the primary label is the entity key
             row["primary"] = True
             primaries += 1
@@ -158,6 +184,12 @@ def _normalize_against(schema: dict, raw, where: str) -> dict:
     if unknown:
         raise CatalogError(f"{where}: unknown keys {sorted(unknown)}")
     return out
+
+
+def normalize_label_specs(specs: list) -> list:
+    """Validate/canonicalize label specs alone (same rules as a config save) — for callers that
+    work with a label spec outside a full source config, e.g. the normalization preview."""
+    return _coerce_labels(specs or [])
 
 
 def normalize_config(connector: str, raw: dict) -> dict:

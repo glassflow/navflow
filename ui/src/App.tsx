@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
-  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon,
+  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon, Tag,
   Settings as SettingsIco, SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
@@ -24,6 +24,7 @@ type NavItem = {
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "Data in", items: [
     { to: "/", end: true, label: "Sources", icon: Database },
+    { to: "/organize", label: "Organize", icon: Tag },
   ] },
   { section: "The timeline", items: [
     { to: "/explore", label: "Explore", icon: Activity },
@@ -37,6 +38,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
 ];
 
 const SECTION_LABEL: Record<string, string> = {
+  organize: "Organize",
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",

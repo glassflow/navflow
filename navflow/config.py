@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field as dc_field
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -203,6 +204,27 @@ def _check_duration(value, label: str) -> None:
         raise CatalogError(f"{label}: {value!r} is not a duration (use e.g. '5s', '15m', '1h')")
 
 
+@lru_cache(maxsize=256)
+def _compiled(pattern: str):
+    return re.compile(pattern)
+
+
+def _normalize_value(spec: dict, raw: str) -> str:
+    """Value normalization for one field label: regex substitution first, exact-alias map second
+    (map keys are written against the cleaned form). Fail-open: any error keeps the raw value —
+    the lossless payload always preserves the original, so normalization is never destructive."""
+    v = raw
+    try:
+        if spec.get("pattern"):
+            v = _compiled(spec["pattern"]).sub(spec.get("replace", ""), v)
+        m = spec.get("map")
+        if m:
+            v = m.get(v, v)
+    except Exception:
+        return raw
+    return v
+
+
 def extract_labels(specs, context: dict | None = None) -> dict:
     """Build an event's label map from a source's `labels` config and a per-event context dict.
 
@@ -228,7 +250,7 @@ def extract_labels(specs, context: dict | None = None) -> dict:
                 if isinstance(sub, dict):
                     v = sub.get(tail)
             if v is not None:
-                out[name] = str(v)
+                out[name] = _normalize_value(spec, str(v))
     return out
 
 

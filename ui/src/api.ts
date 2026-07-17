@@ -58,7 +58,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; readonly: boolean; auth_required: boolean }>("/health"),
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
-  capabilities: () => request<{ discover_docker: boolean }>("/api/capabilities"),
+  capabilities: () =>
+    request<{ discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),
   security: () =>
     request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
   keys: () => request<{ keys: ApiKey[]; enforced: boolean; scopes: string[] }>("/api/keys"),
@@ -90,6 +91,10 @@ export const api = {
     request<SourceEvent[]>(`/api/sources/${name}/events?limit=${limit}`),
   sourceFields: (name: string) =>
     request<SourceFieldsProfile>(`/api/sources/${name}/fields`),
+  labelPreview: (source: string, label: Record<string, unknown>) =>
+    request<{ sampled: number; distinct_before: number; distinct_after: number;
+              results: { from: string; to: string; events: number }[] }>(
+      "/api/labels/preview", { method: "POST", body: JSON.stringify({ source, label }) }),
 
   views: () => request<View[]>("/api/views"),
   createView: (body: View) =>
