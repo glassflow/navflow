@@ -54,7 +54,9 @@ class GithubConnector(Connector):
         "repo": {"type": "string", "required": True, "discover_input": True,
                  "help": "owner/name, e.g. glassflow/navflow (a pasted GitHub URL works too)"},
         "branch": {"type": "string",
-                   "help": "branch to follow (default: the repo's default branch)"},
+                   "help": "branch to follow (empty = the repo's default branch, labeled by its "
+                           "real name). One source follows one branch — add a source per branch "
+                           "to watch several"},
         "token": {"type": "string", "secret": True, "discover_input": True,
                   "help": "GitHub token — required for private repos, recommended otherwise: "
                           "without one GitHub allows 60 API requests/hour per IP "
@@ -71,27 +73,22 @@ class GithubConnector(Connector):
         {"name": "branch", "help": "branch followed"},
     ]
 
-    async def poll(self):
-        c = self.cfg.config
-        repo = _normalize_repo(c["repo"])
-        api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
-        token = c.get("token") or os.getenv("GITHUB_TOKEN")
-        params = {"per_page": int(c.get("limit", 20))}
-        if c.get("branch"):
-            params["sha"] = c["branch"]
+    async def _get(self, cx, url: str, token: str | None, params: dict, etag_key: str, repo: str):
+        """One conditional GET with the shared error surface. Returns parsed JSON, or None on 304
+        (a 304 costs nothing against the rate limit, so steady polling only spends quota on
+        actual change)."""
+        etags = getattr(self, "_etags", None)
+        if etags is None:
+            etags = self._etags = {}
         headers = _headers(token)
-        # Conditional request: a 304 costs nothing against the rate limit (60/h unauthenticated),
-        # so steady polling only spends quota when there are actually new commits.
-        etag = getattr(self, "_etag", None)
-        if etag:
-            headers["If-None-Match"] = etag
+        if etag_key in etags:
+            headers["If-None-Match"] = etags[etag_key]
         try:
-            async with httpx.AsyncClient(timeout=15) as cx:
-                r = await cx.get(f"{api}/repos/{repo}/commits", params=params, headers=headers)
+            r = await cx.get(url, params=params, headers=headers)
         except Exception as e:
             raise ValueError(f"could not reach GitHub: {e}")
         if r.status_code == 304:
-            return []   # unchanged since last poll
+            return None
         if r.status_code in (403, 429) and r.headers.get("x-ratelimit-remaining") == "0":
             raise ValueError("GitHub rate limit exhausted (unauthenticated: 60 requests/hour per IP)"
                              " — set a token or raise the poll interval")
@@ -103,11 +100,29 @@ class GithubConnector(Connector):
             raise ValueError("GitHub rejected the token (401 unauthorized)")
         if r.status_code != 200:
             raise ValueError(f"GitHub returned {r.status_code} for {repo!r}")
-        self._etag = r.headers.get("etag")
-        commits = r.json()
+        if r.headers.get("etag"):
+            etags[etag_key] = r.headers["etag"]
+        return r.json()
+
+    async def poll(self):
+        c = self.cfg.config
+        repo = _normalize_repo(c["repo"])
+        api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
+        token = c.get("token") or os.getenv("GITHUB_TOKEN")
+        limit = int(c.get("limit", 20))
+        async with httpx.AsyncClient(timeout=15) as cx:
+            branch = str(c.get("branch") or "")
+            if not branch:
+                # no branch configured: follow the repo's default branch — resolved once by name
+                # so the branch label is real ("main"), not blank
+                if not getattr(self, "_default_branch", None):
+                    meta = await self._get(cx, f"{api}/repos/{repo}", token, {}, "meta", repo)
+                    self._default_branch = (meta or {}).get("default_branch") or "main"
+                branch = self._default_branch
+            commits = await self._get(cx, f"{api}/repos/{repo}/commits", token,
+                                      {"per_page": limit, "sha": branch}, f"c:{branch}", repo)
         if not isinstance(commits, list) or not commits:
             return []
-
         cursor = self.store.get_cursor(self.cfg.name)
         new = []
         for commit in commits:           # newest first; stop at the last-seen SHA
@@ -115,13 +130,13 @@ class GithubConnector(Connector):
                 break
             new.append(commit)
         self.store.set_cursor(self.cfg.name, commits[0].get("sha"))
-
-        ctx_base = {"repo": repo, "branch": c.get("branch") or ""}
-        return [self._commit_envelope(commit, ctx_base) for commit in reversed(new)]  # chronological
+        return [self._commit_envelope({**commit, "_branch": branch}, repo)
+                for commit in reversed(new)]  # chronological
 
     def label_context(self, commit: dict | None) -> dict:
-        # repo/branch come from config; author/sha are synthesized from the commit. Shared by ingest
-        # and backfill so the synthesized labels survive a relabel.
+        # repo comes from config; branch from config or the `_branch` the poller stamped into the
+        # payload (multi-branch mode); author/sha from the commit. Shared by ingest and backfill
+        # so the synthesized labels survive a relabel.
         commit = commit or {}
         c = self.cfg.config
         cm = commit.get("commit") or {}
@@ -131,17 +146,19 @@ class GithubConnector(Connector):
             repo = _normalize_repo(c.get("repo"))
         except ValueError:
             repo = c.get("repo")
-        return {"repo": repo, "branch": c.get("branch") or "", "author": login,
-                "author_name": cm_author.get("name"), "sha": commit.get("sha", "")}
+        return {"repo": repo, "branch": c.get("branch") or commit.get("_branch") or "",
+                "author": login, "author_name": cm_author.get("name"),
+                "sha": commit.get("sha", "")}
 
-    def _commit_envelope(self, commit: dict, ctx_base: dict) -> Envelope:
+    def _commit_envelope(self, commit: dict, repo_or_ctx) -> Envelope:
         sha = commit.get("sha", "")
         cm = commit.get("commit") or {}
         cm_author = cm.get("author") or {}
         login = (commit.get("author") or {}).get("login") or cm_author.get("name") or "unknown"
         summary = (cm.get("message") or "").strip().splitlines()[0] if cm.get("message") else ""
         ctx = self.label_context(commit)
-        labels, key = self.keyed(ctx, fallback=ctx_base["repo"])
+        fallback = repo_or_ctx["repo"] if isinstance(repo_or_ctx, dict) else repo_or_ctx
+        labels, key = self.keyed(ctx, fallback=fallback)
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type="commit", text=f"{sha[:7]} {login}: {summary}"[:300],
@@ -184,6 +201,7 @@ class GithubConnector(Connector):
             "proposed_config": {
                 "repo": repo, "branch": branch,
                 "labels": [{"name": "repo", "field": "repo", "primary": True},
-                           {"name": "author", "field": "author"}],
+                           {"name": "author", "field": "author"},
+                           {"name": "branch", "field": "branch"}],
             },
         }
