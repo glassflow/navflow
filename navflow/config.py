@@ -287,7 +287,7 @@ def validate_source_dict(s: dict) -> None:
 
 
 _FILTER_OPS = {"eq", "neq", "contains", "gt", "lt", "gte", "lte"}
-_FILTER_FIELD_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_FILTER_FIELD_RE = re.compile(r"^[A-Za-z0-9_.]+$")   # dots: raw payload fields (OTLP et al.)
 
 
 def validate_view_dict(v: dict, source_names: set) -> None:
@@ -305,7 +305,7 @@ def validate_view_dict(v: dict, source_names: set) -> None:
                 f"view {v['name']!r}: each filter needs field, op and value (got {f!r})")
         if not _FILTER_FIELD_RE.match(str(f["field"])):
             raise CatalogError(
-                f"view {v['name']!r}: filter field {f['field']!r} must be alphanumeric/_")
+                f"view {v['name']!r}: filter field {f['field']!r} must be alphanumeric/_/.")
         if f["op"] not in _FILTER_OPS:
             raise CatalogError(
                 f"view {v['name']!r}: filter op must be one of {sorted(_FILTER_OPS)}")
