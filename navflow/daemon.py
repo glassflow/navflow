@@ -189,7 +189,8 @@ def make_app() -> FastAPI:
             store.upsert_catalog_source(
                 "otlp", source_type_for("otlp"), "otlp", "5s",
                 normalize_config("otlp", {"labels": [
-                    {"name": "service", "field": "service.name", "primary": True}]}))
+                    {"name": "service", "field": "resourceAttributes.service.name",
+                     "primary": True}]}))
             runtime.reload_catalog()
             print("navflowd: auto-provisioned OTLP source 'otlp'")
             return "otlp"
