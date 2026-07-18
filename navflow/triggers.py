@@ -64,6 +64,13 @@ async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=No
             last = store.last_fired(trig.name, fire_key)
             if last and (now_utc() - _aware(last)).total_seconds() < trig.cooldown_seconds:
                 continue
+            # Record the firing decision BEFORE rendering/delivering. Both store calls above and
+            # this one are synchronous — no await between check and set — so on the single event
+            # loop the cooldown check is an atomic critical section. Recording after delivery
+            # left the whole delivery await as a window where a concurrent ingest re-evaluated
+            # and double-fired. Cooldown rate-limits decisions; delivery outcomes are the
+            # dispatcher's ledger (dispatch_deliveries).
+            store.set_fired(trig.name, fire_key, now_utc())
 
             # Detection uses the (narrow) condition window; the attached context is wider so the
             # woken agent gets the correlating deploy/config, not just the spike that tripped it.
@@ -72,7 +79,6 @@ async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=No
                                     key=(fire_key if legacy else None),
                                     window=ctx_window, where=where)
             await dispatcher.fire(trig, fire_key, payload)
-            store.set_fired(trig.name, fire_key, now_utc())
             fired.append((trig.name, fire_key))
 
     return fired

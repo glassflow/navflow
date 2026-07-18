@@ -35,7 +35,7 @@ async def main():
         srcs={s["name"]:s for s in (await cx.get("/api/sources")).json()}
         ck("auto-provisioned 'otlp' source (push)", "otlp" in srcs and (srcs["otlp"]["health"] or {}).get("status")=="push", str(list(srcs)))
         ck("otlp default labels: service primary",
-           srcs["otlp"]["config"]["labels"]==[{"name":"service","field":"service.name","primary":True}], str(srcs["otlp"]["config"]))
+           srcs["otlp"]["config"]["labels"]==[{"name":"service","field":"resourceAttributes.service.name","primary":True}], str(srcs["otlp"]["config"]))
         ck("3 events ingested", (srcs["otlp"]["health"] or {}).get("events_total")==3, str((srcs["otlp"]["health"] or {})))
 
         # entities: service is the primary facet, keyed per service from resource attrs
