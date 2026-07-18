@@ -9,7 +9,7 @@ import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, 
 const DEFAULT_LABELS: Record<string, Array<Record<string, unknown>>> = {
   vercel: [{ name: "project", field: "project", primary: true },
            { name: "environment", field: "environment" }, { name: "source", field: "source" }],
-  otlp: [{ name: "service", field: "service.name", primary: true }],
+  otlp: [{ name: "service", field: "resourceAttributes.service.name", primary: true }],
 };
 
 // Connector-appropriate example names; the generic fallback suits metric-ish sources.
