@@ -30,8 +30,10 @@ class Dispatcher:
             "payload": payload,
         }
         delivered = 0
-        for _sid, _trig, url in subs:
-            if await self._post(url, body):
+        for sid, _trig, url in subs:
+            ok = await self._post(url, body)
+            self.store.log_delivery(dispatch_id, sid, url, ok)   # per-agent delivery history
+            if ok:
                 delivered += 1
         # log every firing, even with zero subscribers — the UI shows what would have woken agents
         self.store.log_dispatch(dispatch_id, trigger.name, key, kind,
