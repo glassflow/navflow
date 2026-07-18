@@ -59,19 +59,6 @@ TOOLS = [
          "view": {"type": "string"}, "key": {"type": "string"},
          "where": {"type": "object"}, "window": {"type": "string", "default": "15m"}},
          "required": ["view"]}},
-    {"name": "create_view",
-     "description": "Create a view that correlates one or more sources into a single time-ordered "
-                    "timeline for an entity, so it can then be query()'d. Choose the sources to join, "
-                    "a key_field (the label/field identifying the entity, ideally present across the "
-                    "sources — check with describe/source_fields first), an optional name, and "
-                    "optional filters [{field, op, value}] (ops: eq, neq, contains, gt, lt, gte, lte). "
-                    "Confirm the intent with the user before creating. Returns the new view.",
-     "input_schema": {"type": "object", "properties": {
-         "sources": {"type": "array", "items": {"type": "string"}},
-         "key_field": {"type": "string"},
-         "name": {"type": "string"},
-         "filters": {"type": "array", "items": {"type": "object"}}},
-         "required": ["sources", "key_field"]}},
 ]
 
 
@@ -112,6 +99,28 @@ PROPOSAL_TOOLS = [
          "filters": {"type": "array", "items": {"type": "object"}},
          "reasoning": {"type": "string"}},
          "required": ["name", "key_field", "sources", "reasoning"]}},
+    {"name": "propose_trigger",
+     "description": "Propose a trigger — a condition NavFlow evaluates continuously over a view; "
+                    "when it trips, subscribed agents are woken with the correlated timeline. Use "
+                    "when the user's goal involves alerting or autonomous debugging. The view must "
+                    "exist or be proposed in this conversation; `field` must be a numeric field "
+                    "events in that view carry (check source_fields). Explain the condition in "
+                    "plain terms in `reasoning`.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "view": {"type": "string"},
+         "condition": {"type": "object", "properties": {
+             "aggregate": {"type": "string", "enum": ["any", "avg", "count", "max", "min", "sum"]},
+             "field": {"type": "string", "description": "numeric field to aggregate (omit for count)"},
+             "predicate": {"type": "string", "description": "e.g. '> 1.0', '>= 5', '== 0'"},
+             "window": {"type": "string", "description": "detection window, e.g. 1m"}},
+             "required": ["aggregate", "predicate", "window"]},
+         "emit": {"type": "object", "properties": {
+             "kind": {"type": "string", "description": "what a firing is called, e.g. error_spike"},
+             "context_window": {"type": "string", "description": "how much timeline the woken agent gets, e.g. 15m"}}},
+         "cooldown": {"type": "string", "description": "minimum gap between firings per entity, e.g. 5m"},
+         "reasoning": {"type": "string"}},
+         "required": ["name", "view", "condition", "reasoning"]}},
 ]
 _PROPOSAL_NAMES = {t["name"] for t in PROPOSAL_TOOLS}
 
@@ -164,12 +173,6 @@ async def _execute_tool(name: str, args: dict, headers: dict) -> str:
             if args.get("where"):
                 body["where"] = args["where"]
             r = await cx.post("/query", json=body)
-        elif name == "create_view":
-            body = {"sources": args.get("sources") or [], "key_field": args.get("key_field"),
-                    "filters": args.get("filters") or [], "client": "in-app-agent"}
-            if args.get("name"):
-                body["name"] = args["name"]
-            r = await cx.post("/derive", json=body)
         else:
             return json.dumps({"error": f"unknown tool {name!r}"})
     text = r.text
@@ -190,8 +193,10 @@ then verify it (health, field coverage, recent events, freshness). Be concrete: 
 field coverage, entity values, counts. Prefer `describe` and `source_fields` to understand a source. \
 Keep answers tight and useful; use small tables or lists where they help. If a tool errors, say so.
 
-You can also CREATE a view (create_view) to correlate sources into one timeline for an entity when \
-the user wants that — pick a key_field that exists across the sources, and confirm before creating."""
+When the user wants the catalog changed — labels on a source, a view, a trigger — do not just \
+describe it: call propose_labels / propose_view / propose_trigger. Each proposal appears to the \
+user as a card they apply or skip; you never change the catalog directly. Ground every proposal \
+in evidence from the read tools."""
 
 
 _ORGANIZE_SYSTEM = _SYSTEM_BASE + """
@@ -218,8 +223,11 @@ labels, keys, and views. Work in one pass:
 4. Then propose views: prefer a natural shared label across sources; when sources share nothing
    but belong together, propose const labels (same name+value) on each source first, then the
    view keyed by that label. Call propose_view for each view (1–3 views, not a zoo).
-5. Finish with a short summary of what you proposed and why. Do NOT use create_view in this
-   mode — everything goes through proposals; the user applies or skips each card.
+5. When the user's goal involves alerting or waking agents on a condition (errors, spikes,
+   thresholds), also propose triggers on the views you proposed: a numeric field the view's
+   events carry, an aggregate + predicate + detection window, a sensible cooldown.
+6. Finish with a short summary of what you proposed and why. Everything goes through proposals;
+   the user applies or skips each card.
 
 Proposals stream to the user as cards they apply or skip on the spot. Labels apply to new events
 going forward — mention this only if the user asks. Be decisive; don't ask permission to inspect."""
@@ -230,9 +238,8 @@ def system_prompt(mode: str | None = None) -> str:
 
 
 def tools_for(mode: str | None = None) -> list:
-    if mode == "organize":   # proposal-only: reads + proposal cards, no direct mutation
-        return [t for t in TOOLS if t["name"] != "create_view"] + PROPOSAL_TOOLS
-    return TOOLS
+    # every mode: read tools + proposal cards — the agent never mutates the catalog directly
+    return TOOLS + PROPOSAL_TOOLS
 
 
 def _sse(obj: dict) -> str:
@@ -282,7 +289,7 @@ async def run_agent(api_key: str, messages: list, mode: str = "explore",
                                                        "changes."})
                             continue
                     # a proposal is a card for the user, not a server-side action
-                    kind = "labels" if tu.name == "propose_labels" else "view"
+                    kind = {"propose_labels": "labels", "propose_view": "view", "propose_trigger": "trigger"}[tu.name]
                     yield _sse({"type": "proposal", "kind": kind, "id": tu.id, "payload": tu.input})
                     results.append({"type": "tool_result", "tool_use_id": tu.id,
                                     "content": "proposal recorded — the user will review it as a "
