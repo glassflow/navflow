@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import { Combo } from "./bits";
-import type { View, ViewFilter } from "../types";
+import type { ConnectorSpec, View, ViewFilter } from "../types";
 
 // The one view editor, used in place: on /views/new (create) and on /views/<name> (edit).
 // Sources are picked one at a time — chips above, an add-picker below — so the control scales
@@ -28,20 +28,35 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
-  // suggest real field/label names from the selected sources
+  // The key field must be a LABEL name (what extract_labels produces), never a raw payload
+  // field — so suggest labels from the source definitions: config.labels plus any labels the
+  // connector synthesizes (`provides`). Keys should be shared, so intersect across the selected
+  // sources (ignoring sources that declare no labels rather than zeroing the intersection).
+  // Filters accept both namespaces (label first, raw field second) — list labels, then raw names.
   useEffect(() => {
     if (!sources.length) { setLabelOpts([]); setFieldOpts([]); return; }
     let live = true;
-    Promise.all(sources.map((s) => api.sourceFields(s).catch(() => null))).then((profiles) => {
+    Promise.all([
+      api.sources().catch(() => []),
+      api.connectors().catch(() => ({}) as Record<string, ConnectorSpec>),
+      Promise.all(sources.map((s) => api.sourceFields(s).catch(() => null))),
+    ]).then(([all, specs, profiles]) => {
       if (!live) return;
-      const labels = new Set<string>();
-      const names = new Set<string>();
-      for (const p of profiles) for (const f of p?.fields ?? []) {
-        names.add(f.name);
-        if (f.is_label || f.is_key) labels.add(f.name);
-      }
-      setLabelOpts(Array.from(labels.size ? labels : names).sort());
-      setFieldOpts(Array.from(names).sort());
+      const perSource = sources.map((name) => {
+        const src = all.find((s) => s.name === name);
+        const declared = ((src?.config?.labels as { name?: string }[] | undefined) ?? [])
+          .map((l) => l.name).filter((n): n is string => !!n);
+        const provided = (src && specs[src.connector]?.provides?.map((p) => p.name)) ?? [];
+        return new Set([...declared, ...provided]);
+      }).filter((s) => s.size > 0);
+      const shared = perSource.length
+        ? [...perSource[0]].filter((n) => perSource.every((s) => s.has(n)))
+        : [];
+      const union = new Set(perSource.flatMap((s) => [...s]));
+      const raw = new Set<string>();
+      for (const p of profiles) for (const f of p?.fields ?? []) raw.add(f.name);
+      setLabelOpts((shared.length ? shared : [...union]).sort());
+      setFieldOpts([...[...union].sort(), ...[...raw].filter((n) => !union.has(n)).sort()]);
     });
     return () => { live = false; };
   }, [sources.join("|")]);

@@ -123,6 +123,7 @@ _MIGRATIONS = [
 _FILTER_COLS = {"event_type", "source", "text", "key_value"}
 _FILTER_OPS = {"eq": "=", "neq": "!=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
 _FIELD_RE = re.compile(r"^[A-Za-z0-9_]+$")
+_DOTTED_FIELD_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
 
 def _label_expr(name: str) -> str:
@@ -145,18 +146,22 @@ def _where_sql(where) -> tuple[str, list]:
 
 
 def _filter_sql(filters) -> tuple[str, list]:
-    """View filters -> ('AND ...' SQL fragment, params). Non-envelope fields read fields.<name>;
-    numeric ops cast to DOUBLE (TRY_CAST: rows without the field simply don't match)."""
+    """View filters -> ('AND ...' SQL fragment, params). A field name resolves against the
+    extracted labels first, then the raw payload fields (COALESCE) — so `service` matches the
+    label a user defined even when the raw event only carries `resourceAttributes.service.name`.
+    JSON paths are quoted so dotted names address one flat key, not a nested object. Numeric ops
+    cast to DOUBLE (TRY_CAST: rows without the field simply don't match)."""
     clauses, params = [], []
     for f in filters or []:
         name, op, value = f["field"], f["op"], f["value"]
-        if not _FIELD_RE.match(name):
+        if not _DOTTED_FIELD_RE.match(name):
             raise ValueError(f"bad filter field {name!r}")
         numeric = op in ("gt", "lt", "gte", "lte")
         if name in _FILTER_COLS:
             expr = f"TRY_CAST({name} AS DOUBLE)" if numeric else name
         else:
-            expr = f"json_extract_string(fields, '$.{name}')"
+            expr = (f"COALESCE(json_extract_string(labels, '$.\"{name}\"'), "
+                    f"json_extract_string(fields, '$.\"{name}\"'))")
             if numeric:
                 expr = f"TRY_CAST({expr} AS DOUBLE)"
         if op == "contains":

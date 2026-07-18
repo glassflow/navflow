@@ -13,6 +13,7 @@ the plugin, which covers both local and remote NavFlow with one path.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path

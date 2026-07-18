@@ -261,19 +261,14 @@ function Connect({ tab }: { tab: ConnectTab }) {
           <p className="help" style={{ whiteSpace: "normal" }}>
             From now on every firing wakes your agent with the timeline attached; it can query back
             over MCP or REST if it needs more, and <span className="mono">remember</span> its
-            conclusion so the next dispatch arrives with prior findings included. Watch real
-            deliveries under <Link to="/activity">Activity → Trigger dispatches</Link> (every
-            firing is logged there, even with no subscribers — useful to test a trigger before
-            wiring the agent). Full walkthrough and a runnable incident-response example:{" "}
+            conclusion so the next dispatch arrives with prior findings included. Every wired
+            endpoint shows up under <Link to="/activity">Agents</Link> with its delivery history
+            (firings are logged even with no subscribers — useful to test a trigger before wiring
+            the agent). Full walkthrough and a runnable incident-response example:{" "}
             <a href="https://www.navflow.ai/docs/agents" target="_blank" rel="noreferrer">
               navflow.ai/docs/agents</a>.
           </p>
 
-          <h3 style={{ marginTop: 22 }}>Subscribed agents</h3>
-          <p className="help" style={{ whiteSpace: "normal" }}>
-            The endpoints currently wired to be woken — one row per <span className="mono">subscribe</span>.
-          </p>
-          <Subscriptions />
         </>
       )}
 
@@ -571,35 +566,3 @@ function Dispatches() {
   );
 }
 
-function Subscriptions() {
-  const { data, error } = usePolling(() => api.subscriptions());
-  const [q, setQ] = useState("");
-
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return (data ?? []).filter((s) =>
-      !needle || s.trigger.toLowerCase().includes(needle) || s.url.toLowerCase().includes(needle));
-  }, [data, q]);
-
-  if (error) return <div className="alert error">{error}</div>;
-  if (!data?.length) return <div className="empty">no webhook subscriptions — agents subscribe via the MCP `subscribe` tool</div>;
-  return (
-    <>
-      <Toolbar q={q} setQ={setQ} placeholder="Filter by trigger, url…" shown={shown.length} total={data.length} />
-      <table>
-        <thead><tr><th>id</th><th>trigger</th><th>webhook url</th><th>created</th></tr></thead>
-        <tbody>
-          {shown.map((s) => (
-            <tr key={s.subscription_id}>
-              <td className="mono">{s.subscription_id}</td>
-              <td className="mono">{s.trigger}</td>
-              <td className="mono">{s.url}</td>
-              <td><TimeAgo ts={s.created_at} /></td>
-            </tr>
-          ))}
-          {!shown.length && <tr><td colSpan={4} className="dim" style={{ textAlign: "center", padding: 24 }}>no subscriptions match “{q}”</td></tr>}
-        </tbody>
-      </table>
-    </>
-  );
-}
