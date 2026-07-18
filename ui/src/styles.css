@@ -280,6 +280,19 @@ td .dim, .dim { color: var(--ink-faint); }
 .badge.agent { background: var(--accent-soft); color: var(--accent-deep); }   /* agent / MCP provenance */
 .badge.starting { background: var(--starting-bg); color: var(--ink-soft); }
 
+/* content links — editorial, never browser-blue and never alarm-red: ink text with a faint
+   underline; the accent only appears on hover. Element-level, so every classed link
+   (.btn, .chip, sidebar, crumbs) keeps its own styling by specificity. */
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+}
+a:hover { text-decoration-color: var(--accent); }
+a.chip { text-decoration: none; }
+a.chip:hover { border-color: var(--accent); }
+
 .chip {
   display: inline-block;
   font-family: var(--mono);

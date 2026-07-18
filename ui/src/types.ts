@@ -119,6 +119,20 @@ export interface DiscoverProposal {
   proposed_config: { url: string; default_key: string; queries: unknown[]; labels: { name: string; field: string }[] };
 }
 
+// A connected agent: subscriptions grouped by endpoint, named deterministically server-side.
+export interface AgentInfo {
+  name: string;
+  endpoint: string;   // masked — the last path segment may carry a secret
+  subscriptions: { subscription_id: string; trigger: string; created_at: string | null }[];
+  triggers: string[];
+  created_by: string[];
+  first_seen: string | null;
+  delivered_ok: number;
+  delivered_fail: number;
+  last_woken: string | null;
+  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null }[];
+}
+
 export interface ApiKey {
   id: string;
   name: string;

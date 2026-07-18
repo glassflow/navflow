@@ -31,10 +31,10 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     { to: "/explore", label: "Explore", icon: Activity },
   ] },
   { section: "Serve to agents", items: [
-    { to: "/connect", label: "Connect", icon: Terminal },
     { to: "/views", label: "Views", icon: Book },
     { to: "/triggers", label: "Triggers", icon: Bolt },
-    { to: "/activity", label: "Activity", icon: Filter },
+    { to: "/activity", label: "Agents", icon: Filter },
+    { to: "/connect", label: "Connect", icon: Terminal },
   ] },
 ];
 
@@ -43,7 +43,7 @@ const SECTION_LABEL: Record<string, string> = {
   views: "Views",
   triggers: "Triggers",
   connect: "Connect",
-  activity: "Activity",
+  activity: "Agents",
   catalog: "Catalog",
   ask: "Ask",
   security: "Security",

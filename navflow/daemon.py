@@ -1003,6 +1003,65 @@ def make_app() -> FastAPI:
     async def activity_dispatches(limit: int = 100):
         return store.list_dispatches(limit=min(limit, 500))
 
+    # ── connected agents: subscriptions grouped by endpoint, named deterministically ──
+    _AGENT_ADJ = ["brisk", "quiet", "amber", "bold", "calm", "deft", "eager", "fleet",
+                  "keen", "lucid", "merry", "noble", "prime", "swift", "vivid", "wry"]
+    _AGENT_NOUN = ["heron", "otter", "drake", "skiff", "beacon", "compass", "gull", "harbor",
+                   "keel", "lantern", "mast", "pilot", "rudder", "sextant", "tide", "wake"]
+
+    def _agent_identity(url: str) -> tuple[str, str]:
+        """(deterministic name, masked display URL) for a subscriber endpoint. The URL is the
+        identity; hook URLs carry secrets in the path, so the last path segment is masked."""
+        norm = url.rstrip("/")
+        h = int(hashlib.sha256(norm.encode()).hexdigest(), 16)
+        name = f"{_AGENT_ADJ[h % len(_AGENT_ADJ)]}-{_AGENT_NOUN[(h // 16) % len(_AGENT_NOUN)]}"
+        try:
+            from urllib.parse import urlsplit
+            u = urlsplit(norm)
+            segs = [seg for seg in u.path.split("/") if seg]
+            if segs:
+                segs[-1] = segs[-1][:2] + "…" if len(segs[-1]) > 2 else "…"
+            masked = f"{u.scheme}://{u.netloc}/" + "/".join(segs)
+        except Exception:
+            masked = norm[:24] + "…"
+        return name, masked
+
+    @app.get("/api/agents")
+    async def connected_agents():
+        """The roster: every subscribed endpoint as a named agent — its wiring (triggers,
+        creating credential), delivery health, and recent wakes."""
+        stats = store.delivery_stats()
+        agents: dict[str, dict] = {}
+        for sub in store.all_subscriptions():
+            norm = sub["url"].rstrip("/")
+            a = agents.get(norm)
+            if a is None:
+                name, masked = _agent_identity(norm)
+                st = stats.get(sub["url"], stats.get(norm, {}))
+                a = agents[norm] = {
+                    "name": name, "endpoint": masked,
+                    "subscriptions": [], "triggers": [], "created_by": set(),
+                    "first_seen": sub["created_at"],
+                    "delivered_ok": st.get("ok", 0), "delivered_fail": st.get("fail", 0),
+                    "last_woken": st.get("last_at"),
+                    "recent": [{"at": d["at"], "ok": d["ok"], "trigger": d["trigger"],
+                                "key": d["key"]} for d in store.recent_deliveries(sub["url"], 10)],
+                }
+            a["subscriptions"].append({"subscription_id": sub["subscription_id"],
+                                       "trigger": sub["trigger"], "created_at": sub["created_at"]})
+            if sub["trigger"] not in a["triggers"]:
+                a["triggers"].append(sub["trigger"])
+            if sub["created_by"]:
+                a["created_by"].add(sub["created_by"])
+            if sub["created_at"] and (a["first_seen"] is None or sub["created_at"] < a["first_seen"]):
+                a["first_seen"] = sub["created_at"]
+        out = []
+        for a in agents.values():
+            a["created_by"] = sorted(a["created_by"])
+            out.append(a)
+        out.sort(key=lambda x: str(x.get("last_woken") or x.get("first_seen") or ""), reverse=True)
+        return {"agents": out}
+
     @app.get("/api/subscriptions")
     async def subscriptions():
         return store.list_all_subscriptions()

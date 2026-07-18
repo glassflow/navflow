@@ -9,6 +9,10 @@ import Ask from "./pages/Ask";
 import Explore from "./pages/Explore";
 import SourceClaudeCode from "./pages/SourceClaudeCode";
 import SourceDetail from "./pages/SourceDetail";
+import ViewDetail from "./pages/ViewDetail";
+import ViewNew from "./pages/ViewNew";
+import TriggerDetail from "./pages/TriggerDetail";
+import TriggerNew from "./pages/TriggerNew";
 import SourceDiscover from "./pages/SourceDiscover";
 import SourceNew from "./pages/SourceNew";
 import Security from "./pages/Security";
@@ -30,7 +34,11 @@ const router = createBrowserRouter([
       { path: "organize", element: <Navigate to="/ask" replace /> },
       { path: "explore", element: <Explore /> },
       { path: "views", element: <ViewsPage /> },
+      { path: "views/new", element: <ViewNew /> },
+      { path: "views/:name", element: <ViewDetail /> },
       { path: "triggers", element: <TriggersPage /> },
+      { path: "triggers/new", element: <TriggerNew /> },
+      { path: "triggers/:name", element: <TriggerDetail /> },
       { path: "connect", element: <ConnectPage /> },
       { path: "activity", element: <AgentActivity /> },
       { path: "agents", element: <Navigate to="/connect" replace /> },

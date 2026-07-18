@@ -1,4 +1,5 @@
 import type {
+  AgentInfo,
   ApiKey,
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchLogEntry, Entity, EnvScan,
   LabelFacet, QueryLogEntry, Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
@@ -109,6 +110,13 @@ export const api = {
   updateTrigger: (name: string, body: Trigger) =>
     request(`/api/triggers/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteTrigger: (name: string) => request(`/api/triggers/${name}`, { method: "DELETE" }),
+  agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),
+  unsubscribe: (subscription_id: string) =>
+    request<{ ok: boolean }>("/unsubscribe",
+      { method: "POST", body: JSON.stringify({ subscription_id }) }),
+  subscribe: (trigger: string, url: string) =>
+    request<{ subscription_id: string }>("/subscribe",
+      { method: "POST", body: JSON.stringify({ trigger, url }) }),
 
   queries: (limit = 100) => request<QueryLogEntry[]>(`/api/activity/queries?limit=${limit}`),
   dispatches: (limit = 100) =>

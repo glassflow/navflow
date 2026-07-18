@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   created_at      TIMESTAMPTZ,
   created_by      TEXT
 );
+CREATE TABLE IF NOT EXISTS dispatch_deliveries (
+  dispatch_id     TEXT,
+  subscription_id TEXT,
+  url             TEXT,
+  ok              BOOLEAN,
+  delivered_at    TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS api_keys (
   id           TEXT PRIMARY KEY,
   name         TEXT,
@@ -244,7 +251,10 @@ class Store:
         ph = ", ".join(["?"] * len(sources))
         fsql, fparams = _filter_sql(filters)
         wsql, wparams = _where_sql(where)
-        valexpr = (f"CAST(json_extract_string(fields, '$.{field}') AS DOUBLE)"
+        if field and not re.match(r"^[A-Za-z0-9_.]+$", str(field)):
+            raise ValueError(f"bad aggregate field {field!r}")
+        # quoted JSON path so dotted field names (http.status_code) resolve as one flat key
+        valexpr = (f"CAST(json_extract_string(fields, '$.\"{field}\"') AS DOUBLE)"
                    if field else "1")
         aggexpr = {
             "count": "COUNT(*)",
@@ -620,6 +630,38 @@ class Store:
     def remove_subscription(self, sid: str) -> None:
         with self._lock:
             self.con.execute("DELETE FROM subscriptions WHERE subscription_id = ?", [sid])
+
+    def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool) -> None:
+        with self._lock:
+            self.con.execute("INSERT INTO dispatch_deliveries VALUES (?, ?, ?, ?, ?)",
+                             [dispatch_id, subscription_id, url, ok, now_utc()])
+
+    def all_subscriptions(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT subscription_id, trigger, url, created_at, created_by "
+                "FROM subscriptions ORDER BY created_at").fetchall()
+        return [{"subscription_id": r[0], "trigger": r[1], "url": r[2],
+                 "created_at": r[3], "created_by": r[4]} for r in rows]
+
+    def delivery_stats(self) -> dict:
+        """{url: {"ok": n, "fail": n, "last_at": ts}} across all recorded deliveries."""
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT url, SUM(CASE WHEN ok THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN ok THEN 0 ELSE 1 END), MAX(delivered_at) "
+                "FROM dispatch_deliveries GROUP BY url").fetchall()
+        return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0), "last_at": r[3]} for r in rows}
+
+    def recent_deliveries(self, url: str, limit: int = 20) -> list[dict]:
+        """Latest deliveries to one endpoint, joined with the firing's trigger/entity."""
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT d.delivered_at, d.ok, l.trigger, l.key_value, d.dispatch_id "
+                "FROM dispatch_deliveries d LEFT JOIN dispatch_log l ON d.dispatch_id = l.dispatch_id "
+                "WHERE d.url = ? ORDER BY d.delivered_at DESC LIMIT ?", [url, limit]).fetchall()
+        return [{"at": r[0], "ok": bool(r[1]), "trigger": r[2], "key": r[3],
+                 "dispatch_id": r[4]} for r in rows]
 
     # ── API keys (scoped credentials; only the SHA-256 of the secret is stored) ─
     def insert_api_key(self, kid: str, name: str, prefix: str, hash_: str, scopes: list[str]) -> None:

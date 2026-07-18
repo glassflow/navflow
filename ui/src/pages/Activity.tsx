@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { api, auth } from "../api";
 import { Close, Search } from "../components/icons";
@@ -35,18 +35,18 @@ export function ConnectPage() {
   );
 }
 
-type ActivityTab = "queries" | "dispatches";
+type ActivityTab = "agents" | "queries" | "dispatches";
 const ACTIVITY_LABELS: Record<ActivityTab, string> = {
-  queries: "Reads", dispatches: "Trigger dispatches",
+  agents: "Agents", queries: "Reads", dispatches: "Trigger dispatches",
 };
 
 export default function AgentActivity() {
-  const [tab, setTab] = useState<ActivityTab>("queries");
+  const [tab, setTab] = useState<ActivityTab>("agents");
 
   return (
     <>
-      <h1>Activity</h1>
-      <p className="subtitle">what agents have been doing — every read, every trigger dispatch</p>
+      <h1>Agents</h1>
+      <p className="subtitle">who is connected, and what agents have been doing — every wake, read and dispatch</p>
 
       <div className="tabs">
         {(Object.keys(ACTIVITY_LABELS) as ActivityTab[]).map((t) => (
@@ -54,6 +54,7 @@ export default function AgentActivity() {
         ))}
       </div>
 
+      {tab === "agents" && <AgentsRoster />}
       {tab === "queries" && <Queries />}
       {tab === "dispatches" && <Dispatches />}
     </>
@@ -241,14 +242,11 @@ function Connect({ tab }: { tab: ConnectTab }) {
                 <span className="mono">read</span>-scoped <Link to="/security">API key</Link>;
                 revoking the key removes its subscriptions):
               </p>
-              {triggers.length > 1 && (
-                <label className="field" style={{ maxWidth: 300 }}>
-                  <span className="lbl">trigger</span>
-                  <select value={trig} onChange={(e) => setTrig(e.target.value)}>
-                    {triggers.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
-                  </select>
-                </label>
-              )}
+              <p className="help" style={{ whiteSpace: "normal" }}>
+                Wiring happens on the trigger itself: open <Link to="/triggers">Triggers</Link>,
+                hit <strong>agents</strong> on the trigger, and paste your endpoint there. From a
+                script, the same action is:
+              </p>
               <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} />
             </>
           ) : (
@@ -348,6 +346,87 @@ function Connect({ tab }: { tab: ConnectTab }) {
         </>
       )}
     </div>
+  );
+}
+
+function AgentsRoster() {
+  const { data, error } = usePolling(() => api.agents(), 10000);
+  const [params] = useSearchParams();
+  const [open, setOpen] = useState<string | undefined>(params.get("agent") ?? undefined);
+  const [err, setErr] = useState<string>();
+
+  if (error) return <div className="alert error">{error}</div>;
+  if (!data) return <div className="dim">loading…</div>;
+  if (!data.agents.length) {
+    return (
+      <div className="empty">
+        no agents connected — subscribe one to a trigger on the <Link to="/triggers">Triggers</Link> page
+      </div>
+    );
+  }
+  return (
+    <>
+      {err && <div className="alert error">{err}</div>}
+      <table>
+        <thead><tr><th>agent</th><th>endpoint</th><th>wakes on</th><th className="num">delivered</th><th className="num">failed</th><th>last woken</th><th></th></tr></thead>
+        <tbody>
+          {data.agents.map((a) => (
+            <>
+              <tr key={a.name} className="clickable" onClick={() => setOpen(open === a.name ? undefined : a.name)}>
+                <td><strong>{a.name}</strong></td>
+                <td className="mono">{a.endpoint}</td>
+                <td>{a.triggers.map((t) => <span className="chip mono" key={t}>{t}</span>)}</td>
+                <td className="num">{a.delivered_ok}</td>
+                <td className="num" style={a.delivered_fail ? { color: "var(--err)" } : undefined}>{a.delivered_fail}</td>
+                <td style={{ whiteSpace: "nowrap" }}>{a.last_woken ? <TimeAgo ts={a.last_woken} /> : <span className="help">never</span>}</td>
+                <td className="dim">{open === a.name ? "▾" : "▸"}</td>
+              </tr>
+              {open === a.name && (
+                <tr key={a.name + "-detail"}>
+                  <td colSpan={7} style={{ background: "var(--wash, transparent)" }}>
+                    <div style={{ padding: "8px 4px" }}>
+                      <p className="help" style={{ margin: "0 0 8px", whiteSpace: "normal" }}>
+                        first seen <TimeAgo ts={a.first_seen} />
+                        {a.created_by.length > 0 && <> · wired by <span className="mono">{a.created_by.join(", ")}</span></>}
+                      </p>
+                      {a.subscriptions.map((sub) => (
+                        <div key={sub.subscription_id} className="btnrow" style={{ marginBottom: 6, alignItems: "center" }}>
+                          <span className="chip mono">{sub.trigger}</span>
+                          <span className="help mono">{sub.subscription_id}</span>
+                          <button className="danger" onClick={async (e) => {
+                            e.stopPropagation();
+                            try { await api.unsubscribe(sub.subscription_id); }
+                            catch (ex) { setErr(String((ex as Error).message ?? ex)); }
+                          }}>unsubscribe</button>
+                        </div>
+                      ))}
+                      {a.recent.length > 0 && (
+                        <>
+                          <p className="help" style={{ margin: "10px 0 4px" }}>recent wakes</p>
+                          <table>
+                            <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivery</th></tr></thead>
+                            <tbody>
+                              {a.recent.map((r, i) => (
+                                <tr key={i}>
+                                  <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={r.at} /></td>
+                                  <td className="mono">{r.trigger}</td>
+                                  <td className="mono">{r.key}</td>
+                                  <td>{r.ok ? <span className="badge ok">delivered</span> : <span className="badge error">failed</span>}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
 
