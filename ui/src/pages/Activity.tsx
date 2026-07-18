@@ -8,9 +8,9 @@ import type { DispatchLogEntry } from "../types";
 
 // Two pages share this module: Connect (how an agent hooks up — one tab per integration mode)
 // and AgentActivity (what agents have been doing — reads + trigger dispatches).
-type ConnectTab = "mcp" | "push" | "rest";
+type ConnectTab = "mcp" | "push" | "rest" | "tools";
 const CONNECT_LABELS: Record<ConnectTab, string> = {
-  mcp: "MCP (pull)", push: "Webhook (push)", rest: "REST",
+  mcp: "MCP (pull)", push: "Webhook (push)", rest: "REST", tools: "Tools",
 };
 
 export function ConnectPage() {
@@ -311,9 +311,17 @@ function Connect({ tab }: { tab: ConnectTab }) {
         Requires <span className="mono">pip install navflow</span> where the agent runs; it proxies to this daemon.
       </p>
       <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} />
+        </>
+      )}
 
-      <h3 style={{ marginTop: 22 }}>Tools the agent gets {tools && <span className="dim">· {tools.length}</span>}</h3>
-      <p className="help" style={{ whiteSpace: "normal" }}>Exactly what an agent can call over MCP — read straight from this instance's MCP surface.</p>
+      {tab === "tools" && (
+        <>
+      <h3 style={{ marginTop: 14 }}>Tools the agent gets {tools && <span className="dim">· {tools.length}</span>}</h3>
+      <p className="help" style={{ whiteSpace: "normal" }}>
+        Exactly what a connected agent can call — read straight from this instance&rsquo;s MCP
+        surface, so it always matches what MCP (pull) serves. The same read/query operations back
+        the REST endpoints.
+      </p>
       {tools && tools.length > 0 && (
         <>
           <div className="toolbar">
