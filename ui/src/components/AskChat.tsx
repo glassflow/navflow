@@ -3,12 +3,15 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api, anthropicKey, authHeader } from "../api";
+import { applyProposal, ProposalCard } from "./proposals";
+import type { DecisionMap, Proposal } from "./proposals";
 
 // The Ask assistant, extracted so it can back both the dedicated /ask page and the global ⌘K
 // command palette. Same engine, two doors: the page for long sessions, the overlay to ask from
 // anywhere without losing your place.
 
-type Part = { type: "text"; text: string } | { type: "tool"; name: string; input: unknown };
+type Part = { type: "text"; text: string } | { type: "tool"; name: string; input: unknown }
+  | { type: "proposal"; proposal: Proposal };
 type Msg = { role: "user" | "assistant"; parts: Part[] };
 
 const STARTERS: { mode: "explore" | "debug"; title: string; prompts: string[] }[] = [
@@ -30,8 +33,18 @@ const STARTERS: { mode: "explore" | "debug"; title: string; prompts: string[] }[
   },
 ];
 
-const textOf = (m: Msg) =>
-  m.parts.filter((p): p is { type: "text"; text: string } => p.type === "text").map((p) => p.text).join("");
+const textOf = (m: Msg, decisions?: DecisionMap) =>
+  m.parts.map((p) => {
+    if (p.type === "text") return p.text;
+    if (p.type === "proposal") {
+      const st = decisions?.[p.proposal.id]?.status ?? "pending";
+      const what = p.proposal.kind === "labels"
+        ? `labels for source ${p.proposal.source}`
+        : p.proposal.kind === "view" ? `view ${p.proposal.name}` : `trigger ${p.proposal.name}`;
+      return `\n[proposal: ${what} — ${st}]\n`;
+    }
+    return "";
+  }).join("");
 
 function compact(v: unknown): string {
   const s = JSON.stringify(v);
@@ -46,6 +59,7 @@ export default function AskChat() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [decisions, setDecisions] = useState<DecisionMap>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     api.capabilities().then((c) => setServerKey(!!c.agent_key_configured)).catch(() => setServerKey(false));
@@ -78,7 +92,7 @@ export default function AskChat() {
         method: "POST",
         headers: { "content-type": "application/json",
                    ...(key ? { "X-Anthropic-Key": key } : {}), ...authHeader() },
-        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: textOf(m) })) }),
+        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: textOf(m, decisions) })) }),
       });
       if (!res.ok || !res.body) {
         appendText(`⚠️ ${await res.text().catch(() => res.statusText)}`);
@@ -98,6 +112,10 @@ export default function AskChat() {
           const e = JSON.parse(chunk.slice(6));
           if (e.type === "text") appendText(e.text);
           else if (e.type === "tool") addTool(e.name, e.input);
+          else if (e.type === "proposal") {
+            const proposal = { id: e.id, kind: e.kind, ...e.payload } as Proposal;
+            mutLast((parts) => [...parts, { type: "proposal", proposal }]);
+          }
           else if (e.type === "error") appendText(`\n\n⚠️ ${e.detail}`);
         }
         scroll();
@@ -109,6 +127,13 @@ export default function AskChat() {
       scroll();
     }
   }
+
+  const decide = (id: string, status: "applied" | "skipped" | "error", detail?: string) =>
+    setDecisions((d) => ({ ...d, [id]: { status, detail } }));
+  const apply = async (p: Proposal) => {
+    try { await applyProposal(p); decide(p.id, "applied"); }
+    catch (e) { decide(p.id, "error", String((e as Error).message ?? e)); }
+  };
 
   return (
     <div className="askchat">
@@ -137,6 +162,10 @@ export default function AskChat() {
               ? <div className="bubble-text">{textOf(m)}</div>
               : m.parts.map((p, j) => p.type === "tool"
                 ? <div key={j} className="toolcall">→ <span className="mono">{p.name}</span>(<span className="mono">{compact(p.input)}</span>)</div>
+                : p.type === "proposal"
+                ? <ProposalCard key={j} proposal={p.proposal} decision={decisions[p.proposal.id]}
+                                onApply={() => apply(p.proposal)}
+                                onSkip={() => decide(p.proposal.id, "skipped")} />
                 : <div key={j} className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{p.text}</ReactMarkdown></div>)}
             {busy && i === msgs.length - 1 && m.parts.length === 0 && <div className="dim">thinking…</div>}
           </div>

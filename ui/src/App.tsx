@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
-  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon, Tag,
+  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon,
   Settings as SettingsIco, SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
@@ -18,13 +18,14 @@ type NavItem = {
   icon: (p: { className?: string }) => JSX.Element;
   badge?: string;   // small uppercase tag, e.g. "beta"
   locked?: boolean; // shows a lock glyph for gated features
+  kbd?: string;     // keyboard-shortcut hint, e.g. "⌘K"
 };
 
 // The nav is the product story, in three acts: data in → the timeline → serve to agents.
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "Data in", items: [
     { to: "/", end: true, label: "Sources", icon: Database },
-    { to: "/organize", label: "Organize", icon: Tag },
+    { to: "/ask", label: "Ask", icon: Chat, kbd: "⌘K" },
   ] },
   { section: "The timeline", items: [
     { to: "/explore", label: "Explore", icon: Activity },
@@ -38,7 +39,6 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
 ];
 
 const SECTION_LABEL: Record<string, string> = {
-  organize: "Organize",
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",
@@ -125,12 +125,13 @@ export default function App() {
         {NAV_GROUPS.map(({ section, items }) => (
           <div className="nav-group" key={section}>
             <div className="nav-section">{section}</div>
-            {items.map(({ to, end, label, icon: Icon, badge, locked }) => (
+            {items.map(({ to, end, label, icon: Icon, badge, locked, kbd }) => (
               <NavLink key={to} to={to} end={end} className={link}>
                 <Icon className="ico" />
                 <span className="nav-label">{label}</span>
                 {badge && <span className="nav-badge">{badge}</span>}
                 {locked && <Lock className="nav-lock" />}
+                {kbd && <kbd className="nav-kbd" title="Ask from anywhere">{kbd}</kbd>}
               </NavLink>
             ))}
           </div>
@@ -139,11 +140,6 @@ export default function App() {
         <div className="nav-spacer" />
         <div className="sep" />
 
-        <NavLink to="/ask" className={link}>
-          <Chat className="ico" />
-          <span className="nav-label">Ask</span>
-          <kbd className="nav-kbd" title="Ask from anywhere">⌘K</kbd>
-        </NavLink>
         <NavLink to="/security" className={link}>
           <Lock className="ico" />
           <span className="nav-label">Security</span>
