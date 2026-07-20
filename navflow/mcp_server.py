@@ -93,6 +93,36 @@ async def read(selector: dict, window: str = "15m", include_payload: bool = Fals
 
 
 @writable()
+async def create_trigger(name: str, view: str, condition: dict,
+                         emit: dict | None = None, cooldown: str = "5m") -> str:
+    """Create a trigger — a condition NavFlow evaluates continuously over a view; when it trips,
+    subscribed agents are woken with the correlated timeline. `condition` is
+    {aggregate: any|avg|count|max|min|sum, field: numeric field to aggregate (omit for count),
+    predicate: e.g. '> 1.0' / '>= 5' / '== 0', window: detection window e.g. '1m'}. `emit` is
+    {kind: what a firing is called e.g. error_spike, context_window: timeline the woken agent
+    receives e.g. '15m'}. The view must exist (catalog_describe it to confirm the numeric field).
+    Wire agents to it with subscribe()."""
+    body = {"name": name, "view": view, "condition": condition,
+            "emit": emit or {}, "cooldown": cooldown}
+    async with _cx(10) as cx:
+        r = await cx.post(f"{NAVFLOWD}/api/triggers", json=body)
+    return r.text
+
+
+@writable()
+async def update_trigger(name: str, view: str, condition: dict,
+                         emit: dict | None = None, cooldown: str = "5m") -> str:
+    """Edit an EXISTING trigger in place: replace its view, condition, emit, and cooldown. Create
+    new triggers with create_trigger() — this only updates one that already exists (renaming isn't
+    supported, so keep `name` the same). See create_trigger for the condition/emit shape."""
+    body = {"name": name, "view": view, "condition": condition,
+            "emit": emit or {}, "cooldown": cooldown}
+    async with _cx(10) as cx:
+        r = await cx.put(f"{NAVFLOWD}/api/triggers/{name}", json=body)
+    return r.text
+
+
+@writable()
 async def subscribe(trigger: str, url: str) -> str:
     """Register a webhook to be woken (pushed) when a trigger fires. Returns a subscription id."""
     async with _cx(10) as cx:
@@ -132,6 +162,19 @@ async def derive(sources: list[str], key_field: str, name: str = "",
         body["name"] = name
     async with _cx(10) as cx:
         r = await cx.post(f"{NAVFLOWD}/derive", json=body)
+    return r.text
+
+
+@writable()
+async def update_view(name: str, sources: list[str], key_field: str = "",
+                      filters: list[dict] | None = None) -> str:
+    """Edit an EXISTING view in place: replace its sources, key_field, and filters. Create new
+    views with derive() — this only updates one that already exists (renaming isn't supported, so
+    keep `name` the same). filters are [{field, op, value}] (ops: eq, neq, contains, gt, lt, gte,
+    lte). Use catalog_describe first to learn the available fields."""
+    body = {"name": name, "key_field": key_field, "sources": sources, "filters": filters or []}
+    async with _cx(10) as cx:
+        r = await cx.put(f"{NAVFLOWD}/api/views/{name}", json=body)
     return r.text
 
 

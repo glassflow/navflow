@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
 import { TimeAgo, usePolling } from "../components/bits";
 
@@ -9,8 +10,11 @@ import { TimeAgo, usePolling } from "../components/bits";
 // Read-only by default; Edit swaps in the editor in place (?edit=1 opens it directly).
 export default function TriggerDetail() {
   const { name = "" } = useParams();
+  const nav = useNavigate();
   const [params] = useSearchParams();
   const [editing, setEditing] = useState(params.get("edit") === "1");
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [delErr, setDelErr] = useState<string>();
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
   const { data: agents } = usePolling(() => api.agents(), 10000);
   const { data: dispatches } = usePolling(() => api.dispatches(100), 10000);
@@ -41,8 +45,15 @@ export default function TriggerDetail() {
             {" "}— fires when the condition trips, waking every subscribed agent
           </p>
         </div>
-        {!editing && <button className="primary" onClick={() => setEditing(true)}>Edit</button>}
+        {!editing && (
+          <span className="btnrow">
+            <button className="primary" onClick={() => setEditing(true)}>Edit</button>
+            <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>
+          </span>
+        )}
       </div>
+
+      {delErr && <div className="alert error">{delErr}</div>}
 
       {editing && (
         <TriggerEditor initial={trigger}
@@ -125,6 +136,23 @@ export default function TriggerDetail() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {confirmDel && (
+        <ConfirmDialog
+          title={`Delete trigger ${trigger.name}?`}
+          message={wired.length
+            ? `${wired.length} agent(s) are woken by this trigger and will stop receiving it. This can't be undone.`
+            : "This stops the condition from being evaluated. This can't be undone."}
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={async () => {
+            setDelErr(undefined);
+            try { await api.deleteTrigger(trigger.name); nav("/triggers"); }
+            catch (e) { setDelErr(String((e as Error).message ?? e)); setConfirmDel(false); }
+          }}
+        />
       )}
     </>
   );

@@ -29,15 +29,23 @@ export async function applyProposal(p: Proposal): Promise<void> {
       config: { ...src.config, labels: p.labels },
     });
   } else if (p.kind === "view") {
-    await api.createView({ name: p.name, key_field: p.key_field,
-                           sources: p.sources, filters: (p.filters ?? []) as never });
+    // Upsert: the agent proposes the same way for a new view and an edit to an existing one —
+    // apply as an update when the name already exists (create-only 409'd with "already exists").
+    const body = { name: p.name, key_field: p.key_field,
+                   sources: p.sources, filters: (p.filters ?? []) as never };
+    const exists = (await api.views()).some((v) => v.name === p.name);
+    if (exists) await api.updateView(p.name, body);
+    else await api.createView(body);
   } else {
-    await api.createTrigger({
+    const t = {
       name: p.name, view: p.view,
       condition: p.condition,
       emit: { kind: p.emit?.kind ?? p.name, context_window: p.emit?.context_window ?? "15m" },
       cooldown: p.cooldown ?? "5m",
-    } as Trigger);
+    } as Trigger;
+    const exists = (await api.triggers()).some((x) => x.name === p.name);
+    if (exists) await api.updateTrigger(p.name, t);
+    else await api.createTrigger(t);
   }
 }
 
