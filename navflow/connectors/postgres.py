@@ -125,16 +125,12 @@ class PostgresConnector(Connector):
         key_col = c.get("key_column")
         labels, key = self.keyed(ctx, fallback=ctx.get(key_col or "", "") or table.split(".")[-1])
 
-        # numeric columns become trigger-usable fields; the whole row stays in payload (lossless)
-        fields = {k: v for k, v in jrow.items()
-                  if isinstance(v, (int, float)) and not isinstance(v, bool)}
-
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=table.split(".")[-1],  # one source = one table; the table names the event
             text=self._text(row, c, key),
             event_time=self._event_time(row, c),
-            fields=fields, payload=jrow, labels=labels,
+            payload=jrow, labels=labels,
         )
 
     @staticmethod

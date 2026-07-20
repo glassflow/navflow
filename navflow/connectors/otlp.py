@@ -174,16 +174,11 @@ class OtlpConnector(Connector):
                                  fallback="unknown")
         event_time = (_ns_to_dt(rec.get("timeUnixNano"))
                       or _ns_to_dt(rec.get("observedTimeUnixNano")) or now_utc())
-        # numeric record attributes become trigger-usable fields; the rest stay lossless in payload
-        fields = {k: v for k, v in rec_attrs.items()
-                  if isinstance(v, (int, float)) and not isinstance(v, bool)}
-        if rec.get("severityNumber"):
-            fields["severityNumber"] = rec["severityNumber"]
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=str(rec.get("severityText") or "log"),
             text=(text or "")[:1000], event_time=event_time,
-            fields=fields, payload={"resourceAttributes": res, "scope": scope, **rec},
+            payload={"resourceAttributes": res, "scope": scope, **rec},
             labels=labels,
         )
 
@@ -199,18 +194,11 @@ class OtlpConnector(Connector):
         # span status code is an enum — proto3 JSON may encode it as a name or a number
         code = (span.get("status") or {}).get("code")
         is_error = code in (2, "STATUS_CODE_ERROR")
-        fields: dict = {}
-        if dur_ms is not None:
-            fields["duration_ms"] = dur_ms
-        if isinstance(code, int):
-            fields["status_code"] = code
-        elif code in ("STATUS_CODE_ERROR", "STATUS_CODE_OK"):
-            fields["status_code"] = 2 if is_error else 1
         text = name + (f" ({dur_ms:.1f}ms)" if dur_ms is not None else "") + (" ERROR" if is_error else "")
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type="span", text=text[:1000],
-            event_time=_ns_to_dt(start) or now_utc(), fields=fields,
+            event_time=_ns_to_dt(start) or now_utc(),
             payload={"resourceAttributes": res, "scope": scope, **span,
                      "attributes": _attrs(span.get("attributes", []))},
             labels=labels,
@@ -222,18 +210,11 @@ class OtlpConnector(Connector):
         name = metric.get("name", "metric")
         unit = metric.get("unit", "")
         value = _dp_value(dp)
-        # event_type is the metric name; the scalar lands under `value` (a clean field key, so a
-        # view filtered to event_type=<metric> can aggregate it — metric names have dots)
-        fields: dict = {}
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            fields["value"] = value
-        if isinstance(dp.get("sum"), (int, float)):
-            fields["sum"] = dp["sum"]
         text = f"{name}={value}" + (f" {unit}" if unit else "")
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=name, text=text[:1000],
-            event_time=_ns_to_dt(dp.get("timeUnixNano")) or now_utc(), fields=fields,
+            event_time=_ns_to_dt(dp.get("timeUnixNano")) or now_utc(),
             payload={"resourceAttributes": res, "scope": scope, "metricType": kind,
                      "metricName": name, "unit": unit,
                      "attributes": _attrs(dp.get("attributes", [])),

@@ -34,7 +34,7 @@ class StaticConnector(Connector):
                 key_value=rec.get("key", default_key),
                 event_type=rec.get("event_type", "static"),
                 text=rec["text"], event_time=now_utc() - timedelta(seconds=ago),
-                fields=rec.get("fields", {}), payload={"text": rec["text"]},
+                payload={"text": rec["text"]},
                 labels=self.labels_for(rec),
             ))
         return out

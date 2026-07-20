@@ -87,7 +87,7 @@ async def main():
     e0 = evs[0]
     ck("row keyed by tenant_id value", e0.key_value in ("acme", "globex"), e0.key_value)
     ck("labels faceted (tenant_id + status)", set(e0.labels) == {"tenant_id", "status"}, str(e0.labels))
-    ck("numeric columns -> fields (id, amount)", "id" in e0.fields and "amount" in e0.fields, str(e0.fields))
+    ck("all columns preserved in payload (id, amount)", "id" in e0.payload and "amount" in e0.payload, str(e0.payload))
     ck("event_type is the table name", e0.event_type == "orders", e0.event_type)
     ck("payload is lossless + json-able", e0.payload.get("tenant_id") == e0.key_value, str(e0.payload)[:80])
 

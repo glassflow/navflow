@@ -384,6 +384,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
 
 type MapRow = { from: string; to: string };
 type LabelRow = { name: string; kind: "const" | "field"; value: string; primary: boolean;
+                  type: "string" | "number";
                   pattern: string; replace: string; map: MapRow[]; normOpen: boolean };
 
 function labelsToRows(arr: unknown): LabelRow[] {
@@ -395,6 +396,7 @@ function labelsToRows(arr: unknown): LabelRow[] {
       ? Object.entries(o.map as Record<string, string>).map(([from, to]) => ({ from, to: String(to) }))
       : [];
     return { name: String(o.name ?? ""), kind, value: String(o[kind] ?? ""), primary: !!o.primary,
+             type: o.type === "number" ? "number" as const : "string" as const,
              pattern: String(o.pattern ?? ""), replace: String(o.replace ?? ""), map,
              normOpen: !!(o.pattern || map.length) };
   });
@@ -405,7 +407,9 @@ function labelsToRows(arr: unknown): LabelRow[] {
 /** Row -> label spec, including the optional value normalization (pattern/replace + alias map). */
 function rowToSpec(r: LabelRow): Record<string, unknown> {
   const spec: Record<string, unknown> = { name: r.name.trim(), [r.kind]: r.value,
-                                          ...(r.primary ? { primary: true } : {}) };
+                                          ...(r.primary ? { primary: true } : {}),
+                                          // the key is always a string; number labels are aggregatable
+                                          ...(r.type === "number" && !r.primary ? { type: "number" } : {}) };
   if (r.kind === "field") {
     if (r.pattern.trim()) { spec.pattern = r.pattern; spec.replace = r.replace; }
     const map = Object.fromEntries(r.map.filter((m) => m.from.trim()).map((m) => [m.from, m.to]));
@@ -419,7 +423,8 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
     fieldHints?: Record<string, string>; sourceName?: string }) {
   const set = (i: number, patch: Partial<LabelRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const makePrimary = (i: number) => onChange(rows.map((r, j) => ({ ...r, primary: j === i })));
+  const makePrimary = (i: number) => onChange(rows.map((r, j) =>
+    j === i ? { ...r, primary: true, type: "string" as const } : { ...r, primary: false }));
   const remove = (i: number) => {
     const next = rows.filter((_, j) => j !== i);
     if (next.length && !next.some((r) => r.primary)) next[0].primary = true;  // keep one key
@@ -439,6 +444,7 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
           <span className="help label-col-grow">name</span>
           <span className="help label-col-from">from</span>
           <span className="help label-col-grow">value</span>
+          <span className="help" style={{ width: 88, flexShrink: 0 }}>type</span>
           <span className="label-col-x" />
         </div>
       )}
@@ -464,6 +470,14 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
                      placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
                      value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
             )}
+            <select style={{ width: 88, flexShrink: 0 }} value={row.primary ? "string" : row.type}
+                    disabled={row.primary}
+                    title={row.primary ? "the key is always a string"
+                                       : "number labels can be aggregated (avg/max/sum) in triggers"}
+                    onChange={(e) => set(i, { type: e.target.value as LabelRow["type"] })}>
+              <option value="string">string</option>
+              <option value="number">number</option>
+            </select>
             {row.kind === "field" && (
               <button type="button" title="normalize values (regex + aliases)"
                       className={row.normOpen || row.pattern || row.map.length ? "active" : "dim"}
@@ -478,7 +492,7 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
       ))}
       <button type="button"
               onClick={() => onChange([...rows, { name: "", kind: "const", value: "", primary: rows.length === 0,
-                                                  pattern: "", replace: "", map: [], normOpen: false }])}>
+                                                  type: "string", pattern: "", replace: "", map: [], normOpen: false }])}>
         + Add label
       </button>
       {fields.length > 0 && (

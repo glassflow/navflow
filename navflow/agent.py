@@ -83,7 +83,12 @@ PROPOSAL_TOOLS = [
                          "substitution applied to the field's value (e.g. '-(service|svc)$')"},
              "replace": {"type": "string", "description": "replacement for pattern (empty = strip)"},
              "map": {"type": "object", "description": "optional exact aliases applied AFTER the "
-                     "pattern: {observed: canonical}, e.g. {\"ck\": \"checkout\"}"}},
+                     "pattern: {observed: canonical}, e.g. {\"ck\": \"checkout\"}"},
+             "type": {"type": "string", "enum": ["string", "number"],
+                      "description": "'number' stores the extracted value as a number so a trigger "
+                      "can aggregate it (avg/max/sum); default 'string'. The primary key must be a "
+                      "string. Only use 'number' when the value is genuinely numeric (e.g. an HTTP "
+                      "status parsed out of the text, a latency)."}},
              "required": ["name"]}},
          "reasoning": {"type": "string"}},
          "required": ["source", "labels", "reasoning"]}},

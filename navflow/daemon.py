@@ -144,7 +144,7 @@ class RememberReq(BaseModel):
     key: str                     # the entity this memory is about
     content: str
     memory_type: str = "observation"   # observation | aggregation | decision | custom
-    fields: dict = {}            # numeric values become trigger-usable
+    fields: dict = {}            # extra values, kept in the payload (lossless); not auto-aggregated
     source: str | None = None    # target memory source; default auto-provisions agent_memory
 
 

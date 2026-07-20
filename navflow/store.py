@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS events (
   key_value    TEXT,
   event_type   TEXT,
   text         TEXT,
-  fields       JSON,
   payload      JSON,
   event_time   TIMESTAMPTZ,
   ingest_time  TIMESTAMPTZ
@@ -119,6 +118,10 @@ _MIGRATIONS = [
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS labels JSON",
     "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS ingest_key TEXT",
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_by TEXT",
+    # Retired: navflow no longer auto-extracts numeric fields. Numbers you aggregate are declared
+    # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
+    # drop in DuckDB, so this is instant even on a large table.
+    "ALTER TABLE events DROP COLUMN IF EXISTS fields",
 ]
 
 _FILTER_COLS = {"event_type", "source", "text", "key_value"}
@@ -147,11 +150,10 @@ def _where_sql(where) -> tuple[str, list]:
 
 
 def _filter_sql(filters) -> tuple[str, list]:
-    """View filters -> ('AND ...' SQL fragment, params). A field name resolves against the
-    extracted labels first, then the raw payload fields (COALESCE) — so `service` matches the
-    label a user defined even when the raw event only carries `resourceAttributes.service.name`.
-    JSON paths are quoted so dotted names address one flat key, not a nested object. Numeric ops
-    cast to DOUBLE (TRY_CAST: rows without the field simply don't match)."""
+    """View filters -> ('AND ...' SQL fragment, params). A field name resolves against the source's
+    extracted labels (the string/number axes a user defined). JSON paths are quoted so dotted names
+    address one flat key, not a nested object. Numeric ops cast to DOUBLE (TRY_CAST: rows without
+    the label — or non-numeric values — simply don't match)."""
     clauses, params = [], []
     for f in filters or []:
         name, op, value = f["field"], f["op"], f["value"]
@@ -161,8 +163,7 @@ def _filter_sql(filters) -> tuple[str, list]:
         if name in _FILTER_COLS:
             expr = f"TRY_CAST({name} AS DOUBLE)" if numeric else name
         else:
-            expr = (f"COALESCE(json_extract_string(labels, '$.\"{name}\"'), "
-                    f"json_extract_string(fields, '$.\"{name}\"'))")
+            expr = f"json_extract_string(labels, '$.\"{name}\"')"
             if numeric:
                 expr = f"TRY_CAST({expr} AS DOUBLE)"
         if op == "contains":
@@ -234,7 +235,7 @@ class Store:
         # so positional INSERT order is no longer guaranteed.
         rows = [
             (e.source, e.source_type, e.key_value, e.event_type, e.text,
-             json.dumps(e.fields), json.dumps(e.payload), json.dumps(e.labels),
+             json.dumps(e.payload), json.dumps(e.labels),
              e.event_time, e.ingest_time)
             for e in envelopes
         ]
@@ -246,8 +247,8 @@ class Store:
             for i in range(0, len(rows), chunk):
                 self.con.executemany(
                     "INSERT INTO events (source, source_type, key_value, event_type, text, "
-                    "fields, payload, labels, event_time, ingest_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows[i:i + chunk]
+                    "payload, labels, event_time, ingest_time) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows[i:i + chunk]
                 )
 
     # ── reads ───────────────────────────────────────────────────────────────
@@ -298,7 +299,7 @@ class Store:
         if field and not re.match(r"^[A-Za-z0-9_.]+$", str(field)):
             raise ValueError(f"bad aggregate field {field!r}")
         # quoted JSON path so dotted field names (http.status_code) resolve as one flat key
-        valexpr = (f"CAST(json_extract_string(fields, '$.\"{field}\"') AS DOUBLE)"
+        valexpr = (f"CAST(json_extract_string(labels, '$.\"{field}\"') AS DOUBLE)"
                    if field else "1")
         aggexpr = {
             "count": "COUNT(*)",
@@ -556,18 +557,20 @@ class Store:
         return out
 
     def source_schema(self, source: str, sample: int = 200) -> dict:
-        """Inferred shape of a source's events, sampled from the most recent `sample` rows:
-        the event types seen and the typed fields (with the type of the latest value)."""
+        """Inferred shape of a source's events, sampled from the most recent `sample` rows: the
+        event types seen and the typed labels (with the type of the latest value). Number-typed
+        labels are the aggregatable ones — a trigger's `field` picks from these."""
         with self._lock:
             rows = self.con.execute(
-                "SELECT event_type, fields FROM events WHERE source = ? "
+                "SELECT event_type, labels FROM events WHERE source = ? "
                 "ORDER BY ingest_time DESC LIMIT ?", [source, int(sample)],
             ).fetchall()
         event_types, fields = set(), {}
-        for etype, fjson in rows:
+        for etype, ljson in rows:
             event_types.add(etype)
-            for k, v in (json.loads(fjson) or {}).items():
-                fields.setdefault(k, "number" if isinstance(v, (int, float)) else "string")
+            for k, v in (json.loads(ljson) or {}).items():
+                fields.setdefault(k, "number" if isinstance(v, (int, float))
+                                  and not isinstance(v, bool) else "string")
         return {"event_types": sorted(event_types), "fields": fields,
                 "sampled_events": len(rows)}
 

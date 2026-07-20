@@ -68,8 +68,6 @@ class VercelConnector(Connector):
         status = e.get("statusCode")
         if status is None:
             status = proxy.get("statusCode")
-        fields = {"statusCode": status} if isinstance(status, (int, float)) and not isinstance(status, bool) else {}
-
         ts = e.get("timestamp")
         try:
             event_time = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
@@ -79,5 +77,5 @@ class VercelConnector(Connector):
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=str(e.get("source") or e.get("type") or "log"),
-            text=msg[:300], event_time=event_time, fields=fields, payload=e, labels=labels,
+            text=msg[:300], event_time=event_time, payload=e, labels=labels,
         )
