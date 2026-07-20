@@ -117,7 +117,7 @@ function ViewsSection({ views, onChange }:
                       : <span className="help">never queried</span>}
                   </td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <span className="btnrow" style={{ justifyContent: "flex-end" }}>
+                    <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/new?view=${encodeURIComponent(v.name)}`}
                             title="create a trigger watching this view">+ trigger</Link>
                       <Link className="btn" to={`/views/${encodeURIComponent(v.name)}?edit=1`}>edit</Link>
@@ -202,7 +202,7 @@ function TriggersSection({ triggers, viewNames, onChange }:
                   </td>
                   <td className="mono">{t.cooldown}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                    <span className="btnrow" style={{ justifyContent: "flex-end" }}>
+                    <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}`}>agents</Link>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}?edit=1`}>edit</Link>
                       <button className="danger" onClick={() => setConfirmDelName(t.name)}>delete</button>

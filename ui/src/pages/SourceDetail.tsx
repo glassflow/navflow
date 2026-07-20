@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
@@ -16,6 +16,15 @@ export default function SourceDetail() {
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
+  const tabsRef = useRef<HTMLDivElement>(null);
+
+  // Editing labels opens the Configuration tab, which renders below the fold — scroll to it so it's
+  // obvious something opened (otherwise the page looks unchanged).
+  const openConfig = () => {
+    setTab("config");
+    requestAnimationFrame(() =>
+      tabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
 
   const { data: source, error, reload } = usePolling(() => api.source(name));
   const { data: events } = usePolling(() => api.sourceEvents(name, 30));
@@ -67,9 +76,9 @@ export default function SourceDetail() {
         </div>
       )}
 
-      <LabelsSummary source={source} onEdit={() => setTab("config")} />
+      <LabelsSummary source={source} onEdit={openConfig} />
 
-      <div className="tabs" style={{ marginTop: 16 }}>
+      <div className="tabs" style={{ marginTop: 16, scrollMarginTop: 60 }} ref={tabsRef}>
         <button className={tab === "fields" ? "active" : ""} onClick={() => setTab("fields")}>Fields</button>
         <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>Recent events</button>
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
