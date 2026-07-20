@@ -6,6 +6,7 @@ through here; the MCP server never touches the DB directly.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
@@ -175,12 +176,50 @@ def _filter_sql(filters) -> tuple[str, list]:
     return (" AND " + " AND ".join(clauses)) if clauses else "", params
 
 
+def _cgroup_mem_bytes() -> int | None:
+    """The container's memory limit in bytes (cgroup v2, then v1), or None if unlimited/unknown."""
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = open(p).read().strip()
+        except OSError:
+            continue
+        if raw.isdigit():
+            n = int(raw)
+            if 0 < n < (1 << 62):        # "max" or a huge sentinel = effectively unlimited
+                return n
+    return None
+
+
+def _bound_duckdb_memory(con, path: str) -> None:
+    """Bound DuckDB to the CONTAINER, not the host. Without a memory_limit DuckDB sizes itself to
+    the node's RAM, so one heavy scan over a grown dataset blows past the cgroup limit and the
+    process is OOMKilled (this took the dev cell down at ~1M events). With a limit set, DuckDB
+    spills intermediates to temp_directory (on the data volume) instead of dying. Override with
+    NAVFLOW_DUCKDB_MEMORY_LIMIT (e.g. "800MB"); no-op locally when there's no cgroup limit."""
+    limit = os.getenv("NAVFLOW_DUCKDB_MEMORY_LIMIT")
+    if not limit:
+        cg = _cgroup_mem_bytes()
+        if cg:
+            limit = f"{max(256, int(cg * 0.6) // (1024 * 1024))}MB"   # 60% of the container
+    if not limit:
+        return
+    try:
+        con.execute(f"PRAGMA memory_limit='{limit}'")
+        con.execute(f"PRAGMA threads={os.getenv('NAVFLOW_DUCKDB_THREADS', '2')}")
+        tmp = os.path.join(os.path.dirname(os.path.abspath(path)) or ".", ".duckdb_tmp")
+        os.makedirs(tmp, exist_ok=True)
+        con.execute(f"PRAGMA temp_directory='{tmp}'")
+    except Exception as e:                 # never let tuning block startup
+        print(f"navflowd: could not bound DuckDB memory ({e})")
+
+
 class Store:
     def __init__(self, path: str = "navflow.duckdb"):
         # All access is from navflowd's event loop thread; the lock is belt-and-suspenders since
         # FastAPI may run sync work in a threadpool.
         self._lock = threading.Lock()
         self.con = duckdb.connect(path)
+        _bound_duckdb_memory(self.con, path)
         for stmt in _SCHEMA.strip().split(";"):
             if stmt.strip():
                 self.con.execute(stmt)
