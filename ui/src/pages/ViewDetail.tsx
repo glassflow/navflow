@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
+import ConfirmDialog from "../components/ConfirmDialog";
 import ViewEditor from "../components/ViewEditor";
 import { TimeAgo, usePolling } from "../components/bits";
 
@@ -9,8 +10,11 @@ import { TimeAgo, usePolling } from "../components/bits";
 // in-place editing via the Edit button (?edit=1 opens it directly, e.g. from the list).
 export default function ViewDetail() {
   const { name = "" } = useParams();
+  const nav = useNavigate();
   const [params] = useSearchParams();
   const [editing, setEditing] = useState(params.get("edit") === "1");
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [delErr, setDelErr] = useState<string>();
   const { data: views, error, reload } = usePolling(() => api.views(), 10000);
   const { data: triggers } = usePolling(() => api.triggers(), 10000);
   const { data: sources } = usePolling(() => api.sources(), 15000);
@@ -39,8 +43,11 @@ export default function ViewDetail() {
         <span className="btnrow">
           <Link className="btn" to={`/triggers/new?view=${encodeURIComponent(view.name)}`}>+ trigger</Link>
           {!editing && <button className="primary" onClick={() => setEditing(true)}>Edit</button>}
+          {!editing && <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>}
         </span>
       </div>
+
+      {delErr && <div className="alert error">{delErr}</div>}
 
       {editing && (
         <ViewEditor initial={view} sourceNames={(sources ?? []).map((x) => x.name)}
@@ -100,6 +107,23 @@ export default function ViewDetail() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {confirmDel && (
+        <ConfirmDialog
+          title={`Delete view ${view.name}?`}
+          message={watchers.length
+            ? `${watchers.length} trigger(s) watch this view and will stop working. Agents querying it will start failing.`
+            : "Agents querying this view will start failing. This can't be undone."}
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setConfirmDel(false)}
+          onConfirm={async () => {
+            setDelErr(undefined);
+            try { await api.deleteView(view.name); nav("/views"); }
+            catch (e) { setDelErr(String((e as Error).message ?? e)); setConfirmDel(false); }
+          }}
+        />
       )}
     </>
   );
