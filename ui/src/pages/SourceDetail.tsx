@@ -201,7 +201,62 @@ function FieldsPanel({ name }: { name: string }) {
     (a.is_key ? 0 : a.is_label ? 1 : 2) - (b.is_key ? 0 : b.is_label ? 1 : 2)
     || b.coverage - a.coverage || a.name.localeCompare(b.name));
   const shown = showAll ? sorted : sorted.slice(0, FIELDS_PAGE);
+  const labels = data.labels ?? [];
+  const allLabelsFull = labels.every((l) => l.coverage === data.sampled);
   return (
+    <>
+    {labels.length > 0 && (
+      <div className="panel">
+        <h2 style={{ marginTop: 0 }}>Labels <small className="dim">· {data.sampled} events sampled</small></h2>
+        <p className="subtitle">
+          The curated axes you read and alert by — each label with its coverage and top values,
+          including derived ones (regex / const / map over a raw field). <span className="badge ok">key</span>{" "}
+          is the primary; <strong>0 coverage</strong> means the extraction matched nothing (e.g. a bad field or regex).
+        </p>
+        <table>
+          <thead><tr>
+            <th>label</th>
+            {!allLabelsFull && <th style={{ width: 180 }}>coverage</th>}
+            <th className="num">distinct</th>
+            <th>top values</th>
+          </tr></thead>
+          <tbody>
+            {labels.map((l) => (
+              <tr key={l.name} style={l.coverage === 0 ? { opacity: 0.55 } : undefined}>
+                <td className="mono">
+                  {l.name}
+                  {l.is_key ? <span className="badge ok" style={{ marginLeft: 6 }}>key</span>
+                    : <span className="badge starting" style={{ marginLeft: 6 }}>label</span>}
+                  {l.coverage === 0 && (
+                    <div className="help" style={{ fontFamily: "inherit" }}>
+                      no sampled event carries this label — check the field mapping / regex
+                    </div>
+                  )}
+                </td>
+                {!allLabelsFull && (
+                  <td>
+                    <div className="cov"><div className="cov-bar" style={{ width: `${(l.coverage / Math.max(1, data.sampled)) * 100}%` }} /></div>
+                    <small className="dim">{l.coverage} / {data.sampled}</small>
+                  </td>
+                )}
+                <td className="num">{l.distinct}</td>
+                <td>
+                  {l.values.length
+                    ? <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                        {l.values.slice(0, 6).map((v) => (
+                          <span className="chip" key={v.value} title={`${v.value} · ${v.events} events`}>
+                            {fmt(v.value)} <span className="dim">({v.events})</span>
+                          </span>
+                        ))}
+                      </span>
+                    : <span className="help">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Fields <small className="dim">· {data.sampled} events sampled</small></h2>
       <p className="subtitle">
@@ -261,6 +316,7 @@ function FieldsPanel({ name }: { name: string }) {
       )}
       {allFull && <p className="help" style={{ marginTop: 8 }}>Every field is present in all {data.sampled} sampled events.</p>}
     </div>
+    </>
   );
 }
 

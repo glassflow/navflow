@@ -209,14 +209,36 @@ def _compiled(pattern: str):
     return re.compile(pattern)
 
 
-def _normalize_value(spec: dict, raw: str) -> str:
+# Group-reference styles accepted in a label's `replace`: sed/Python (\1, \g<1>) and JS/PCRE
+# ($1, ${1}). The $-forms are translated to Python before substituting.
+_DOLLAR_GROUP = re.compile(r"\$\{(\d+)\}|\$(\d+)")
+_GROUP_REF = re.compile(r"\$\{?\d|\\g?<?\d")
+
+
+def _to_py_replace(replace: str) -> str:
+    """Accept JS/PCRE `$1`/`${1}` (and `$$` → a literal `$`) in a replacement, alongside `\\1`."""
+    protected = replace.replace("$$", "\x00")
+    subbed = _DOLLAR_GROUP.sub(lambda m: f"\\g<{m.group(1) or m.group(2)}>", protected)
+    return subbed.replace("\x00", "$")
+
+
+def _normalize_value(spec: dict, raw: str) -> str | None:
     """Value normalization for one field label: regex substitution first, exact-alias map second
     (map keys are written against the cleaned form). Fail-open: any error keeps the raw value —
-    the lossless payload always preserves the original, so normalization is never destructive."""
+    the lossless payload always preserves the original, so normalization is never destructive.
+
+    A `replace` that references a capture group (`\\1` or `$1`) is treated as an EXTRACTION: if the
+    pattern doesn't match this value, the label doesn't apply, so return None (the label is dropped
+    for this event). A `replace` with no group reference is a plain substitution/cleanup and keeps
+    the original value on no-match, as before."""
     v = raw
     try:
-        if spec.get("pattern"):
-            v = _compiled(spec["pattern"]).sub(spec.get("replace", ""), v)
+        pattern = spec.get("pattern")
+        if pattern:
+            raw_replace = spec.get("replace", "")
+            v, n = _compiled(pattern).subn(_to_py_replace(raw_replace), v)
+            if n == 0 and _GROUP_REF.search(raw_replace):
+                return None                       # extraction whose pattern didn't match → omit
         m = spec.get("map")
         if m:
             v = m.get(v, v)
@@ -250,7 +272,9 @@ def extract_labels(specs, context: dict | None = None) -> dict:
                 if isinstance(sub, dict):
                     v = sub.get(tail)
             if v is not None:
-                out[name] = _normalize_value(spec, str(v))
+                nv = _normalize_value(spec, str(v))
+                if nv is not None:               # extraction that didn't match drops the label
+                    out[name] = nv
     return out
 
 

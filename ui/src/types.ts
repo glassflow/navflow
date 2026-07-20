@@ -52,7 +52,18 @@ export interface SourceField {
   is_key?: boolean;
   values: SourceFieldValue[];
 }
-export interface SourceFieldsProfile { sampled: number; fields: SourceField[]; }
+export interface SourceLabelProfile {
+  name: string;
+  is_key: boolean;
+  coverage: number;
+  distinct: number;
+  values: SourceFieldValue[];
+}
+export interface SourceFieldsProfile {
+  sampled: number;
+  fields: SourceField[];
+  labels?: SourceLabelProfile[];
+}
 
 // One event in a correlated read: its time offset, source, rendered text, and the labels it
 // carries (endpoint, status, …) — so the timeline shows the dimensions you filtered/sliced by.

@@ -852,7 +852,10 @@ def make_app() -> FastAPI:
         key_names = {(s.get("field") or s.get("name")) for s in label_specs if s.get("primary")}
         key_names.discard(None)
 
+        from .config import extract_labels
+
         counts: dict[str, Counter] = {}
+        label_counts: dict[str, Counter] = {}   # the EXTRACTED value of each declared label
         sampled = 0
         for payload in store.recent_payloads(name, min(limit, 2000)):
             ctx = conn.label_context(payload)
@@ -866,6 +869,12 @@ def make_app() -> FastAPI:
                             counts.setdefault(f"{k}.{sk}", Counter())[str(sv)] += 1
                 elif v not in (None, ""):
                     counts.setdefault(k, Counter())[str(v)] += 1
+            # Profile the actual EXTRACTED labels too (the same extraction ingest uses), so a
+            # derived label (regex/const/map over a raw field) is visible with its real coverage
+            # and values — not just the raw field it reads from.
+            for lname, lval in extract_labels(label_specs, ctx).items():
+                if lval not in (None, ""):
+                    label_counts.setdefault(lname, Counter())[str(lval)] += 1
 
         def entry(fname, help_="", primary_default=False):
             vals = counts.get(fname, Counter())
@@ -885,7 +894,22 @@ def make_app() -> FastAPI:
                 fields.append(entry(fname))
         # entity axes first (key, then label), then the rest — lead with what you'd actually key on.
         fields.sort(key=lambda f: (0 if f["is_key"] else 1 if f["is_label"] else 2))
-        return {"sampled": sampled, "fields": fields}
+
+        # Declared labels, profiled by their EXTRACTED value — the curated axes you read/alert by,
+        # surfaced whether they map to a raw field (service) or are derived (http_status). Coverage
+        # of 0 means the extraction matched nothing (e.g. a bad regex) — useful on its own.
+        labels = []
+        for s in label_specs:
+            lname = s.get("name")
+            if not lname:
+                continue
+            vals = label_counts.get(lname, Counter())
+            labels.append({"name": lname, "is_key": bool(s.get("primary")),
+                           "coverage": sum(vals.values()), "distinct": len(vals),
+                           "values": [{"value": val, "events": c} for val, c in vals.most_common(8)]})
+        labels.sort(key=lambda l: 0 if l["is_key"] else 1)
+
+        return {"sampled": sampled, "fields": fields, "labels": labels}
 
     # ── in-app agent (the Ask view) — server-side chat loop over the read API ──
     @app.post("/api/agent/chat")
