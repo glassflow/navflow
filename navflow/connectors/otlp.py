@@ -127,16 +127,30 @@ class OtlpConnector(Connector):
         return []  # push-only: records arrive via map_otlp from POST /v1/{signal}
 
     @staticmethod
-    def _label_ctx(res: dict) -> dict:
-        """Label-extraction context for one record's resource attributes. The canonical field
-        namespace is the STORED payload shape — the names the profiler shows and the UI suggests
-        (`resourceAttributes.service.name`). Bare wire names (`service.name`) stay resolvable as
-        a compatibility alias for specs written before this was normalized."""
-        return {**res, "resourceAttributes": res}
+    def _label_ctx(res: dict, text=None, attributes: dict | None = None) -> dict:
+        """Canonical label-extraction context for one record. Fields are addressed by their STORED
+        payload path: `resourceAttributes.<k>` (resource attributes), `text` (the rendered log
+        line — regex a status/level out of it, same string shown in the UI), and `attributes.<k>`
+        (record / span / datapoint attributes). No bare-name alias — specs use the canonical name
+        the profiler shows."""
+        ctx: dict = {"resourceAttributes": res or {}}
+        if isinstance(text, str) and text:
+            ctx["text"] = text
+        if attributes:
+            ctx["attributes"] = attributes
+        return ctx
 
     def label_context(self, payload: dict | None) -> dict:
-        # retroactive relabel must reproduce ingest exactly: same context, both namespaces
-        return self._label_ctx((payload or {}).get("resourceAttributes") or {})
+        # Retroactive relabel must reproduce ingest exactly — rebuild the SAME context from the
+        # stored payload. `text` is the rendered log body; `attributes` is a raw KV list on logs
+        # (spread via **rec) but already a flat dict on spans/metrics — normalize both.
+        payload = payload or {}
+        body_val = _anyvalue(payload.get("body", {}))
+        text = body_val if isinstance(body_val, str) else (
+            json.dumps(body_val, default=str) if body_val not in (None, {}, "") else None)
+        attrs = payload.get("attributes")
+        attrs = attrs if isinstance(attrs, dict) else _attrs(attrs or [])
+        return self._label_ctx(payload.get("resourceAttributes") or {}, text=text, attributes=attrs)
 
     def map_otlp(self, signal: str, body) -> list[Envelope]:
         if not isinstance(body, dict):
@@ -151,13 +165,15 @@ class OtlpConnector(Connector):
         raise ValueError(f"OTLP signal {signal!r} is not supported")
 
     def _log_envelope(self, res: dict, scope: dict, rec: dict) -> Envelope:
-        # labels (and the key) come from the resource attributes, e.g. service.name → service
-        labels, key = self.keyed(self._label_ctx(res), fallback="unknown")
         body_val = _anyvalue(rec.get("body", {}))
         text = body_val if isinstance(body_val, str) else json.dumps(body_val, default=str)
+        rec_attrs = _attrs(rec.get("attributes", []))
+        # labels (and the key) come from the resource attributes (service.name → service), the log
+        # body (regex a status/level out of the line), and the record's own attributes.
+        labels, key = self.keyed(self._label_ctx(res, text=text, attributes=rec_attrs),
+                                 fallback="unknown")
         event_time = (_ns_to_dt(rec.get("timeUnixNano"))
                       or _ns_to_dt(rec.get("observedTimeUnixNano")) or now_utc())
-        rec_attrs = _attrs(rec.get("attributes", []))
         # numeric record attributes become trigger-usable fields; the rest stay lossless in payload
         fields = {k: v for k, v in rec_attrs.items()
                   if isinstance(v, (int, float)) and not isinstance(v, bool)}
@@ -172,7 +188,8 @@ class OtlpConnector(Connector):
         )
 
     def _span_envelope(self, res: dict, scope: dict, span: dict) -> Envelope:
-        labels, key = self.keyed(self._label_ctx(res), fallback="unknown")
+        labels, key = self.keyed(self._label_ctx(res, attributes=_attrs(span.get("attributes", []))),
+                                 fallback="unknown")
         name = span.get("name", "span")
         start, end = span.get("startTimeUnixNano"), span.get("endTimeUnixNano")
         try:
@@ -200,7 +217,8 @@ class OtlpConnector(Connector):
         )
 
     def _metric_envelope(self, res: dict, scope: dict, metric: dict, dp: dict, kind: str) -> Envelope:
-        labels, key = self.keyed(self._label_ctx(res), fallback="unknown")
+        labels, key = self.keyed(self._label_ctx(res, attributes=_attrs(dp.get("attributes", []))),
+                                 fallback="unknown")
         name = metric.get("name", "metric")
         unit = metric.get("unit", "")
         value = _dp_value(dp)
