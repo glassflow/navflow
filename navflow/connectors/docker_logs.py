@@ -135,7 +135,7 @@ class DockerLogsConnector(Connector):
             out.append(Envelope(
                 source=self.cfg.name, source_type=self.cfg.type, key_value=key,
                 event_type="log", text=msg.strip()[:300], event_time=event_time,
-                fields=derived, payload={"raw": line}, labels=labels,
+                payload={"raw": line}, labels=labels,
             ))
             if len(out) >= MAX_PER_POLL:
                 break  # leave the rest for the next poll; cursor is at this line

@@ -48,12 +48,8 @@ class MemoryConnector(Connector):
         if memory_type not in _MEMORY_TYPES:
             memory_type = f"custom:{memory_type}"
 
-        extra = item.get("fields") or {}
-        fields = {k: v for k, v in extra.items()
-                  if isinstance(v, (int, float)) and not isinstance(v, bool)}
-
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=memory_type, text=content, event_time=now_utc(),
-            fields=fields, payload=item, labels=labels,
+            payload=item, labels=labels,
         )

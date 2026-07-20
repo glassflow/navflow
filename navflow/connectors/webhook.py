@@ -77,12 +77,9 @@ class WebhookConnector(Connector):
             except ValueError:
                 event_time = now_utc()
 
-        # numeric top-level fields become trigger-usable typed fields
-        fields = {k: v for k, v in item.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
-
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type=event_type, text=text, event_time=event_time,
-            fields=fields, payload=item if isinstance(item, dict) else {"value": item},
+            payload=item if isinstance(item, dict) else {"value": item},
             labels=labels,
         )

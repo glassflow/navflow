@@ -80,7 +80,7 @@ class PrometheusConnector(Connector):
                     out.append(Envelope(
                         source=self.cfg.name, source_type=self.cfg.type, key_value=key,
                         event_type=q.get("event_type", "metric"), text=text, event_time=now_utc(),
-                        fields={field: val}, payload={"metric": metric, "value": val, "promql": q["promql"]},
+                        payload={"metric": metric, "value": val, "promql": q["promql"]},
                         labels=labels,  # the series' labels; the primary one is the key
                     ))
         return out

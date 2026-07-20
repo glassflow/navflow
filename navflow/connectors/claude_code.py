@@ -138,7 +138,6 @@ class ClaudeCodeConnector(Connector):
             event_type=self._event_type(o, msg),
             text=text,
             event_time=self._ts(o),
-            fields=self._usage_fields(msg),
             payload=payload,
             labels=labels,
         )
@@ -166,18 +165,6 @@ class ClaudeCodeConnector(Connector):
                 return "tool_result"
         return str(typ)
 
-    @staticmethod
-    def _usage_fields(msg: dict) -> dict:
-        usage = msg.get("usage") if isinstance(msg.get("usage"), dict) else {}
-        fields = {}
-        for k in ("input_tokens", "output_tokens",
-                  "cache_read_input_tokens", "cache_creation_input_tokens"):
-            v = usage.get(k)
-            if isinstance(v, (int, float)):
-                fields[k] = v
-        if fields:
-            fields["total_tokens"] = sum(fields.values())
-        return fields
 
     @staticmethod
     def _render_text(o: dict, msg: dict, include_thinking: bool) -> str:

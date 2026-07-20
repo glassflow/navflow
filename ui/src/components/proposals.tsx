@@ -8,6 +8,7 @@ import type { Trigger } from "../types";
 // clicks Apply, through the normal validated management APIs.
 
 export type LabelSpec = { name: string; field?: string; const?: string; primary?: boolean;
+                          type?: "string" | "number";
                           pattern?: string; replace?: string; map?: Record<string, string> };
 export type TriggerCondition = { aggregate: string; predicate: string; window: string; field?: string };
 export type Proposal =

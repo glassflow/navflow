@@ -261,7 +261,9 @@ def extract_labels(specs, context: dict | None = None) -> dict:
         if not name:
             continue
         if "const" in spec:
-            out[name] = str(spec["const"])
+            tv = _coerce_type(spec, str(spec["const"]))
+            if tv is not None:
+                out[name] = tv
         elif "field" in spec:
             v = ctx.get(spec["field"]) if isinstance(ctx, dict) else None
             if v is None and isinstance(ctx, dict) and "." in str(spec["field"]):
@@ -274,8 +276,23 @@ def extract_labels(specs, context: dict | None = None) -> dict:
             if v is not None:
                 nv = _normalize_value(spec, str(v))
                 if nv is not None:               # extraction that didn't match drops the label
-                    out[name] = nv
+                    tv = _coerce_type(spec, nv)
+                    if tv is not None:           # number-typed but not a number → drop the label
+                        out[name] = tv
     return out
+
+
+def _coerce_type(spec: dict, value: str):
+    """Apply a label's declared `type`. Default is string. A `number` label stores an actual
+    number (so it can be aggregated) — or None if the value isn't numeric, which drops the label
+    for this event (numbers are chosen intentionally, never guessed)."""
+    if spec.get("type") == "number":
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return None
+        return int(f) if f.is_integer() else f
+    return str(value)
 
 
 def _validate_labels(s: dict) -> None:
@@ -290,6 +307,12 @@ def _validate_labels(s: dict) -> None:
             raise CatalogError(
                 f"source {s['name']!r}: label {spec['name']!r} needs exactly one of "
                 f"const (fixed value) or field (extract from the event)")
+        if spec.get("type") not in (None, "string", "number"):
+            raise CatalogError(
+                f"source {s['name']!r}: label {spec['name']!r} type must be 'string' or 'number'")
+        if spec.get("type") == "number" and spec.get("primary"):
+            raise CatalogError(
+                f"source {s['name']!r}: the primary (key) label {spec['name']!r} must be a string")
     if sum(1 for spec in (specs or []) if spec.get("primary")) > 1:
         raise CatalogError(f"source {s['name']!r}: at most one label can be primary (the key)")
 

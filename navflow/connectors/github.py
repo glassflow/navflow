@@ -163,7 +163,7 @@ class GithubConnector(Connector):
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type="commit", text=f"{sha[:7]} {login}: {summary}"[:300],
             event_time=_parse_iso(cm_author.get("date")) or now_utc(),
-            fields={}, payload=commit, labels=labels,
+            payload=commit, labels=labels,
         )
 
     @classmethod

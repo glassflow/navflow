@@ -47,5 +47,5 @@ class AlertsConnector(Connector):
         return [Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
             event_type="alert", text=text, event_time=now_utc(),
-            fields={"ratio": ratio}, payload={"ratio": ratio}, labels=labels,
+            payload={"ratio": ratio}, labels=labels,
         )]
