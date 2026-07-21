@@ -110,6 +110,8 @@ export const api = {
   updateTrigger: (name: string, body: Trigger) =>
     request(`/api/triggers/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteTrigger: (name: string) => request(`/api/triggers/${name}`, { method: "DELETE" }),
+  pauseTrigger: (name: string) => request(`/api/triggers/${name}/pause`, { method: "POST" }),
+  resumeTrigger: (name: string) => request(`/api/triggers/${name}/resume`, { method: "POST" }),
   agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),
   unsubscribe: (subscription_id: string) =>
     request<{ ok: boolean }>("/unsubscribe",

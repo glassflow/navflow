@@ -474,8 +474,13 @@ def make_app() -> FastAPI:
             return store.list_entities(name, limit=lim)
 
         def entry(name: str, facet: dict, lim: int) -> dict:
+            srcs = facet["sources"] if facet.get("unnamed") else None
+            lbl = "key_value" if facet.get("unnamed") else name
             return {"label": name, "primary": facet.get("primary", False),
                     "sources": sorted(set(facet["sources"])),
+                    # high-cardinality: exceeded the cap, so it's served by a live scan, not the
+                    # counter — surface it so the UI can flag it as "not a useful entity axis".
+                    "high_cardinality": store.is_label_truncated(lbl, srcs),
                     "values": values_for(name, facet, lim)}
 
         if label is not None:
@@ -1016,6 +1021,22 @@ def make_app() -> FastAPI:
         if name not in {t.name for t in runtime.catalog.triggers}:
             _err(KeyError(f"unknown trigger {name!r}"), 404)
         store.delete_catalog_trigger(name)
+        runtime.reload_catalog()
+        return {"ok": True}
+
+    @app.post("/api/triggers/{name}/pause")
+    async def pause_trigger(name: str):
+        if name not in {t.name for t in runtime.catalog.triggers}:
+            _err(KeyError(f"unknown trigger {name!r}"), 404)
+        store.set_trigger_paused(name, True)
+        runtime.reload_catalog()
+        return {"ok": True}
+
+    @app.post("/api/triggers/{name}/resume")
+    async def resume_trigger(name: str):
+        if name not in {t.name for t in runtime.catalog.triggers}:
+            _err(KeyError(f"unknown trigger {name!r}"), 404)
+        store.set_trigger_paused(name, False)
         runtime.reload_catalog()
         return {"ok": True}
 

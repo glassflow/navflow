@@ -129,7 +129,13 @@ export default function Explore() {
     if (needle && !vals.length) return null;
     return (
       <div className="cat-group" key={f.label}>
-        <div className="cat-group-head"><span>{f.label}</span><span className="n">{vals.length}</span></div>
+        <div className="cat-group-head">
+          <span>{f.label}</span>
+          {f.high_cardinality && (
+            <span className="badge starting" title="high-cardinality: too many distinct values to profile as an entity axis — showing a live sample">high-card</span>
+          )}
+          <span className="n">{vals.length}</span>
+        </div>
         {vals.map((v) => {
           const active = primary?.label === f.label && primary?.value === v.value;
           return (

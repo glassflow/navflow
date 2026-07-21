@@ -58,6 +58,7 @@ class TriggerCfg:
     condition: Condition
     emit: dict = dc_field(default_factory=dict)
     cooldown_seconds: float = 300.0
+    paused: bool = False
 
 
 @dataclass
@@ -96,6 +97,7 @@ def _trigger_from_dict(t: dict) -> TriggerCfg:
         ),
         emit=t.get("emit", {}) or {},
         cooldown_seconds=parse_duration(t.get("cooldown", "5m")),
+        paused=bool(t.get("paused", False)),
     )
 
 
@@ -125,7 +127,7 @@ def catalog_from_db(store) -> Catalog:
     for t in store.list_catalog_triggers():
         triggers.append(_trigger_from_dict(
             {"name": t["name"], "view": t["view"], "condition": t["condition"],
-             "emit": t["emit"], "cooldown": t["cooldown"]}))
+             "emit": t["emit"], "cooldown": t["cooldown"], "paused": t.get("paused", False)}))
 
     return Catalog(sources=sources, views=views, triggers=triggers)
 
