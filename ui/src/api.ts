@@ -1,7 +1,7 @@
 import type {
   AgentInfo,
   ApiKey,
-  CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchLogEntry, Entity, EnvScan,
+  CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchDetail, DispatchLogEntry, Entity, EnvScan,
   LabelFacet, QueryLogEntry, Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
   TimelineEventRow, Trigger, View,
 } from "./types";
@@ -123,6 +123,7 @@ export const api = {
   queries: (limit = 100) => request<QueryLogEntry[]>(`/api/activity/queries?limit=${limit}`),
   dispatches: (limit = 100) =>
     request<DispatchLogEntry[]>(`/api/activity/dispatches?limit=${limit}`),
+  dispatch: (id: string) => request<DispatchDetail>(`/api/activity/dispatches/${id}`),
   subscriptions: () => request<Subscription[]>("/api/subscriptions"),
   mcpTools: () => request<{ name: string; description: string }[]>("/api/mcp/tools"),
 

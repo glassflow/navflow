@@ -1049,6 +1049,21 @@ def make_app() -> FastAPI:
     async def activity_dispatches(limit: int = 100):
         return store.list_dispatches(limit=min(limit, 500))
 
+    @app.get("/api/activity/dispatches/{dispatch_id}")
+    async def activity_dispatch(dispatch_id: str):
+        """One firing, deep. Fetch-by-id so a linked dispatch page never dead-ends (unlike the
+        capped list). Includes the per-subscriber delivery attempts with masked endpoints + agent
+        names, so the failure is attributable to a specific agent."""
+        d = store.get_dispatch(dispatch_id)
+        if d is None:
+            _err(KeyError(f"unknown dispatch {dispatch_id!r}"), 404)
+        deliveries = []
+        for dv in store.deliveries_for(dispatch_id):
+            name, masked = _agent_identity(dv["url"].rstrip("/"))
+            deliveries.append({"agent": name, "endpoint": masked, "ok": dv["ok"],
+                               "error": dv["error"], "delivered_at": dv["delivered_at"]})
+        return {**d, "deliveries": deliveries}
+
     # ── connected agents: subscriptions grouped by endpoint, named deterministically ──
     _AGENT_ADJ = ["brisk", "quiet", "amber", "bold", "calm", "deft", "eager", "fleet",
                   "keen", "lucid", "merry", "noble", "prime", "swift", "vivid", "wry"]

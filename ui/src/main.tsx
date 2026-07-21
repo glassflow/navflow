@@ -6,6 +6,7 @@ import App from "./App";
 import AuthGate from "./components/AuthGate";
 import AgentActivity, { ConnectPage } from "./pages/Activity";
 import Ask from "./pages/Ask";
+import DispatchDetail from "./pages/DispatchDetail";
 import Explore from "./pages/Explore";
 import SourceClaudeCode from "./pages/SourceClaudeCode";
 import SourceDetail from "./pages/SourceDetail";
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
       { path: "triggers/:name", element: <TriggerDetail /> },
       { path: "connect", element: <ConnectPage /> },
       { path: "activity", element: <AgentActivity /> },
+      { path: "dispatches/:id", element: <DispatchDetail /> },
       { path: "agents", element: <Navigate to="/connect" replace /> },
       { path: "ask", element: <Ask /> },
       { path: "security", element: <Security /> },

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api, auth } from "../api";
-import { Close, Search } from "../components/icons";
+import { Search } from "../components/icons";
 import { TimeAgo, usePolling } from "../components/bits";
 import type { DispatchLogEntry } from "../types";
 
@@ -41,7 +41,14 @@ const ACTIVITY_LABELS: Record<ActivityTab, string> = {
 };
 
 export default function AgentActivity() {
-  const [tab, setTab] = useState<ActivityTab>("agents");
+  const [params, setParams] = useSearchParams();
+  const tab = (["agents", "queries", "dispatches"].includes(params.get("tab") ?? "")
+    ? params.get("tab") : "agents") as ActivityTab;
+  const setTab = (t: ActivityTab) => {
+    const next = new URLSearchParams(params);
+    next.set("tab", t);
+    setParams(next);
+  };
 
   return (
     <>
@@ -345,6 +352,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
 }
 
 function AgentsRoster() {
+  const nav = useNavigate();
   const { data, error } = usePolling(() => api.agents(), 10000);
   const [params] = useSearchParams();
   const [open, setOpen] = useState<string | undefined>(params.get("agent") ?? undefined);
@@ -400,14 +408,15 @@ function AgentsRoster() {
                       ))}
                       {a.recent.length > 0 && (
                         <>
-                          <p className="help" style={{ margin: "10px 0 4px" }}>recent wakes</p>
+                          <p className="help" style={{ margin: "10px 0 4px" }}>recent wakes — open one for the full dispatch</p>
                           <table>
                             <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivery</th></tr></thead>
                             <tbody>
                               {a.recent.map((r, i) => (
-                                <tr key={i}>
+                                <tr key={i} className={r.dispatch_id ? "clickable" : undefined}
+                                    onClick={r.dispatch_id ? () => nav(`/dispatches/${encodeURIComponent(r.dispatch_id!)}`) : undefined}>
                                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={r.at} /></td>
-                                  <td className="mono">{r.trigger}</td>
+                                  <td className="mono">{r.dispatch_id ? <Link to={`/dispatches/${encodeURIComponent(r.dispatch_id)}`}>{r.trigger}</Link> : r.trigger}</td>
                                   <td className="mono">{r.key}</td>
                                   <td>{r.ok ? <span className="badge ok">delivered</span> : <span className="badge error" title={r.error ?? undefined}>failed{r.error ? `: ${r.error}` : ""}</span>}</td>
                                 </tr>
@@ -498,9 +507,9 @@ function deliveryBadge(d: DispatchLogEntry) {
 }
 
 function Dispatches() {
+  const nav = useNavigate();
   const { data, error } = usePolling(() => api.dispatches(150));
   const [q, setQ] = useState("");
-  const [sel, setSel] = useState<DispatchLogEntry | null>(null);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -508,13 +517,6 @@ function Dispatches() {
       !needle || d.trigger.toLowerCase().includes(needle) || d.key.toLowerCase().includes(needle) ||
       d.kind.toLowerCase().includes(needle));
   }, [data, q]);
-
-  useEffect(() => {
-    if (!sel) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSel(null); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [sel]);
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data?.length) return <div className="empty">no trigger firings yet</div>;
@@ -525,13 +527,10 @@ function Dispatches() {
         <thead><tr><th>fired</th><th>trigger</th><th>key</th><th>kind</th><th>delivery</th></tr></thead>
         <tbody>
           {shown.map((d) => (
-            <tr
-              key={d.dispatch_id}
-              className={"clickable" + (sel?.dispatch_id === d.dispatch_id ? " sel" : "")}
-              onClick={() => setSel(d)}
-            >
+            <tr key={d.dispatch_id} className="clickable"
+                onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
               <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={d.fired_at} /></td>
-              <td className="mono">{d.trigger}</td>
+              <td className="mono"><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}>{d.trigger}</Link></td>
               <td className="mono">{d.key}</td>
               <td className="mono">{d.kind}</td>
               <td>{deliveryBadge(d)}</td>
@@ -540,32 +539,6 @@ function Dispatches() {
           {!shown.length && <tr><td colSpan={5} className="dim" style={{ textAlign: "center", padding: 24 }}>no dispatches match “{q}”</td></tr>}
         </tbody>
       </table>
-
-      {sel && (
-        <>
-          <div className="sheet-overlay" onClick={() => setSel(null)} />
-          <aside className="sheet" role="dialog" aria-label="Dispatch detail">
-            <div className="sheet-head">
-              <div className="sheet-title">
-                <h2><span className="mono">{sel.trigger}</span></h2>
-                <span className="subtitle" style={{ margin: 0 }}>fired for <span className="mono">{sel.key}</span></span>
-              </div>
-              <button className="sheet-close" onClick={() => setSel(null)} aria-label="Close"><Close /></button>
-            </div>
-            <div className="sheet-body">
-              <div className="kv">
-                <span className="k">fired</span><span><TimeAgo ts={sel.fired_at} /></span>
-                <span className="k">kind</span><span className="mono">{sel.kind}</span>
-                <span className="k">delivery</span><span>{deliveryBadge(sel)}</span>
-                {sel.error && <><span className="k">error</span><span className="mono" style={{ color: "var(--err)" }}>{sel.error}</span></>}
-                <span className="k">dispatch id</span><span className="mono">{sel.dispatch_id}</span>
-              </div>
-              <h3 style={{ margin: "18px 0 6px" }}>Payload</h3>
-              <pre className="payload">{sel.payload}</pre>
-            </div>
-          </aside>
-        </>
-      )}
     </>
   );
 }

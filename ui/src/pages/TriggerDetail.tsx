@@ -134,8 +134,9 @@ export default function TriggerDetail() {
             {firings.map((d) => {
               const failed = d.subscribers > d.delivered;
               return (
-              <tr key={d.dispatch_id}>
-                <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={d.fired_at} /></td>
+              <tr key={d.dispatch_id} className="clickable"
+                  onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
+                <td style={{ whiteSpace: "nowrap" }}><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}><TimeAgo ts={d.fired_at} /></Link></td>
                 <td className="mono">{d.key}</td>
                 <td className="num">{d.subscribers}</td>
                 <td className="num" style={failed ? { color: "var(--err)" } : undefined}>{d.delivered}</td>

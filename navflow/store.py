@@ -673,6 +673,30 @@ class Store:
             for r in rows
         ]
 
+    def get_dispatch(self, dispatch_id: str) -> dict | None:
+        """One firing by id, with the same failure-reason as list_dispatches. None if unknown."""
+        with self._lock:
+            r = self.con.execute(
+                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, "
+                "l.subscribers, l.delivered, l.payload, "
+                "(SELECT arg_max(d.error, d.delivered_at) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND NOT d.ok) AS error "
+                "FROM dispatch_log l WHERE l.dispatch_id = ?", [dispatch_id]).fetchone()
+        if r is None:
+            return None
+        return {"dispatch_id": r[0], "trigger": r[1], "key": r[2], "kind": r[3],
+                "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "payload": r[7],
+                "error": r[8]}
+
+    def deliveries_for(self, dispatch_id: str) -> list[dict]:
+        """Per-subscriber delivery attempts for one firing — the detail behind 'delivered X of N'."""
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT subscription_id, url, ok, error, delivered_at FROM dispatch_deliveries "
+                "WHERE dispatch_id = ? ORDER BY delivered_at", [dispatch_id]).fetchall()
+        return [{"subscription_id": r[0], "url": r[1], "ok": bool(r[2]),
+                 "error": r[3], "delivered_at": r[4]} for r in rows]
+
     def log_dispatch(self, dispatch_id: str, trigger: str, key: str, kind: str,
                      subscribers: int, delivered: int, payload: str) -> None:
         with self._lock:
