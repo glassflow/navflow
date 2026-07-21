@@ -99,6 +99,55 @@ def full_schema(connector: str) -> dict | None:
     return {**schema, **UNIVERSAL_CONFIG} if schema is not None else None
 
 
+# Placeholder returned in place of a stored secret (a connector token/DSN). Chosen so it can never
+# be a real credential; the update path treats a field still equal to this as "unchanged".
+REDACTED_SECRET = "••••••••"
+
+
+def secret_field_names(connector: str) -> set:
+    """Config keys a connector marks `secret: True` in its CONFIG_SCHEMA (e.g. github `token`,
+    postgres `dsn`). These must never be serialized to a client — including the built-in agent and
+    MCP, which read source config over /api/sources."""
+    schema = full_schema(connector)
+    if not schema:
+        return set()
+    return {k for k, spec in schema.items() if isinstance(spec, dict) and spec.get("secret")}
+
+
+def redact_config(connector: str, config: dict) -> dict:
+    """A copy of `config` with secret fields masked, for any response leaving the daemon. The stored
+    catalog keeps the real values (the connector reads those at runtime); only the wire form is
+    redacted. Empty secrets stay empty so the UI can tell 'not set' from 'set'."""
+    secrets = secret_field_names(connector)
+    if not secrets or not isinstance(config, dict):
+        return config
+    return {k: (REDACTED_SECRET if k in secrets and v not in (None, "") else v)
+            for k, v in config.items()}
+
+
+def restore_secrets(connector: str, new_config: dict, existing_config: dict | None) -> dict:
+    """Reconcile a saved config with the stored secrets a client never saw. Blank-to-keep semantics:
+      • secret OMITTED (or echoed back as the redaction placeholder) → keep the stored value
+      • secret present and EMPTY ("")                                → clear it (explicit remove)
+      • secret present and non-empty                                 → replace with the new value
+    So editing other fields never wipes a token, and clearing one is an explicit act."""
+    secrets = secret_field_names(connector)
+    if not secrets or not isinstance(new_config, dict):
+        return new_config
+    out = dict(new_config)
+    for k in secrets:
+        if k not in new_config or out.get(k) == REDACTED_SECRET:   # omitted / placeholder → keep
+            existing = (existing_config or {}).get(k)
+            if existing not in (None, ""):
+                out[k] = existing
+            else:
+                out.pop(k, None)
+        elif out.get(k) in (None, ""):                             # explicit empty → clear
+            out.pop(k, None)
+        # else: a real new value → replace (passes through)
+    return out
+
+
 _LABEL_NAME = _re.compile(r"^[A-Za-z0-9_]+$")
 
 

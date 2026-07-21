@@ -24,7 +24,8 @@ from pydantic import BaseModel
 from .config import (CatalogError, export_db_to_yaml, import_yaml_to_db,
                      validate_source_dict, validate_trigger_dict, validate_view_dict,
                      _source_from_dict)
-from .connectors import SPECS, normalize_config, source_type_for
+from .connectors import (SPECS, normalize_config, redact_config, restore_secrets,
+                         source_type_for)
 from .dispatch import Dispatcher
 from .envelope import now_utc
 from .runtime import Runtime
@@ -416,6 +417,7 @@ def make_app() -> FastAPI:
             entry = next((s for s in store.list_catalog_sources() if s["name"] == name), None)
             if entry is None:
                 _err(KeyError(f"unknown source {name!r}"), 404)
+            entry = {**entry, "config": redact_config(entry["connector"], entry["config"])}
             health = runtime.health_snapshot().get(name) or {}
             names = _source_label_names(entry)
             if names:
@@ -745,13 +747,15 @@ def make_app() -> FastAPI:
     @app.get("/api/sources")
     async def list_sources():
         health = runtime.health_snapshot()
-        return [{**s, "health": health.get(s["name"])} for s in store.list_catalog_sources()]
+        return [{**s, "config": redact_config(s["connector"], s["config"]),
+                 "health": health.get(s["name"])} for s in store.list_catalog_sources()]
 
     @app.get("/api/sources/{name}")
     async def get_source(name: str):
         for s in store.list_catalog_sources():
             if s["name"] == name:
-                return {**s, "health": runtime.health_snapshot().get(name)}
+                return {**s, "config": redact_config(s["connector"], s["config"]),
+                        "health": runtime.health_snapshot().get(name)}
         _err(KeyError(f"unknown source {name!r}"), 404)
 
     @app.post("/api/sources", status_code=201)
@@ -778,7 +782,10 @@ def make_app() -> FastAPI:
             _err(ValueError("renaming a source is not supported; delete and recreate"), 400)
         try:
             validate_source_dict(body.model_dump())
-            config = normalize_config(body.connector, body.config)
+            # A client edits with the secret masked; if it saves the placeholder back unchanged,
+            # keep the stored secret instead of overwriting it (see connectors.redact_config).
+            config = normalize_config(
+                body.connector, restore_secrets(body.connector, body.config, existing["config"]))
         except CatalogError as e:
             _err(e)
         store.upsert_catalog_source(name, source_type_for(body.connector), body.connector,

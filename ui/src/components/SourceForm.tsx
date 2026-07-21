@@ -42,10 +42,15 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [name, setName] = useState(initial?.name ?? "");
   const type = initial?.type ?? "event_stream";  // ignored by the daemon; derived from connector
   const [poll, setPoll] = useState(initial?.poll ?? spec.poll ?? "5s");
+  // A secret that's already stored comes back from the API as a redaction placeholder, never its
+  // real value. Show which secrets are set, but never prefill one — blank means "keep it" (below).
+  const secretSet = (f: ConnectorField) => !!f.secret && !!initial?.config?.[f.name];
+  const [cleared, setCleared] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {};
     for (const f of spec.fields) {
       if (f.type === "list") continue;   // list fields use `rows`, below
+      if (f.secret) { v[f.name] = ""; continue; }   // never prefill a secret
       const cur = initial?.config?.[f.name];
       if (cur === undefined || cur === null) v[f.name] = "";
       else if (f.type === "json") v[f.name] = JSON.stringify(cur, null, 2);
@@ -135,6 +140,13 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         continue;
       }
       const raw = values[f.name]?.trim();
+      // A secret that's already set: blank = keep (omit), typed = replace, Remove = clear ("").
+      if (secretSet(f)) {
+        if (cleared[f.name]) config[f.name] = "";       // explicit remove
+        else if (raw) config[f.name] = raw;             // replace
+        // else omit → the daemon keeps the stored secret
+        continue;
+      }
       if (!raw) {
         if (f.required) throw new Error(`${f.name} is required`);
         continue;
@@ -260,9 +272,22 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         ) : (
           <input type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
                  value={values[f.name]} autoComplete={f.secret ? "off" : undefined}
+                 disabled={secretSet(f) && cleared[f.name]}
+                 placeholder={secretSet(f) ? (cleared[f.name] ? "" : "leave blank to keep") : undefined}
                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
         )}
-        <span className="help">{jsonErrors[f.name] ?? f.help}</span>
+        {secretSet(f) ? (
+          <span className="help">
+            {cleared[f.name]
+              ? <>will be removed on save — <button type="button" className="linklike"
+                    onClick={() => setCleared({ ...cleared, [f.name]: false })}>undo</button></>
+              : <>a value is set — type to replace, or leave blank to keep ·{" "}
+                  <button type="button" className="linklike"
+                    onClick={() => { setCleared({ ...cleared, [f.name]: true }); setValues({ ...values, [f.name]: "" }); }}>remove</button></>}
+          </span>
+        ) : (
+          <span className="help">{jsonErrors[f.name] ?? f.help}</span>
+        )}
       </label>
     );
 

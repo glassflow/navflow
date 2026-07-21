@@ -324,6 +324,13 @@ button.primary:hover, .btn.primary:hover { background: var(--btn-primary-bg-hove
 button.danger { color: var(--err); border-color: var(--danger-border); }
 button.danger:hover { background: var(--err-soft); }
 button:disabled { opacity: 0.45; cursor: default; }
+/* inline text button (e.g. remove/undo inside help text) — looks like a link, not a button */
+button.linklike {
+  padding: 0; border: none; background: none; font: inherit; font-weight: 500;
+  color: var(--accent, var(--ink)); text-decoration: underline; cursor: pointer;
+  display: inline; border-radius: 0;
+}
+button.linklike:hover { border: none; opacity: 0.8; }
 .btnrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 label.field { display: block; margin-bottom: 14px; }
