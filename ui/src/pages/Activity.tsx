@@ -368,7 +368,10 @@ function AgentsRoster() {
           {data.agents.map((a) => (
             <>
               <tr key={a.name} className="clickable" onClick={() => setOpen(open === a.name ? undefined : a.name)}>
-                <td><strong>{a.name}</strong></td>
+                <td>
+                  <strong>{a.name}</strong>
+                  {a.unhealthy && <span className="badge error" style={{ marginLeft: 8 }} title={a.last_error ?? "last delivery failed"}>failing</span>}
+                </td>
                 <td className="mono">{a.endpoint}</td>
                 <td>{a.triggers.map((t) => <span className="chip mono" key={t}>{t}</span>)}</td>
                 <td className="num">{a.delivered_ok}</td>
@@ -406,7 +409,7 @@ function AgentsRoster() {
                                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={r.at} /></td>
                                   <td className="mono">{r.trigger}</td>
                                   <td className="mono">{r.key}</td>
-                                  <td>{r.ok ? <span className="badge ok">delivered</span> : <span className="badge error">failed</span>}</td>
+                                  <td>{r.ok ? <span className="badge ok">delivered</span> : <span className="badge error" title={r.error ?? undefined}>failed{r.error ? `: ${r.error}` : ""}</span>}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -554,6 +557,7 @@ function Dispatches() {
                 <span className="k">fired</span><span><TimeAgo ts={sel.fired_at} /></span>
                 <span className="k">kind</span><span className="mono">{sel.kind}</span>
                 <span className="k">delivery</span><span>{deliveryBadge(sel)}</span>
+                {sel.error && <><span className="k">error</span><span className="mono" style={{ color: "var(--err)" }}>{sel.error}</span></>}
                 <span className="k">dispatch id</span><span className="mono">{sel.dispatch_id}</span>
               </div>
               <h3 style={{ margin: "18px 0 6px" }}>Payload</h3>

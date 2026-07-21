@@ -141,7 +141,9 @@ export interface AgentInfo {
   delivered_ok: number;
   delivered_fail: number;
   last_woken: string | null;
-  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null }[];
+  unhealthy?: boolean;          // the most recent delivery to this endpoint failed
+  last_error?: string | null;   // why, when unhealthy
+  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null; error?: string | null }[];
 }
 
 export interface ApiKey {
@@ -233,6 +235,7 @@ export interface DispatchLogEntry {
   subscribers: number;
   delivered: number;
   payload: string;
+  error?: string | null;   // most recent failed delivery's reason, when delivered < subscribers
 }
 
 export interface Subscription {

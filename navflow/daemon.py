@@ -1090,8 +1090,12 @@ def make_app() -> FastAPI:
                     "first_seen": sub["created_at"],
                     "delivered_ok": st.get("ok", 0), "delivered_fail": st.get("fail", 0),
                     "last_woken": st.get("last_at"),
+                    # currently failing: the most recent delivery to this endpoint did not succeed.
+                    "unhealthy": st.get("fail", 0) > 0 and not st.get("last_ok", True),
+                    "last_error": None if st.get("last_ok", True) else st.get("last_error"),
                     "recent": [{"at": d["at"], "ok": d["ok"], "trigger": d["trigger"],
-                                "key": d["key"]} for d in store.recent_deliveries(sub["url"], 10)],
+                                "key": d["key"], "error": d["error"]}
+                               for d in store.recent_deliveries(sub["url"], 10)],
                 }
             a["subscriptions"].append({"subscription_id": sub["subscription_id"],
                                        "trigger": sub["trigger"], "created_at": sub["created_at"]})
