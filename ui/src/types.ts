@@ -143,7 +143,7 @@ export interface AgentInfo {
   last_woken: string | null;
   unhealthy?: boolean;          // the most recent delivery to this endpoint failed
   last_error?: string | null;   // why, when unhealthy
-  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null; error?: string | null }[];
+  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null; error?: string | null; dispatch_id?: string }[];
 }
 
 export interface ApiKey {
@@ -236,6 +236,20 @@ export interface DispatchLogEntry {
   delivered: number;
   payload: string;
   error?: string | null;   // most recent failed delivery's reason, when delivered < subscribers
+}
+
+// One delivery attempt to a specific subscriber, for the dispatch detail page.
+export interface DispatchDelivery {
+  agent: string;
+  endpoint: string;   // masked
+  ok: boolean;
+  error?: string | null;
+  delivered_at: string | null;
+}
+
+// A single firing, deep — fetched by id so a linked dispatch page never dead-ends.
+export interface DispatchDetail extends DispatchLogEntry {
+  deliveries: DispatchDelivery[];
 }
 
 export interface Subscription {
