@@ -184,6 +184,7 @@ export interface LabelFacet {
   label: string;
   primary?: boolean;
   sources: string[];
+  high_cardinality?: boolean;   // exceeded the entity cardinality cap — served by a live scan
   values: Entity[];
 }
 
@@ -210,6 +211,7 @@ export interface Trigger {
   condition: TriggerCondition;
   emit: Record<string, unknown>;
   cooldown: string;
+  paused?: boolean;   // paused triggers are not evaluated and never fire
 }
 
 export interface QueryLogEntry {

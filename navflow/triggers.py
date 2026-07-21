@@ -8,6 +8,7 @@ and evaluate on the in-flight batch to decouple latency from the poll interval.
 from __future__ import annotations
 
 import operator
+import os
 from datetime import timezone
 
 from .config import Catalog
@@ -15,6 +16,13 @@ from .envelope import now_utc
 from .views import parse_window, resolve_query
 
 _OPS = {">=": operator.ge, "<=": operator.le, "==": operator.eq, ">": operator.gt, "<": operator.lt}
+
+# Debounce: a trigger is re-evaluated at most once per this many seconds (capped to its own window,
+# so a short-window trigger still evaluates often enough to catch a crossing). Without it, a
+# push-heavy source re-runs the same windowed aggregate on every push — poll=5s, window=60s means the
+# same window is re-scanned ~12x, and cooldown already prevents double-fires. Trades up to this many
+# seconds of detection latency for dropping the redundant scans off the ingest hot path.
+_DEBOUNCE_SECONDS = float(os.getenv("NAVFLOW_TRIGGER_DEBOUNCE_SECONDS", "10"))
 
 
 def _predicate(value: float, pred: str) -> bool:
@@ -29,15 +37,32 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=None) -> list:
-    """Evaluate every trigger whose view touches an affected source. Returns [(trigger, key)] fired."""
+async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=None,
+                        eval_state: dict | None = None) -> list:
+    """Evaluate every trigger whose view touches an affected source. Returns [(trigger, key)] fired.
+
+    `eval_state` is a caller-owned {trigger_name: last_eval_datetime} map for debouncing across ticks;
+    pass None (tests) to evaluate on every call."""
     fired = []
+    now = now_utc()
     for trig in catalog.triggers:
+        # A paused trigger is inert: not evaluated, never fires, until resumed.
+        if getattr(trig, "paused", False):
+            continue
         view = catalog.views[trig.view]
         if affected_sources and not (set(view.sources) & set(affected_sources)):
             continue
 
         c = trig.condition
+        # Debounce: skip if this trigger was evaluated within min(window, _DEBOUNCE_SECONDS) ago.
+        # The first evaluation of a trigger always runs (no prior state).
+        if eval_state is not None:
+            interval = min(parse_window(c.window).total_seconds(), _DEBOUNCE_SECONDS)
+            last_eval = eval_state.get(trig.name)
+            if last_eval is not None and (now - last_eval).total_seconds() < interval:
+                continue
+            eval_state[trig.name] = now
+
         group_by = c.group_by or ["key_value"]
         legacy = group_by == ["key_value"]
         since = now_utc() - parse_window(c.window)

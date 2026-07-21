@@ -31,6 +31,26 @@ CREATE TABLE IF NOT EXISTS cursors (
   source TEXT PRIMARY KEY,
   cursor TEXT
 );
+CREATE TABLE IF NOT EXISTS source_stats (
+  source      TEXT PRIMARY KEY,
+  events      BIGINT,
+  last_ingest TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS entity_counts (
+  source      TEXT,
+  label       TEXT,
+  value       TEXT,
+  events      BIGINT,
+  last_ingest TIMESTAMPTZ,
+  PRIMARY KEY (source, label, value)
+);
+CREATE INDEX IF NOT EXISTS ix_entity_counts_label ON entity_counts(label);
+CREATE TABLE IF NOT EXISTS entity_label_state (
+  source    TEXT,
+  label     TEXT,
+  truncated BOOLEAN DEFAULT FALSE,
+  PRIMARY KEY (source, label)
+);
 CREATE TABLE IF NOT EXISTS trigger_state (
   trigger    TEXT,
   key_value  TEXT,
@@ -88,7 +108,8 @@ CREATE TABLE IF NOT EXISTS catalog_triggers (
   emit       JSON,
   cooldown   TEXT,
   created_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ
+  updated_at TIMESTAMPTZ,
+  paused     BOOLEAN DEFAULT FALSE
 );
 CREATE TABLE IF NOT EXISTS query_log (
   id            TEXT PRIMARY KEY,
@@ -118,6 +139,10 @@ _MIGRATIONS = [
     "ALTER TABLE events ADD COLUMN IF NOT EXISTS labels JSON",
     "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS ingest_key TEXT",
     "ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_by TEXT",
+    # No DEFAULT here on purpose: DuckDB re-applies an ADD COLUMN … DEFAULT on every boot even when
+    # the column already exists, which would reset paused=TRUE back to FALSE each restart. Existing
+    # rows get NULL (read as False); the upsert always writes an explicit value going forward.
+    "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS paused BOOLEAN",
     # Retired: navflow no longer auto-extracts numeric fields. Numbers you aggregate are declared
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
@@ -128,6 +153,31 @@ _FILTER_COLS = {"event_type", "source", "text", "key_value"}
 _FILTER_OPS = {"eq": "=", "neq": "!=", "gt": ">", "lt": "<", "gte": ">=", "lte": "<="}
 _FIELD_RE = re.compile(r"^[A-Za-z0-9_]+$")
 _DOTTED_FIELD_RE = re.compile(r"^[A-Za-z0-9_.]+$")
+
+# Max distinct values a (source, label) may materialize in entity_counts. A well-formed label is a
+# low/medium-cardinality axis (service, env, status); a label accidentally bound to a near-unique
+# field (request_id, a timestamp) would otherwise make entity_counts ≈ the events table. Past the
+# cap we drop that (source, label)'s rows and mark it truncated: reads fall back to a live scan and
+# the UI can flag it as high-cardinality (not a useful entity axis anyway).
+_ENTITY_CARDINALITY_CAP = int(os.getenv("NAVFLOW_ENTITY_CARDINALITY_CAP", "10000"))
+
+
+def _accum_entity(ent: dict, source: str, label: str, value, ingest_time) -> None:
+    """Fold one (source, label, value) observation into the batch's entity_counts deltas. Skips
+    empty/null and boolean values (not entity axes). The value is stringified to match how the read
+    path reads it back (json_extract_string), so live deltas merge with seeded rows."""
+    if value is None or isinstance(value, bool):
+        return
+    v = str(value)
+    if not v:
+        return
+    d = ent.get((source, label, v))
+    if d is None:
+        ent[(source, label, v)] = [1, ingest_time]
+    else:
+        d[0] += 1
+        if ingest_time > d[1]:
+            d[1] = ingest_time
 
 
 def _label_expr(name: str) -> str:
@@ -226,6 +276,62 @@ class Store:
                 self.con.execute(stmt)
         for stmt in _MIGRATIONS:
             self.con.execute(stmt)
+        self._init_source_stats()
+        self._init_entity_counts()
+
+    def _init_source_stats(self) -> None:
+        """`source_stats` is a maintained per-source counter (event count + last ingest) so the
+        Sources list — polled every few seconds and hit by every agent `list_sources` — reads O(#sources)
+        instead of scanning the whole events table with a GROUP BY. It's kept in sync incrementally by
+        append()/purge_events(); this seeds it once from existing data (empty table, or a DB that
+        predates the counter). COUNT(*) with no filter is a metadata read in DuckDB, so the guard is
+        cheap; the GROUP BY runs only when the counter is empty."""
+        with self._lock:
+            if self.con.execute("SELECT COUNT(*) FROM source_stats").fetchone()[0]:
+                return
+            self.con.execute(
+                "INSERT INTO source_stats "
+                "SELECT source, COUNT(*), MAX(ingest_time) FROM events GROUP BY source")
+
+    def _init_entity_counts(self) -> None:
+        """`entity_counts` is a maintained per-(source, label, value) counter backing list_entities /
+        the Explore facets, replacing a full-table `GROUP BY json_extract_string(labels, …)` (which
+        JSON-parses every row — ~74ms per label at 5M events) with a small-table read. Only DECLARED
+        labels + key_value are counted (never the open-ended raw field set), so cardinality is bounded
+        by the user's curation; a misconfigured high-cardinality label is caught by the cap (see
+        append). Kept in sync by append()/purge_events(); this seeds it once from existing data."""
+        with self._lock:
+            if self.con.execute("SELECT COUNT(*) FROM entity_counts").fetchone()[0]:
+                return
+            # Named labels: unnest each row's labels JSON into (key, value) and count per source.
+            self.con.execute(
+                "INSERT INTO entity_counts (source, label, value, events, last_ingest) "
+                "SELECT source, label, value, COUNT(*), MAX(ingest_time) FROM ("
+                "  SELECT source, k.key AS label, "
+                "         json_extract_string(labels, '$.\"' || k.key || '\"') AS value, ingest_time "
+                "  FROM events, UNNEST(json_keys(labels)) AS k(key) WHERE labels IS NOT NULL"
+                ") WHERE value IS NOT NULL AND value <> '' GROUP BY source, label, value")
+            # The primary key axis (key_value), stored under the reserved label name 'key_value'.
+            self.con.execute(
+                "INSERT INTO entity_counts (source, label, value, events, last_ingest) "
+                "SELECT source, 'key_value', key_value, COUNT(*), MAX(ingest_time) FROM events "
+                "WHERE key_value IS NOT NULL AND key_value <> '' GROUP BY source, key_value "
+                "ON CONFLICT (source, label, value) DO NOTHING")
+            # Enforce the cap on the seeded data: any (source, label) over it is dropped + truncated.
+            over = self.con.execute(
+                "SELECT source, label FROM entity_counts GROUP BY source, label "
+                "HAVING COUNT(*) > ?", [_ENTITY_CARDINALITY_CAP]).fetchall()
+            for src, lab in over:
+                self._truncate_entity_label(src, lab)
+
+    def _truncate_entity_label(self, source: str, label: str) -> None:
+        """Stop materializing a high-cardinality (source, label): drop its rows and flag it so reads
+        fall back to a live scan. Caller holds the lock."""
+        self.con.execute(
+            "INSERT INTO entity_label_state (source, label, truncated) VALUES (?, ?, TRUE) "
+            "ON CONFLICT (source, label) DO UPDATE SET truncated = TRUE", [source, label])
+        self.con.execute(
+            "DELETE FROM entity_counts WHERE source = ? AND label = ?", [source, label])
 
     # ── ingest ──────────────────────────────────────────────────────────────
     def append(self, envelopes: list[Envelope]) -> None:
@@ -239,17 +345,70 @@ class Store:
              e.event_time, e.ingest_time)
             for e in envelopes
         ]
+        # Per-source deltas for the maintained counter (see event_stats): how many rows this batch
+        # adds per source and the latest ingest_time among them. Plus per-(source, label, value)
+        # deltas for entity_counts (see list_entities) — the declared labels and key_value only.
+        deltas: dict[str, list] = {}
+        ent: dict[tuple, list] = {}
+        for e in envelopes:
+            d = deltas.get(e.source)
+            if d is None:
+                deltas[e.source] = [1, e.ingest_time]
+            else:
+                d[0] += 1
+                if e.ingest_time > d[1]:
+                    d[1] = e.ingest_time
+            _accum_entity(ent, e.source, "key_value", e.key_value, e.ingest_time)
+            for lname, lval in (e.labels or {}).items():
+                _accum_entity(ent, e.source, lname, lval, e.ingest_time)
         # Insert in bounded chunks. DuckDB's executemany binds rows one at a time, so a single huge
         # batch (e.g. a connector catching up a large backlog) would bind millions of parameters at
         # once and stall the daemon. Chunking caps each bind regardless of how much a caller passes.
+        # The event inserts and every derived counter update run in one transaction so a counter can
+        # never drift from the rows it counts (a crash rolls back all of them together).
         chunk = 2000
         with self._lock:
-            for i in range(0, len(rows), chunk):
-                self.con.executemany(
-                    "INSERT INTO events (source, source_type, key_value, event_type, text, "
-                    "payload, labels, event_time, ingest_time) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows[i:i + chunk]
-                )
+            self.con.execute("BEGIN TRANSACTION")
+            try:
+                for i in range(0, len(rows), chunk):
+                    self.con.executemany(
+                        "INSERT INTO events (source, source_type, key_value, event_type, text, "
+                        "payload, labels, event_time, ingest_time) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows[i:i + chunk]
+                    )
+                for src, (n, last) in deltas.items():
+                    self.con.execute(
+                        "INSERT INTO source_stats (source, events, last_ingest) VALUES (?, ?, ?) "
+                        "ON CONFLICT (source) DO UPDATE SET "
+                        "events = source_stats.events + EXCLUDED.events, "
+                        "last_ingest = greatest(source_stats.last_ingest, EXCLUDED.last_ingest)",
+                        [src, n, last])
+                self._apply_entity_deltas(ent)
+                self.con.execute("COMMIT")
+            except Exception:
+                self.con.execute("ROLLBACK")
+                raise
+
+    def _apply_entity_deltas(self, ent: dict) -> None:
+        """Fold this batch's (source, label, value) deltas into entity_counts. Already-truncated
+        labels are skipped (they read via live scan). After upserting, any (source, label) that just
+        crossed the cardinality cap is truncated. Caller holds the lock and an open transaction."""
+        if not ent:
+            return
+        truncated = {(r[0], r[1]) for r in self.con.execute(
+            "SELECT source, label FROM entity_label_state WHERE truncated = TRUE").fetchall()}
+        rows = [(s, l, v, c[0], c[1]) for (s, l, v), c in ent.items() if (s, l) not in truncated]
+        if rows:
+            self.con.executemany(
+                "INSERT INTO entity_counts (source, label, value, events, last_ingest) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT (source, label, value) DO UPDATE SET "
+                "events = entity_counts.events + EXCLUDED.events, "
+                "last_ingest = greatest(entity_counts.last_ingest, EXCLUDED.last_ingest)", rows)
+        for src, lab in {(s, l) for (s, l, _) in ent} - truncated:
+            n = self.con.execute("SELECT COUNT(*) FROM entity_counts WHERE source = ? AND label = ?",
+                                  [src, lab]).fetchone()[0]
+            if n > _ENTITY_CARDINALITY_CAP:
+                self._truncate_entity_label(src, lab)
 
     # ── reads ───────────────────────────────────────────────────────────────
     def read_view_window(self, sources: list[str], key: str | None, since: datetime, cap: int = 12,
@@ -447,10 +606,15 @@ class Store:
 
     def upsert_catalog_trigger(self, name: str, view: str, condition: dict,
                                emit: dict, cooldown: str) -> None:
+        # Explicit column list: `paused` was appended by migration, so positional VALUES no longer
+        # match. A new trigger starts active (FALSE); an edit preserves the current paused state
+        # (paused is intentionally NOT in the DO UPDATE SET — it's toggled via set_trigger_paused).
         ts = now_utc()
         with self._lock:
             self.con.execute(
-                "INSERT INTO catalog_triggers VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO catalog_triggers "
+                "(name, view, condition, emit, cooldown, created_at, updated_at, paused) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, FALSE) "
                 "ON CONFLICT (name) DO UPDATE SET view = excluded.view, "
                 "condition = excluded.condition, emit = excluded.emit, "
                 "cooldown = excluded.cooldown, updated_at = excluded.updated_at",
@@ -460,13 +624,21 @@ class Store:
     def list_catalog_triggers(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, view, condition, emit, cooldown FROM catalog_triggers ORDER BY name"
+                "SELECT name, view, condition, emit, cooldown, paused "
+                "FROM catalog_triggers ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "view": r[1], "condition": json.loads(r[2]),
-             "emit": json.loads(r[3]), "cooldown": r[4]}
+             "emit": json.loads(r[3]), "cooldown": r[4], "paused": bool(r[5])}
             for r in rows
         ]
+
+    def set_trigger_paused(self, name: str, paused: bool) -> None:
+        with self._lock:
+            self.con.execute(
+                "UPDATE catalog_triggers SET paused = ?, updated_at = ? WHERE name = ?",
+                [paused, now_utc(), name],
+            )
 
     def delete_catalog_trigger(self, name: str) -> None:
         with self._lock:
@@ -521,10 +693,13 @@ class Store:
 
     # ── event inspection (UI) ─────────────────────────────────────────────────
     def event_stats(self) -> list[dict]:
-        """Per-source totals + last ingest, for source health cards."""
+        """Per-source totals + last ingest, for source health cards. Reads the maintained
+        `source_stats` counter (kept in sync by append()/purge_events()) rather than scanning and
+        grouping the whole events table — this is polled every few seconds by the Sources list and
+        hit by every agent `list_sources`, so an O(#sources) read matters."""
         with self._lock:
             rows = self.con.execute(
-                "SELECT source, COUNT(*), MAX(ingest_time) FROM events GROUP BY source"
+                "SELECT source, events, last_ingest FROM source_stats ORDER BY source"
             ).fetchall()
         return [{"source": r[0], "events": r[1], "last_ingest": r[2]} for r in rows]
 
@@ -627,26 +802,76 @@ class Store:
     def list_entities(self, label: str, sources: list[str] | None = None,
                       limit: int = 200) -> list[dict]:
         """Distinct values of `label` (an entity per value) with event count + last seen, most
-        active first. `label` may be 'key_value' or any named label. Optionally scoped to sources."""
+        active first. `label` may be 'key_value' or any named label. Optionally scoped to sources.
+
+        Reads the maintained entity_counts counter (kept in sync by append()/purge_events()) instead
+        of a full-table `GROUP BY json_extract_string(labels, …)`. If any relevant (source, label)
+        was truncated for exceeding the cardinality cap, that label isn't materialized — fall back to
+        a live scan so the answer stays correct (just slower, for a label that shouldn't be an axis)."""
+        if not _FIELD_RE.match(label):
+            raise ValueError(f"bad label name {label!r}")
+        ph = ", ".join(["?"] * len(sources)) if sources else ""
+        with self._lock:
+            tq = "SELECT 1 FROM entity_label_state WHERE label = ? AND truncated = TRUE"
+            tp: list = [label]
+            if sources:
+                tq += f" AND source IN ({ph})"
+                tp += sources
+            if self.con.execute(tq + " LIMIT 1", tp).fetchone() is not None:
+                return self._list_entities_scan(label, sources, limit)
+            q = "SELECT value, SUM(events), MAX(last_ingest) FROM entity_counts WHERE label = ?"
+            params: list = [label]
+            if sources:
+                q += f" AND source IN ({ph})"
+                params += sources
+            q += " GROUP BY value ORDER BY SUM(events) DESC LIMIT ?"
+            rows = self.con.execute(q, [*params, int(limit)]).fetchall()
+        return [{"value": r[0], "events": r[1], "last_ingest": r[2]} for r in rows]
+
+    def is_label_truncated(self, label: str, sources: list[str] | None = None) -> bool:
+        """Whether `label` exceeded the cardinality cap (for any relevant source) and is served by a
+        live scan rather than the counter. Lets the UI flag it as a high-cardinality axis."""
+        if not _FIELD_RE.match(label):
+            return False
+        q = "SELECT 1 FROM entity_label_state WHERE label = ? AND truncated = TRUE"
+        p: list = [label]
+        if sources:
+            q += f" AND source IN ({', '.join(['?'] * len(sources))})"
+            p += sources
+        with self._lock:
+            return self.con.execute(q + " LIMIT 1", p).fetchone() is not None
+
+    def _list_entities_scan(self, label: str, sources: list[str] | None, limit: int) -> list[dict]:
+        """The pre-counter implementation: scan events and GROUP BY the label. Used only as the
+        fallback for a truncated (high-cardinality) label. Caller holds the lock."""
         expr = _label_expr(label)
         where = "WHERE " + expr + " IS NOT NULL"
         params: list = []
         if sources:
             where += f" AND source IN ({', '.join(['?'] * len(sources))})"
             params += sources
-        with self._lock:
-            rows = self.con.execute(
-                f"SELECT {expr} AS v, COUNT(*), MAX(ingest_time) FROM events {where} "
-                f"GROUP BY v ORDER BY COUNT(*) DESC LIMIT ?", [*params, int(limit)],
-            ).fetchall()
+        rows = self.con.execute(
+            f"SELECT {expr} AS v, COUNT(*), MAX(ingest_time) FROM events {where} "
+            f"GROUP BY v ORDER BY COUNT(*) DESC LIMIT ?", [*params, int(limit)],
+        ).fetchall()
         return [{"value": r[0], "events": r[1], "last_ingest": r[2]} for r in rows]
 
     def purge_events(self, source: str) -> int:
         with self._lock:
             n = self.con.execute(
                 "SELECT COUNT(*) FROM events WHERE source = ?", [source]).fetchone()[0]
-            self.con.execute("DELETE FROM events WHERE source = ?", [source])
-            self.con.execute("DELETE FROM cursors WHERE source = ?", [source])
+            self.con.execute("BEGIN TRANSACTION")
+            try:
+                self.con.execute("DELETE FROM events WHERE source = ?", [source])
+                self.con.execute("DELETE FROM cursors WHERE source = ?", [source])
+                # Drop the maintained counters for this source (the only decrement path).
+                self.con.execute("DELETE FROM source_stats WHERE source = ?", [source])
+                self.con.execute("DELETE FROM entity_counts WHERE source = ?", [source])
+                self.con.execute("DELETE FROM entity_label_state WHERE source = ?", [source])
+                self.con.execute("COMMIT")
+            except Exception:
+                self.con.execute("ROLLBACK")
+                raise
         return n
 
     # ── subscriptions ─────────────────────────────────────────────────────────

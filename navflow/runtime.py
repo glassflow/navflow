@@ -39,6 +39,8 @@ class Runtime:
         self.dispatcher = dispatcher
         self.catalog: Catalog = catalog_from_db(store)
         self.sources: dict[str, SourceRuntime] = {}
+        # {trigger_name: last_eval_datetime} — debounces trigger re-evaluation across ingest ticks.
+        self._trigger_eval_at: dict = {}
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
     def start_all(self) -> None:
@@ -80,7 +82,8 @@ class Runtime:
                 h.last_error, h.consecutive_errors, h.status = None, 0, "ok"
                 if envelopes:
                     await eval_triggers(self.store, self.catalog, self.dispatcher,
-                                        affected_sources={rt.cfg.name})
+                                        affected_sources={rt.cfg.name},
+                                        eval_state=self._trigger_eval_at)
             except Exception as e:  # never let one source kill the loop
                 h.last_error = str(e)
                 h.consecutive_errors += 1
@@ -148,7 +151,8 @@ class Runtime:
             rt.health.last_ok_at = now_utc()
         if envelopes:
             await eval_triggers(self.store, self.catalog, self.dispatcher,
-                                affected_sources={source_name})
+                                affected_sources={source_name},
+                                eval_state=self._trigger_eval_at)
         return len(envelopes)
 
     def _ensure_push_wins(self, cfg) -> None:

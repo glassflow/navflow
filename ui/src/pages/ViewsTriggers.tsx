@@ -167,6 +167,12 @@ function TriggersSection({ triggers, viewNames, onChange }:
     catch (e) { setError(String((e as Error).message ?? e)); }
   };
 
+  const togglePause = async (t: Trigger) => {
+    setError(undefined);
+    try { await (t.paused ? api.resumeTrigger(t.name) : api.pauseTrigger(t.name)); onChange(); }
+    catch (e) { setError(String((e as Error).message ?? e)); }
+  };
+
   return (
     <>
       <div className="pagehead">
@@ -194,8 +200,11 @@ function TriggersSection({ triggers, viewNames, onChange }:
             <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th></th></tr></thead>
             <tbody>
               {shown.map((t) => (
-                <tr key={t.name}>
-                  <td className="mono"><Link to={`/triggers/${encodeURIComponent(t.name)}`}>{t.name}</Link></td>
+                <tr key={t.name} style={t.paused ? { opacity: 0.55 } : undefined}>
+                  <td className="mono">
+                    <Link to={`/triggers/${encodeURIComponent(t.name)}`}>{t.name}</Link>
+                    {t.paused && <span className="badge starting" style={{ marginLeft: 8 }} title="paused — not evaluated, never fires until resumed">paused</span>}
+                  </td>
                   <td className="mono"><Link to={`/views/${encodeURIComponent(t.view)}`}>{t.view}</Link></td>
                   <td className="mono">
                     {t.condition.aggregate}({t.condition.field ?? "*"}) {t.condition.predicate} over {t.condition.window}
@@ -204,6 +213,7 @@ function TriggersSection({ triggers, viewNames, onChange }:
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}`}>agents</Link>
+                      <button onClick={() => togglePause(t)} title={t.paused ? "resume evaluation" : "stop evaluating and firing this trigger"}>{t.paused ? "resume" : "pause"}</button>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}?edit=1`}>edit</Link>
                       <button className="danger" onClick={() => setConfirmDelName(t.name)}>delete</button>
                     </span>
