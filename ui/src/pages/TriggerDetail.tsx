@@ -84,7 +84,7 @@ export default function TriggerDetail() {
       <h2>Agents woken by this trigger</h2>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
-          <thead><tr><th>agent</th><th>endpoint</th><th className="num">delivered</th><th className="num">failed</th></tr></thead>
+          <thead><tr><th>agent</th><th>endpoint</th><th className="num">delivered</th><th className="num">failed</th><th>status</th></tr></thead>
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
@@ -92,6 +92,11 @@ export default function TriggerDetail() {
                 <td className="mono">{a.endpoint}</td>
                 <td className="num">{a.delivered_ok}</td>
                 <td className="num" style={a.delivered_fail ? { color: "var(--err)" } : undefined}>{a.delivered_fail}</td>
+                <td>
+                  {a.unhealthy
+                    ? <span className="badge error" title={a.last_error ?? "last delivery failed"}>failing{a.last_error ? `: ${a.last_error}` : ""}</span>
+                    : a.delivered_ok > 0 ? <span className="badge ok">ok</span> : <span className="dim">—</span>}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -124,16 +129,19 @@ export default function TriggerDetail() {
       {firings.length === 0 && <p className="help">none yet</p>}
       {firings.length > 0 && (
         <table>
-          <thead><tr><th>fired</th><th>entity</th><th className="num">subscribers</th><th className="num">delivered</th></tr></thead>
+          <thead><tr><th>fired</th><th>entity</th><th className="num">subscribers</th><th className="num">delivered</th><th>error</th></tr></thead>
           <tbody>
-            {firings.map((d) => (
+            {firings.map((d) => {
+              const failed = d.subscribers > d.delivered;
+              return (
               <tr key={d.dispatch_id}>
                 <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={d.fired_at} /></td>
                 <td className="mono">{d.key}</td>
                 <td className="num">{d.subscribers}</td>
-                <td className="num">{d.delivered}</td>
+                <td className="num" style={failed ? { color: "var(--err)" } : undefined}>{d.delivered}</td>
+                <td className="mono" style={{ color: "var(--err)" }} title={d.error ?? undefined}>{failed ? (d.error ?? "delivery failed") : ""}</td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table>
       )}

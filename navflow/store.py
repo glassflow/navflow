@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS dispatch_deliveries (
   subscription_id TEXT,
   url             TEXT,
   ok              BOOLEAN,
-  delivered_at    TIMESTAMPTZ
+  delivered_at    TIMESTAMPTZ,
+  error           TEXT
 );
 CREATE TABLE IF NOT EXISTS api_keys (
   id           TEXT PRIMARY KEY,
@@ -143,6 +144,7 @@ _MIGRATIONS = [
     # the column already exists, which would reset paused=TRUE back to FALSE each restart. Existing
     # rows get NULL (read as False); the upsert always writes an explicit value going forward.
     "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS paused BOOLEAN",
+    "ALTER TABLE dispatch_deliveries ADD COLUMN IF NOT EXISTS error TEXT",
     # Retired: navflow no longer auto-extracts numeric fields. Numbers you aggregate are declared
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
@@ -680,14 +682,20 @@ class Store:
             )
 
     def list_dispatches(self, limit: int = 100) -> list[dict]:
+        # `error` = the most recent failed delivery's reason for this dispatch (NULL if all delivered
+        # or there were no subscribers), so a "delivered 0 of N" row can show WHY.
         with self._lock:
             rows = self.con.execute(
-                "SELECT dispatch_id, trigger, key_value, kind, fired_at, subscribers, delivered, payload "
-                "FROM dispatch_log ORDER BY fired_at DESC LIMIT ?", [int(limit)],
+                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, "
+                "l.subscribers, l.delivered, l.payload, "
+                "(SELECT arg_max(d.error, d.delivered_at) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND NOT d.ok) AS error "
+                "FROM dispatch_log l ORDER BY l.fired_at DESC LIMIT ?", [int(limit)],
             ).fetchall()
         return [
             {"dispatch_id": r[0], "trigger": r[1], "key": r[2], "kind": r[3],
-             "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "payload": r[7]}
+             "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "payload": r[7],
+             "error": r[8]}
             for r in rows
         ]
 
@@ -903,10 +911,14 @@ class Store:
         with self._lock:
             self.con.execute("DELETE FROM subscriptions WHERE subscription_id = ?", [sid])
 
-    def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool) -> None:
+    def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool,
+                     error: str | None = None) -> None:
+        # Explicit column list: `error` was appended by migration, so positional VALUES no longer match.
         with self._lock:
-            self.con.execute("INSERT INTO dispatch_deliveries VALUES (?, ?, ?, ?, ?)",
-                             [dispatch_id, subscription_id, url, ok, now_utc()])
+            self.con.execute(
+                "INSERT INTO dispatch_deliveries "
+                "(dispatch_id, subscription_id, url, ok, delivered_at, error) VALUES (?, ?, ?, ?, ?, ?)",
+                [dispatch_id, subscription_id, url, ok, now_utc(), error])
 
     def all_subscriptions(self) -> list[dict]:
         with self._lock:
@@ -917,23 +929,27 @@ class Store:
                  "created_at": r[3], "created_by": r[4]} for r in rows]
 
     def delivery_stats(self) -> dict:
-        """{url: {"ok": n, "fail": n, "last_at": ts}} across all recorded deliveries."""
+        """{url: {ok, fail, last_at, last_ok, last_error}} across all recorded deliveries. `last_ok`
+        / `last_error` describe the MOST RECENT delivery, so the UI can flag an endpoint that's
+        currently failing and say why (arg_max picks the value at the latest delivered_at)."""
         with self._lock:
             rows = self.con.execute(
                 "SELECT url, SUM(CASE WHEN ok THEN 1 ELSE 0 END), "
-                "SUM(CASE WHEN ok THEN 0 ELSE 1 END), MAX(delivered_at) "
+                "SUM(CASE WHEN ok THEN 0 ELSE 1 END), MAX(delivered_at), "
+                "arg_max(ok, delivered_at), arg_max(error, delivered_at) "
                 "FROM dispatch_deliveries GROUP BY url").fetchall()
-        return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0), "last_at": r[3]} for r in rows}
+        return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0), "last_at": r[3],
+                       "last_ok": bool(r[4]), "last_error": r[5]} for r in rows}
 
     def recent_deliveries(self, url: str, limit: int = 20) -> list[dict]:
         """Latest deliveries to one endpoint, joined with the firing's trigger/entity."""
         with self._lock:
             rows = self.con.execute(
-                "SELECT d.delivered_at, d.ok, l.trigger, l.key_value, d.dispatch_id "
+                "SELECT d.delivered_at, d.ok, l.trigger, l.key_value, d.dispatch_id, d.error "
                 "FROM dispatch_deliveries d LEFT JOIN dispatch_log l ON d.dispatch_id = l.dispatch_id "
                 "WHERE d.url = ? ORDER BY d.delivered_at DESC LIMIT ?", [url, limit]).fetchall()
         return [{"at": r[0], "ok": bool(r[1]), "trigger": r[2], "key": r[3],
-                 "dispatch_id": r[4]} for r in rows]
+                 "dispatch_id": r[4], "error": r[5]} for r in rows]
 
     # ── API keys (scoped credentials; only the SHA-256 of the secret is stored) ─
     def insert_api_key(self, kid: str, name: str, prefix: str, hash_: str, scopes: list[str]) -> None:
