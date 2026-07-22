@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
-import { auth } from "./api";
+import { api, auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
-  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, Lock, Moon,
+  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Lock, Moon,
   Settings as SettingsIco, SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
@@ -114,6 +114,10 @@ function ThemeToggle() {
 }
 
 export default function App() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    api.capabilities().then((c) => setVersion(c.version ?? null)).catch(() => {});
+  }, []);
   return (
     <>
       <nav className="sidebar">
@@ -156,8 +160,11 @@ export default function App() {
           </button>
         )}
         <div className="foot">
-          one project, all sources ·{" "}
-          <a href="/docs" target="_blank" rel="noreferrer">API</a>
+          {version && <span>v{version}</span>}
+          <a href="https://github.com/glassflow/navflow" target="_blank" rel="noreferrer"
+             title="NavFlow on GitHub" aria-label="NavFlow on GitHub">
+            <GitHub />
+          </a>
         </div>
       </nav>
 
