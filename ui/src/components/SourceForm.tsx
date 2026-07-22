@@ -102,6 +102,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     : undefined;
   const [proposal, setProposal] = useState<DiscoverProposal>();
   const [colProposal, setColProposal] = useState<ColumnsProposal>();
+  const [pgColumns, setPgColumns] = useState<string[]>();  // postgres: discovered column names, for the picker
   const [tables, setTables] = useState<string[]>();
   const [containers, setContainers] = useState<EnvScan["containers"]>();
   const [discovering, setDiscovering] = useState(false);
@@ -200,7 +201,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     if (Array.isArray((p as { metrics?: unknown[] }).metrics)) {
       setProposal(p);
     } else if (Array.isArray((p as { columns?: unknown[] }).columns)) {
-      setColProposal(p as unknown as ColumnsProposal);
+      const cp = p as unknown as ColumnsProposal;
+      setColProposal(cp);
+      setPgColumns(cp.columns.map((c) => c.name));   // feed the column picker below
     } else if (Array.isArray((p as { tables?: unknown[] }).tables)) {
       setTables((p as unknown as { tables: string[] }).tables);
     } else {
@@ -259,8 +262,41 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     JSON.stringify(rs.filter((r) => r.name.trim()).map(rowToSpec));
   const labelsChanged = !!initial && canonRows(labelRows) !== canonRows(labelsToRows(initial?.config?.labels));
 
-  const renderField = (f: ConnectorField) =>
-    f.type === "list" ? (
+  const renderField = (f: ConnectorField) => {
+    // Postgres column selection: once discover knows the table's columns, render a checklist instead
+    // of a comma-separated box (the stored value stays comma-separated for the API/agents).
+    if (connector === "postgres" && f.name === "columns" && pgColumns?.length) {
+      const mandatory = new Set(
+        [values.cursor_column, values.key_column, values.time_column].map((v) => v?.trim()).filter(Boolean) as string[]);
+      return (
+        <label className="field" key={f.name}>
+          <span className="lbl">{f.name}</span>
+          <ColumnPicker columns={pgColumns} value={values[f.name] ?? ""} mandatory={mandatory}
+                        onChange={(v) => setValues({ ...values, [f.name]: v })} />
+          <span className="help">{f.help}</span>
+        </label>
+      );
+    }
+    // Postgres single-column pickers: once the columns are known, pick one from a dropdown instead
+    // of typing it. cursor_column is required (empty = "— select —", enforced on save); key/time are
+    // optional (empty = "— none —"), matching their prior behaviour.
+    if (connector === "postgres" && pgColumns?.length
+        && ["cursor_column", "key_column", "time_column"].includes(f.name)) {
+      const opts = pgColumns.includes(values[f.name] ?? "") || !values[f.name]
+        ? pgColumns : [values[f.name], ...pgColumns];   // keep a stale value selectable
+      return (
+        <label className={"field" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
+          <span className="lbl">{f.name} {f.required && <span className="req">*</span>}</span>
+          <select value={values[f.name] ?? ""}
+                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}>
+            <option value="">{f.required ? "— select —" : "— none —"}</option>
+            {opts.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <span className="help">{f.help}</span>
+        </label>
+      );
+    }
+    return f.type === "list" ? (
       <ListFieldEditor key={f.name} field={f} rows={rows[f.name] ?? []}
                        onChange={(r) => setRows({ ...rows, [f.name]: r })} />
     ) : (
@@ -290,6 +326,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         )}
       </label>
     );
+  };
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); run(async () => onSubmit(build())); }}>
@@ -742,6 +779,56 @@ function ListFieldEditor({ field, rows, onChange }:
       <button type="button" onClick={() => onChange([...rows, blank()])}>
         + Add {field.name === "queries" ? "query" : "row"}
       </button>
+    </div>
+  );
+}
+
+// Postgres column selection as a checklist (once discover knows the table's columns). Emits the
+// same comma-separated string the API uses: all columns checked -> "" (SELECT *); a subset ->
+// "a,b,c". The cursor/key/time columns are always pulled, so they're shown checked + locked.
+function ColumnPicker({ columns, value, mandatory, onChange }: {
+  columns: string[]; value: string; mandatory: Set<string>; onChange: (v: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const listed = value.trim()
+    ? new Set(value.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;   // null = "all"
+  const isChecked = (c: string) => mandatory.has(c) || listed === null || listed.has(c);
+  const emit = (checked: Set<string>) => {
+    mandatory.forEach((m) => checked.add(m));
+    onChange(checked.size >= columns.length ? "" : columns.filter((c) => checked.has(c)).join(","));
+  };
+  const toggle = (c: string) => {
+    const checked = new Set(columns.filter(isChecked));
+    checked.has(c) ? checked.delete(c) : checked.add(c);
+    emit(checked);
+  };
+  const nChecked = columns.filter(isChecked).length;
+  const shown = columns.filter((c) => !q || c.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div>
+      <div className="btnrow" style={{ marginBottom: 6, alignItems: "center" }}>
+        <button type="button" onClick={() => onChange("")}>All</button>
+        <button type="button" onClick={() => emit(new Set())}>None</button>
+        <span className="help">
+          {nChecked}/{columns.length} selected{nChecked >= columns.length ? " — pulls every column" : ""}
+        </span>
+      </div>
+      {columns.length > 8 && (
+        <input type="text" placeholder="filter columns…" value={q}
+               onChange={(e) => setQ(e.target.value)} style={{ marginBottom: 6 }} />
+      )}
+      <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 6, padding: 4 }}>
+        {shown.map((c) => (
+          <label key={c} className="explore-item"
+                 style={{ cursor: mandatory.has(c) ? "default" : "pointer", opacity: mandatory.has(c) ? 0.7 : 1 }}>
+            <input type="checkbox" checked={isChecked(c)} disabled={mandatory.has(c)}
+                   onChange={() => toggle(c)} style={{ marginRight: 8 }} />
+            <span className="mono">{c}</span>
+            {mandatory.has(c) && <span className="badge push" style={{ marginLeft: 8 }} title="cursor/key/time — always pulled">always</span>}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

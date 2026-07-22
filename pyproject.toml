@@ -23,6 +23,8 @@ dependencies = [
     "pydantic>=2",
     "mcp>=1.2",
     "pytz>=2024.1",   # DuckDB needs it to bind tz-aware datetimes to TIMESTAMPTZ
+    "asyncpg>=0.29",  # Postgres connector driver — base so the connector works on `navflow up`
+    "anthropic>=0.40",  # console Ask/Organize agent — base so it works on `navflow up`
 ]
 
 [project.urls]
@@ -31,12 +33,10 @@ Documentation = "https://www.navflow.ai/docs"
 Repository = "https://github.com/glassflow/navflow"
 
 [project.optional-dependencies]
-# OTLP gRPC receiver (:4317). The OTLP/HTTP JSON receiver needs none of this.
+# OTLP gRPC receiver (:4317). The OTLP/HTTP JSON receiver needs none of this; grpcio is a heavy
+# compiled dep, so the gRPC path stays opt-in. (postgres/agent deps are now base — `navflow up`
+# ships a working Postgres connector and Ask agent with no extras.)
 otlp-grpc = ["grpcio>=1.60", "opentelemetry-proto>=1.20"]
-# Postgres table connector (the asyncpg driver).
-postgres = ["asyncpg>=0.29"]
-# In-app agent (the console's Ask view) — server-side chat loop over the read API.
-agent = ["anthropic>=0.40"]
 
 [project.scripts]
 navflow = "navflow.cli:main"

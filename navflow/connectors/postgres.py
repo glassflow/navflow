@@ -12,14 +12,13 @@ updated_at; an int id cursor is append-only (inserts).
 
 Keyed by `key_column` (e.g. tenant_id) — that column's value becomes the primary label, so rows
 auto-shard per entity. Declare more `labels` to facet by status/region/etc. The driver (asyncpg)
-is an optional extra: `pip install navflow[postgres]`.
+ships with navflow.
 
-Secret note: a `dsn` carries the password and would export to YAML — prefer leaving `dsn` empty and
-setting PG_DSN (or DATABASE_URL) in the daemon's environment (kept out of the catalog).
+Secret note: the `dsn` carries the password. It's a per-source parameter (config only — no env
+fallback), stored as a secret: redacted in API responses and omitted from catalog exports by default.
 """
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime
 
@@ -34,9 +33,11 @@ _TABLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 
 
 def _dsn(config: dict) -> str:
-    dsn = config.get("dsn") or os.getenv("PG_DSN") or os.getenv("DATABASE_URL")
+    # The connection URL is a per-source parameter (you may have several Postgres sources), so it
+    # comes only from the source's config — there is no daemon-level env fallback.
+    dsn = config.get("dsn")
     if not dsn:
-        raise CatalogError("no Postgres DSN — set config `dsn` or the PG_DSN / DATABASE_URL env var")
+        raise CatalogError("no Postgres DSN — set the source's `dsn` connection URL")
     return dsn
 
 
@@ -63,20 +64,58 @@ def _connect(dsn: str):
     try:
         import asyncpg
     except ImportError:
-        raise CatalogError("the postgres connector needs asyncpg — pip install navflow[postgres]")
+        raise CatalogError("the postgres connector needs asyncpg (it ships with navflow — reinstall if missing)")
     # bounded connect: an unreachable host (firewalled DB, wrong IP) should fail in seconds with a
     # clear error, not sit on asyncpg's 60s default while the console appears hung
     return asyncpg.connect(dsn, timeout=10)
 
 
+def _db_and_table(config: dict) -> tuple[str, str]:
+    """The synthetic `database` and `table` label fields for a Postgres source. Derived from config
+    (not from a column), so they're always available to label/key on and reproduce on relabel with
+    no DB round-trip. `table` is the bare table name (matches event_type); `database` is parsed from
+    the DSN path (empty when the DSN omits it — Postgres then defaults to the user's db)."""
+    tname = str(config.get("table") or "").split(".")[-1]
+    db = ""
+    dsn = config.get("dsn") or ""
+    try:
+        from urllib.parse import urlsplit
+        db = urlsplit(dsn).path.lstrip("/").split("?", 1)[0]
+    except Exception:
+        db = ""
+    return db, tname
+
+
+def _select_clause(config: dict, cursor_column: str) -> str:
+    """The SELECT list. Empty `columns` config -> '*' (all columns). Otherwise the listed columns,
+    ALWAYS including the cursor/key/time columns the connector reads from each row (else the cursor
+    can't advance and the key/time can't be resolved). Every name is validated as a safe identifier
+    (it's interpolated into SQL)."""
+    raw = str(config.get("columns") or "").strip()
+    if not raw:
+        return "*"
+    cols, seen = [], set()
+    for name in [*raw.split(","), cursor_column, config.get("key_column"), config.get("time_column")]:
+        if not name or not str(name).strip():
+            continue
+        ident = _ident(str(name).strip(), "column")
+        if ident not in seen:
+            seen.add(ident)
+            cols.append(ident)
+    return ", ".join(cols)
+
+
 class PostgresConnector(Connector):
     CONFIG_SCHEMA = {
-        "dsn": {"type": "string", "secret": True, "discover_input": True,
-                "help": "postgresql://user:pass@host:port/dbname — the path after the slash picks "
-                        "the database (omitted, Postgres silently defaults to a db named after "
-                        "the user). Must be reachable from the NavFlow host; local installs can "
-                        "leave this empty and set PG_DSN on the daemon"},
-        "table": {"type": "string", "required": True, "discover_input": True,
+        "dsn": {"type": "string", "secret": True, "required": True, "discover_input": True,
+                "help": "postgresql://user:pass@host:port/dbname — this source's connection URL (the "
+                        "path after the slash picks the database; omitted, Postgres defaults to a db "
+                        "named after the user). Must be reachable from the NavFlow host. Stored as a "
+                        "secret: redacted in the API and omitted from catalog exports."},
+        # NOT discover_input: you don't fill the table in before discovering — Discover (which only
+        # needs the DSN) lists the tables and you pick one. So the form shows Discover right after
+        # the DSN, and the table field below it.
+        "table": {"type": "string", "required": True,
                   "help": "table to poll, e.g. orders or public.orders — leave empty and Discover "
                           "lists the tables it can see"},
         "cursor_column": {"type": "string", "required": True,
@@ -92,6 +131,11 @@ class PostgresConnector(Connector):
         "time_column": {"type": "string",
                         "help": "timestamp column for event_time (default: the cursor column if it "
                                 "is a timestamp, else ingest time)"},
+        "columns": {"type": "string",
+                    "help": "comma-separated columns to pull, e.g. id,status,amount — empty pulls "
+                            "every column (SELECT *). The cursor/key/time columns are always "
+                            "included so the source still works. `database` and `table` are also "
+                            "available as fields (from config) regardless of what you select."},
         "limit": {"type": "number", "default": 200, "help": "rows to fetch per poll"},
     }
 
@@ -101,10 +145,11 @@ class PostgresConnector(Connector):
         cursor_col = _ident(c["cursor_column"], "cursor_column")
         limit = int(c.get("limit", 200))
 
+        select = _select_clause(c, c["cursor_column"])
         cursor = self.store.get_cursor(self.cfg.name)
         # bind the cursor as its native type (asyncpg infers $1 from the column) — not as a string
         where = f"WHERE {cursor_col} > $1 " if cursor is not None else ""
-        sql = f"SELECT * FROM {table} {where}ORDER BY {cursor_col} ASC LIMIT {limit}"
+        sql = f"SELECT {select} FROM {table} {where}ORDER BY {cursor_col} ASC LIMIT {limit}"
         params = [_cursor_param(cursor, c.get("cursor_type"))] if cursor is not None else []
 
         conn = await _connect(_dsn(c))
@@ -118,10 +163,22 @@ class PostgresConnector(Connector):
         self.store.set_cursor(self.cfg.name, str(rows[-1][cursor_col]))
         return [self._row_envelope(dict(r), table) for r in rows]
 
+    def label_context(self, payload: dict | None) -> dict:
+        """Row columns PLUS the synthetic `database`/`table` fields (from config), so both can be
+        labeled/keyed and reproduce on relabel. A real column of the same name wins (setdefault)."""
+        ctx = dict(payload or {})
+        db, tname = _db_and_table(self.cfg.config)
+        ctx.setdefault("database", db)
+        ctx.setdefault("table", tname)
+        return ctx
+
     def _row_envelope(self, row: dict, table: str) -> Envelope:
         c = self.cfg.config
         jrow = _jsonable(row)  # Decimal->float, datetime->iso (lossless + JSON-safe)
         ctx = {k: ("" if v is None else str(v)) for k, v in jrow.items()}  # row IS the label context
+        db, tname = _db_and_table(c)
+        ctx.setdefault("database", db)   # synthetic fields — a real column of the same name wins
+        ctx.setdefault("table", tname)
         key_col = c.get("key_column")
         labels, key = self.keyed(ctx, fallback=ctx.get(key_col or "", "") or table.split(".")[-1])
 

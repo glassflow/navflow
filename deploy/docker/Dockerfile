@@ -16,7 +16,7 @@ WORKDIR /src
 COPY pyproject.toml README.md LICENSE ./
 COPY navflow/ ./navflow/
 COPY --from=ui /ui/dist ./ui/dist
-RUN pip install --no-cache-dir ".[postgres,otlp-grpc,agent]"
+RUN pip install --no-cache-dir ".[otlp-grpc]"
 
 # Run as a non-root user. Own /data before declaring the VOLUME so a first-mount Docker named
 # volume inherits the ownership; on k8s an empty PVC needs fsGroup: 1000 (set in the cell chart).
