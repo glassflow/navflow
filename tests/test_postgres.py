@@ -62,23 +62,21 @@ async def main():
     # discover orders -> updated_at cursor, tenant_id key, status label
     prop = await PostgresConnector.discover({"dsn": DSN, "table": "orders"})
     pc = prop["proposed_config"]
-    ck("discover orders -> cursor updated_at/timestamp",
-       (pc["cursor_column"], pc["cursor_type"]) == ("updated_at", "timestamp"), str(pc))
-    ck("discover orders -> keyed by tenant_id", pc.get("key_column") == "tenant_id", str(pc))
+    ck("discover orders -> cursor updated_at", pc["cursor_column"] == "updated_at", str(pc))
+    ck("discover proposes no separate key_column (key is a primary label)", "key_column" not in pc, str(pc))
     ck("discover orders -> primary label tenant_id + status facet",
        pc["labels"][0] == {"name": "tenant_id", "field": "tenant_id", "primary": True}
        and any(l["name"] == "status" for l in pc["labels"]), str(pc.get("labels")))
 
     # discover users -> int id cursor, no entity column
     up = (await PostgresConnector.discover({"dsn": DSN, "table": "users"}))["proposed_config"]
-    ck("discover users -> cursor id/int", (up["cursor_column"], up["cursor_type"]) == ("id", "int"), str(up))
+    ck("discover users -> cursor id", up["cursor_column"] == "id", str(up))
     ck("discover users -> no entity column", "key_column" not in up, str(up))
 
     # poll orders incrementally, keyed by tenant_id, status faceted
     store = FakeStore()
     conn = PostgresConnector(cfg({
-        "dsn": DSN, "table": "orders", "cursor_column": "id", "cursor_type": "int",
-        "key_column": "tenant_id",
+        "dsn": DSN, "table": "orders", "cursor_column": "id",
         "labels": [{"name": "tenant_id", "field": "tenant_id", "primary": True},
                    {"name": "status", "field": "status"}],
     }), store)
@@ -105,8 +103,7 @@ async def main():
     # timestamp cursor path: poll, advance (cursor stored as iso string), second poll empty
     tstore = FakeStore()
     tconn = PostgresConnector(cfg({
-        "dsn": DSN, "table": "orders", "cursor_column": "updated_at", "cursor_type": "timestamp",
-        "key_column": "tenant_id",
+        "dsn": DSN, "table": "orders", "cursor_column": "updated_at",
     }), tstore)
     t1 = await tconn.poll()
     ck("timestamp-cursor first poll returns rows", len(t1) >= 6, str(len(t1)))

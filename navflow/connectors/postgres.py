@@ -6,9 +6,9 @@ metrics, logs and deploys, so "what happened to tenant=acme" includes the row th
 
 Mode is the honest MVP collapse of CDC: each poll runs `SELECT * FROM <table> WHERE <cursor_column>
 > <last> ORDER BY <cursor_column> LIMIT <limit>`, advancing a cursor over a monotonic column —
-an autoincrement id (cursor_type=int) or an updated_at timestamp (cursor_type=timestamp). Logical
-replication is the expand path. Mutable rows are captured on each update only if you cursor by
-updated_at; an int id cursor is append-only (inserts).
+an autoincrement id or an updated_at timestamp (int vs timestamp is inferred from the value, no
+config). Logical replication is the expand path. Mutable rows are captured on each update only if
+you cursor by updated_at; an int id cursor is append-only (inserts).
 
 Keyed by `key_column` (e.g. tenant_id) — that column's value becomes the primary label, so rows
 auto-shard per entity. Declare more `labels` to facet by status/region/etc. The driver (asyncpg)
@@ -47,17 +47,21 @@ def _ident(name: str, what: str, pat=_IDENT) -> str:
     return name
 
 
-def _cursor_param(cursor: str, cursor_type: str | None):
-    """The stored cursor (a string) back to the column's native type for binding."""
-    if cursor_type == "timestamp":
-        try:
-            return datetime.fromisoformat(cursor)
-        except ValueError:
-            return cursor
+def _cursor_param(cursor: str | None):
+    """The stored cursor (a string) back to the column's native type for binding, inferred from the
+    value: a timestamp binds as a datetime (asyncpg rejects a string), else an int, else the raw
+    string. No cursor_type config needed — the value itself says what it is."""
+    if cursor is None:
+        return None
+    s = str(cursor)
     try:
-        return int(cursor)
+        return datetime.fromisoformat(s)
+    except ValueError:
+        pass
+    try:
+        return int(s)
     except (TypeError, ValueError):
-        return cursor
+        return s
 
 
 def _connect(dsn: str):
@@ -94,8 +98,12 @@ def _select_clause(config: dict, cursor_column: str) -> str:
     raw = str(config.get("columns") or "").strip()
     if not raw:
         return "*"
+    # always keep the cursor/time columns AND any column a label reads (incl. the primary/key label),
+    # so a column subset never breaks the cursor, timestamps, or label/key extraction.
+    label_fields = [l.get("field") for l in (config.get("labels") or [])
+                    if isinstance(l, dict) and l.get("field")]
     cols, seen = [], set()
-    for name in [*raw.split(","), cursor_column, config.get("key_column"), config.get("time_column")]:
+    for name in [*raw.split(","), cursor_column, config.get("time_column"), *label_fields]:
         if not name or not str(name).strip():
             continue
         ident = _ident(str(name).strip(), "column")
@@ -123,11 +131,6 @@ class PostgresConnector(Connector):
                                   "each poll: an autoincrement id (captures inserts only) or "
                                   "updated_at (also captures row updates) — Discover picks this "
                                   "for you"},
-        "cursor_type": {"type": "string", "default": "int",
-                        "help": "int (autoincrement id) or timestamp (updated_at)"},
-        "key_column": {"type": "string",
-                       "help": "column whose value is the entity key, e.g. tenant_id (the primary "
-                               "label). Declare it as a primary label to name the axis."},
         "time_column": {"type": "string",
                         "help": "timestamp column for event_time (default: the cursor column if it "
                                 "is a timestamp, else ingest time)"},
@@ -150,7 +153,7 @@ class PostgresConnector(Connector):
         # bind the cursor as its native type (asyncpg infers $1 from the column) — not as a string
         where = f"WHERE {cursor_col} > $1 " if cursor is not None else ""
         sql = f"SELECT {select} FROM {table} {where}ORDER BY {cursor_col} ASC LIMIT {limit}"
-        params = [_cursor_param(cursor, c.get("cursor_type"))] if cursor is not None else []
+        params = [_cursor_param(cursor)] if cursor is not None else []
 
         conn = await _connect(_dsn(c))
         try:
@@ -179,8 +182,9 @@ class PostgresConnector(Connector):
         db, tname = _db_and_table(c)
         ctx.setdefault("database", db)   # synthetic fields — a real column of the same name wins
         ctx.setdefault("table", tname)
-        key_col = c.get("key_column")
-        labels, key = self.keyed(ctx, fallback=ctx.get(key_col or "", "") or table.split(".")[-1])
+        # The key is the value of the label marked primary (declared in `labels`); with none, it
+        # falls back to the table name. There is no separate key_column — a primary label is the key.
+        labels, key = self.keyed(ctx, fallback=table.split(".")[-1])
 
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
@@ -204,7 +208,9 @@ class PostgresConnector(Connector):
         return (f"{key} {head}".strip() or _compact(row))[:300]
 
     def _event_time(self, row: dict, c: dict) -> datetime:
-        col = c.get("time_column") or (c["cursor_column"] if c.get("cursor_type") == "timestamp" else None)
+        # event_time from time_column, else the cursor column when it's actually a timestamp value
+        # (the isinstance checks below decide that — no cursor_type needed).
+        col = c.get("time_column") or c.get("cursor_column")
         val = row.get(col) if col else None
         if isinstance(val, datetime):
             return val
@@ -265,10 +271,8 @@ class PostgresConnector(Connector):
                 labels.append({"name": dim, "field": dim})
                 break
 
-        proposed = {"table": table, "cursor_column": cursor_col, "cursor_type": cursor_type}
-        if key_col:
-            proposed["key_column"] = key_col
-        if labels:
+        proposed = {"table": table, "cursor_column": cursor_col}   # type is inferred at poll time
+        if labels:   # the entity column is proposed as the PRIMARY label (which is the key)
             proposed["labels"] = labels
         return {
             "connector": "postgres",

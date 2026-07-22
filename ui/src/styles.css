@@ -350,18 +350,52 @@ label.field.invalid input:focus, label.field.invalid textarea:focus { box-shadow
 label.field.invalid .help { color: var(--err); }
 label.field .help { display: block; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
 .help { color: var(--ink-soft); }
+
+/* two-column connector field rows: label + description on the left, control on the right */
+.fld-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 1.5fr); gap: 12px 40px;
+  align-items: start; padding: 15px 0; border-top: 1px solid var(--line); }
+@media (max-width: 720px) { .fld-row { grid-template-columns: 1fr; gap: 8px; } }
+
+/* collapsed connection summary (postgres, after Discover) */
+.conn-summary { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 13.5px; color: var(--ink-soft); }
+.conn-summary .tick { width: 18px; height: 18px; border-radius: 50%; background: var(--ok); color: #fff;
+  display: grid; place-items: center; font-size: 11px; flex: none; }
+.conn-summary code { color: var(--ink); }
+.fld-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fld-meta .lbl { font-size: 13px; font-weight: 600; }
+.fld-meta .lbl .req { color: var(--accent); }
+.fld-meta .help { display: block; font-size: 12px; color: var(--ink-soft); margin: 0; line-height: 1.45; }
+.fld-ctrl { display: flex; flex-direction: column; }
+.fld-row.invalid input, .fld-row.invalid select, .fld-row.invalid textarea { border-color: var(--err); background: var(--err-soft); }
+.fld-row.invalid .help { color: var(--err); }
+/* field grouping (postgres) */
+.fld-group { margin: 4px 0; }
+.fld-group-head h3 { margin: 20px 0 2px; font-size: 15px; }
+.fld-group-head .help { margin: 0; }
+.fld-group-head + .fld-row, .fld-group > .fld-row:first-child { border-top: none; }
+details.adv-group { border-top: 1px solid var(--line); margin-top: 8px; }
+details.adv-group > summary { list-style: none; cursor: pointer; font-weight: 600; font-size: 13px;
+  padding: 14px 0 4px; display: flex; align-items: center; gap: 8px; }
+details.adv-group > summary::-webkit-details-marker { display: none; }
+details.adv-group > summary .caret { color: var(--ink-soft); transition: transform .18s ease; }
+details.adv-group[open] > summary .caret { transform: rotate(90deg); }
+details.adv-group .fld-row:first-child { border-top: none; }
+/* One consistent, clearly-visible data field: a filled box with a bold, defined border (derived
+   from the ink so it works in both themes — input-bg == panel in light mode made fields invisible). */
 input[type="text"], input[type="number"], input[type="password"], select, textarea {
   font: inherit;
   font-size: 13.5px;
   width: 100%;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--input-bg);
+  padding: 9px 11px;
+  border: 1.5px solid color-mix(in srgb, var(--ink) 34%, var(--panel));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ink) 5%, var(--panel));
   color: var(--ink);
 }
+input:hover, select:hover, textarea:hover { border-color: color-mix(in srgb, var(--ink) 50%, var(--panel)); }
 textarea.code { font-family: var(--mono); font-size: 12.5px; min-height: 110px; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input:focus, select:focus, textarea:focus { outline: none; background: var(--panel); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-visible, .tabs button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ── panels / cards ── */

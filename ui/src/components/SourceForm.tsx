@@ -25,6 +25,18 @@ const DISCOVER_HINT: Record<string, string> = {
   postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
 };
 
+// Postgres form: plain-language field labels + grouping (main poll settings vs collapsed advanced),
+// so the internal schema names don't leak into the UI. Fields not in PG_GROUP go in the main group.
+const PG_LABEL: Record<string, string> = {
+  dsn: "Connection URL",
+  table: "Table",
+  cursor_column: "How we find new rows",
+  time_column: "Event time",
+  columns: "Columns to pull",
+  limit: "Rows per poll",
+};
+const PG_GROUP: Record<string, "advanced"> = { limit: "advanced" };
+
 interface Props {
   connector: string;
   spec: ConnectorSpec;
@@ -103,6 +115,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [proposal, setProposal] = useState<DiscoverProposal>();
   const [colProposal, setColProposal] = useState<ColumnsProposal>();
   const [pgColumns, setPgColumns] = useState<string[]>();  // postgres: discovered column names, for the picker
+  const [editConn, setEditConn] = useState(false);         // postgres: connection collapsed after discover unless editing
   const [tables, setTables] = useState<string[]>();
   const [containers, setContainers] = useState<EnvScan["containers"]>();
   const [discovering, setDiscovering] = useState(false);
@@ -204,6 +217,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       const cp = p as unknown as ColumnsProposal;
       setColProposal(cp);
       setPgColumns(cp.columns.map((c) => c.name));   // feed the column picker below
+      setEditConn(false);                            // collapse the connection now it's confirmed
     } else if (Array.isArray((p as { tables?: unknown[] }).tables)) {
       setTables((p as unknown as { tables: string[] }).tables);
     } else {
@@ -262,69 +276,97 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     JSON.stringify(rs.filter((r) => r.name.trim()).map(rowToSpec));
   const labelsChanged = !!initial && canonRows(labelRows) !== canonRows(labelsToRows(initial?.config?.labels));
 
-  const renderField = (f: ConnectorField) => {
-    // Postgres column selection: once discover knows the table's columns, render a checklist instead
-    // of a comma-separated box (the stored value stays comma-separated for the API/agents).
+  // The right-column control for one field: postgres column checklist / single-column dropdown, a
+  // json textarea, or a plain input (with secret handling).
+  const fieldControl = (f: ConnectorField) => {
     if (connector === "postgres" && f.name === "columns" && pgColumns?.length) {
-      const mandatory = new Set(
-        [values.cursor_column, values.key_column, values.time_column].map((v) => v?.trim()).filter(Boolean) as string[]);
-      return (
-        <label className="field" key={f.name}>
-          <span className="lbl">{f.name}</span>
-          <ColumnPicker columns={pgColumns} value={values[f.name] ?? ""} mandatory={mandatory}
-                        onChange={(v) => setValues({ ...values, [f.name]: v })} />
-          <span className="help">{f.help}</span>
-        </label>
-      );
+      // always keep the cursor/time columns + any column a label reads (the key is a primary label)
+      const mandatory = new Set([
+        values.cursor_column, values.time_column,
+        ...labelRows.filter((r) => r.kind === "field").map((r) => r.value),
+      ].map((v) => v?.trim()).filter(Boolean) as string[]);
+      return <ColumnPicker columns={pgColumns} value={values[f.name] ?? ""} mandatory={mandatory}
+                           onChange={(v) => setValues({ ...values, [f.name]: v })} />;
     }
-    // Postgres single-column pickers: once the columns are known, pick one from a dropdown instead
-    // of typing it. cursor_column is required (empty = "— select —", enforced on save); key/time are
-    // optional (empty = "— none —"), matching their prior behaviour.
     if (connector === "postgres" && pgColumns?.length
-        && ["cursor_column", "key_column", "time_column"].includes(f.name)) {
+        && ["cursor_column", "time_column"].includes(f.name)) {
       const opts = pgColumns.includes(values[f.name] ?? "") || !values[f.name]
         ? pgColumns : [values[f.name], ...pgColumns];   // keep a stale value selectable
       return (
-        <label className={"field" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
-          <span className="lbl">{f.name} {f.required && <span className="req">*</span>}</span>
-          <select value={values[f.name] ?? ""}
-                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}>
-            <option value="">{f.required ? "— select —" : "— none —"}</option>
-            {opts.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <span className="help">{f.help}</span>
-        </label>
+        <select value={values[f.name] ?? ""} onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}>
+          <option value="">{f.required ? "— select —" : "— none —"}</option>
+          {opts.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
       );
     }
-    return f.type === "list" ? (
-      <ListFieldEditor key={f.name} field={f} rows={rows[f.name] ?? []}
-                       onChange={(r) => setRows({ ...rows, [f.name]: r })} />
-    ) : (
-      <label className={"field" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
-        <span className="lbl">{f.name} {f.required && <span className="req">*</span>}</span>
-        {f.type === "json" ? (
-          <textarea className="code" value={values[f.name]}
-                    onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
-        ) : (
-          <input type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
-                 value={values[f.name]} autoComplete={f.secret ? "off" : undefined}
-                 disabled={secretSet(f) && cleared[f.name]}
-                 placeholder={secretSet(f) ? (cleared[f.name] ? "" : "leave blank to keep") : undefined}
-                 onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />
+    if (f.type === "json")
+      return <textarea className="code" value={values[f.name]}
+                       onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />;
+    return <input type={f.secret ? "password" : f.type === "number" ? "number" : "text"}
+                  value={values[f.name]} autoComplete={f.secret ? "off" : undefined}
+                  disabled={secretSet(f) && cleared[f.name]}
+                  placeholder={secretSet(f) ? (cleared[f.name] ? "" : "leave blank to keep") : undefined}
+                  onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />;
+  };
+
+  const fieldHelp = (f: ConnectorField) =>
+    secretSet(f) ? (
+      <span className="help">
+        {cleared[f.name]
+          ? <>will be removed on save — <button type="button" className="linklike"
+                onClick={() => setCleared({ ...cleared, [f.name]: false })}>undo</button></>
+          : <>a value is set — type to replace, or leave blank to keep ·{" "}
+              <button type="button" className="linklike"
+                onClick={() => { setCleared({ ...cleared, [f.name]: true }); setValues({ ...values, [f.name]: "" }); }}>remove</button></>}
+      </span>
+    ) : <span className="help">{jsonErrors[f.name] ?? f.help}</span>;
+
+  const fieldLabel = (f: ConnectorField) => (connector === "postgres" && PG_LABEL[f.name]) || f.name;
+  const fieldDetected = (f: ConnectorField) =>       // value came from Discover, not the user
+    connector === "postgres" && !!pgColumns?.length && !!values[f.name]?.trim()
+    && ["cursor_column", "time_column"].includes(f.name);
+
+  // Two-column row: label + description on the left, control on the right. (list fields keep their
+  // own full-width editor.)
+  const renderField = (f: ConnectorField) => {
+    if (f.type === "list")
+      return <ListFieldEditor key={f.name} field={f} rows={rows[f.name] ?? []}
+                              onChange={(r) => setRows({ ...rows, [f.name]: r })} />;
+    return (
+      <div className={"fld-row" + (jsonErrors[f.name] ? " invalid" : "")} key={f.name}>
+        <div className="fld-meta">
+          <span className="lbl">{fieldLabel(f)}{f.required && <span className="req"> *</span>}
+            {fieldDetected(f) && <span className="badge ok" style={{ marginLeft: 8 }}>detected</span>}</span>
+          {fieldHelp(f)}
+        </div>
+        <div className="fld-ctrl">{fieldControl(f)}</div>
+      </div>
+    );
+  };
+
+  // Postgres: group the poll settings into a main block + a collapsed "Advanced".
+  const renderPgFields = (fields: ConnectorField[]) => {
+    const main = fields.filter((f) => PG_GROUP[f.name] !== "advanced");
+    const advanced = fields.filter((f) => PG_GROUP[f.name] === "advanced");
+    const found = !!pgColumns?.length;
+    return (
+      <>
+        <div className="fld-group">
+          <div className="fld-group-head">
+            <h3>{found ? <>What we read from <code>{values.table || "the table"}</code></> : "How to poll the table"}</h3>
+            <p className="help">{found
+              ? "Discover picked these from the columns — adjust any that aren't right."
+              : "Run Discover above to fill these from the table, or set them by hand."}</p>
+          </div>
+          {main.map(renderField)}
+        </div>
+        {advanced.length > 0 && (
+          <details className="fld-group adv-group">
+            <summary>Advanced<span className="caret">›</span></summary>
+            <div>{advanced.map(renderField)}</div>
+          </details>
         )}
-        {secretSet(f) ? (
-          <span className="help">
-            {cleared[f.name]
-              ? <>will be removed on save — <button type="button" className="linklike"
-                    onClick={() => setCleared({ ...cleared, [f.name]: false })}>undo</button></>
-              : <>a value is set — type to replace, or leave blank to keep ·{" "}
-                  <button type="button" className="linklike"
-                    onClick={() => { setCleared({ ...cleared, [f.name]: true }); setValues({ ...values, [f.name]: "" }); }}>remove</button></>}
-          </span>
-        ) : (
-          <span className="help">{jsonErrors[f.name] ?? f.help}</span>
-        )}
-      </label>
+      </>
     );
   };
 
@@ -356,9 +398,22 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </label>
       )}
 
-      {(spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)}
+      {connector === "postgres" && spec.discover && pgColumns?.length && !editConn ? (
+        <div className="conn-summary">
+          <span className="tick">✓</span>
+          <span>Connected{(() => {
+            try { const u = new URL(values.dsn); const db = u.pathname.replace(/^\//, "");
+              return <> to <code>{db || u.hostname}</code>{db && u.hostname ? <> · {u.hostname}</> : null}</>; }
+            catch { return null; }
+          })()}</span>
+          <button type="button" className="linklike" style={{ marginLeft: "auto" }}
+                  onClick={() => setEditConn(true)}>edit connection</button>
+        </div>
+      ) : (
+        (spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)
+      )}
 
-      {spec.discover && (
+      {spec.discover && !(connector === "postgres" && pgColumns?.length && !editConn) && (
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
           <div className="btnrow" style={{ alignItems: "center" }}>
             <button type="button" disabled={busy} onClick={() => discover()}>
@@ -417,7 +472,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       )}
 
-      {spec.discover && spec.fields.filter((f) => !f.discover_input).map(renderField)}
+      {spec.discover && (connector === "postgres"
+        ? renderPgFields(spec.fields.filter((f) => !f.discover_input))
+        : spec.fields.filter((f) => !f.discover_input).map(renderField))}
 
       <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
                     fields={labelFieldOpts} fieldHints={labelFieldHints} />
