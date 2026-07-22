@@ -5,7 +5,7 @@ import { api, auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
   Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Lock, Moon,
-  Settings as SettingsIco, SignOut, Sun, Terminal,
+  SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
 
@@ -147,10 +147,6 @@ export default function App() {
         <NavLink to="/security" className={link}>
           <Lock className="ico" />
           <span className="nav-label">Security</span>
-        </NavLink>
-        <NavLink to="/settings" className={link}>
-          <SettingsIco className="ico" />
-          <span className="nav-label">Settings</span>
         </NavLink>
         <ThemeToggle />
         {auth.get() && (

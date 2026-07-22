@@ -335,6 +335,12 @@ button.linklike {
 }
 button.linklike:hover { border: none; opacity: 0.8; }
 .btnrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* small dropdown popover (e.g. the Sources catalog menu) */
+.menu-pop { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+  min-width: 160px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); display: flex; flex-direction: column; }
+.menu-pop .menu-item { padding: 7px 10px; border-radius: 6px; color: var(--ink); font-size: 13px;
+  text-decoration: none; white-space: nowrap; }
+.menu-pop .menu-item:hover { background: rgba(127, 127, 127, 0.12); }
 
 label.field { display: block; margin-bottom: 14px; }
 label.field .lbl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
