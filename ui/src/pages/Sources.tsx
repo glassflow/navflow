@@ -2,8 +2,31 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
-import { Search } from "../components/icons";
+import { Search, Settings as SettingsIco } from "../components/icons";
 import { StatusBadge, TimeAgo, usePolling } from "../components/bits";
+
+// Gear dropdown next to "Add source" — catalog import/export, each on its own page.
+function CatalogMenu() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button className="btn" onClick={() => setOpen((o) => !o)} title="Import / export catalog"
+              aria-label="Catalog menu" aria-haspopup="menu" aria-expanded={open}>
+        <SettingsIco className="ico" />
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 20 }} />
+          <div className="menu-pop" role="menu"
+               style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 21 }}>
+            <Link className="menu-item" role="menuitem" to="/sources/export" onClick={() => setOpen(false)}>Export catalog</Link>
+            <Link className="menu-item" role="menuitem" to="/sources/import" onClick={() => setOpen(false)}>Import catalog</Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Sources() {
   const nav = useNavigate();
@@ -44,6 +67,7 @@ export default function Sources() {
             <Link to="/sources/discover" className="btn">✦ Auto-discover</Link>
           )}
           <Link to="/sources/new" className="btn primary">Add source</Link>
+          <CatalogMenu />
         </span>
       </div>
 
@@ -59,7 +83,7 @@ export default function Sources() {
 
       {sources && sources.length === 0 && (
         <div className="empty">
-          No sources yet — <Link to="/sources/new">add one by hand</Link> or import a catalog YAML
+          No sources yet — <Link to="/sources/new">add one by hand</Link> or <Link to="/sources/import">import a catalog YAML</Link>
           {caps?.discover_docker !== false && (
             <>, or <Link to="/sources/discover">auto-discover from Docker</Link></>
           )}.

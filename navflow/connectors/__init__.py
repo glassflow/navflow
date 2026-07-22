@@ -188,6 +188,12 @@ def _coerce_labels(val) -> list:
                     raise CatalogError(f"label {row['name']!r}: map must be an object of "
                                        "observed-value -> canonical-value strings")
                 row["map"] = {str(k): str(v) for k, v in spec["map"].items()}
+        # typed labels (v0.1.25): number labels are the aggregatable ones. Preserve the declared
+        # type through normalization — dropping it here silently reverts a number label to a string
+        # (not aggregatable). Validation (config._validate_labels) already rejects bad types / a
+        # numeric primary, so we only need to carry a valid value forward.
+        if spec.get("type") in ("string", "number"):
+            row["type"] = spec["type"]
         if spec.get("primary"):       # the primary label is the entity key
             row["primary"] = True
             primaries += 1

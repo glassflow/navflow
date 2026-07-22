@@ -1146,8 +1146,13 @@ def make_app() -> FastAPI:
 
     # ── management API: catalog import/export ────────────────────────────────
     @app.get("/api/catalog/export")
-    async def catalog_export():
-        return PlainTextResponse(export_db_to_yaml(store), media_type="application/yaml")
+    async def catalog_export(sources: str | None = None, include_secrets: bool = False):
+        """Catalog YAML. Defaults (no params, as the agent/MCP call it): all sources, secrets
+        OMITTED. `sources=a,b` limits to a subset (views/triggers filtered to stay consistent);
+        `include_secrets=true` emits real connector secrets (admin-gated route)."""
+        src = [s for s in sources.split(",") if s] if sources else None
+        return PlainTextResponse(export_db_to_yaml(store, src, include_secrets),
+                                 media_type="application/yaml")
 
     @app.post("/api/catalog/import")
     async def catalog_import(body: ImportReq):

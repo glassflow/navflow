@@ -163,29 +163,58 @@ def import_yaml_to_db(store, text: str) -> dict:
         store.upsert_catalog_trigger(
             t["name"], t["view"], t["condition"], t.get("emit", {}) or {},
             str(t.get("cooldown", "5m")))
+        # upsert doesn't touch paused (it's toggled separately); reflect the document's state so a
+        # paused trigger round-trips. Sources carry paused through upsert_catalog_source already.
+        store.set_trigger_paused(t["name"], bool(t.get("paused", False)))
 
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers)}
 
 
-def export_db_to_yaml(store) -> str:
-    doc = {
-        "sources": [
-            {"name": s["name"], "connector": s["connector"],  # type is derived from the connector
-             "poll": s["poll"], "config": s["config"]}
-            for s in store.list_catalog_sources()
-        ],
-        "views": [
-            {"name": v["name"], "key_field": v["key_field"], "sources": v["sources"],
-             **({"filters": v["filters"]} if v.get("filters") else {}),
-             **({"created_by": v["created_by"]} if v.get("created_by", "human") != "human" else {})}
-            for v in store.list_catalog_views()
-        ],
-        "triggers": [
-            {"name": t["name"], "view": t["view"], "condition": t["condition"],
-             "emit": t["emit"], "cooldown": t["cooldown"]}
-            for t in store.list_catalog_triggers()
-        ],
-    }
+def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:
+    """Serialize the catalog to portable YAML.
+
+    `sources`: optional allow-list of source names to include (None = all). A partial export stays
+    self-consistent — a view is kept only if ALL its sources are included, and a trigger only if its
+    view is kept — so it re-imports cleanly.
+
+    `include_secrets`: when False (default), connector secrets (github `token`, postgres `dsn`) are
+    OMITTED — the export is safe to share/commit, and the operator re-enters them on the target
+    (the source form's blank-to-keep handles this). When True, real secret values are emitted."""
+    from .connectors import secret_field_names
+    want = set(sources) if sources is not None else None
+
+    src_out, kept_sources = [], set()
+    for s in store.list_catalog_sources():
+        if want is not None and s["name"] not in want:
+            continue
+        kept_sources.add(s["name"])
+        config = s["config"]
+        if not include_secrets and isinstance(config, dict):
+            secrets = secret_field_names(s["connector"])
+            if secrets:
+                config = {k: v for k, v in config.items() if k not in secrets}
+        src_out.append({"name": s["name"], "connector": s["connector"],  # type is derived
+                        "poll": s["poll"], "config": config,
+                        **({"paused": True} if s.get("paused") else {})})
+
+    view_out, kept_views = [], set()
+    for v in store.list_catalog_views():
+        if want is not None and not set(v["sources"]).issubset(kept_sources):
+            continue
+        kept_views.add(v["name"])
+        view_out.append({"name": v["name"], "key_field": v["key_field"], "sources": v["sources"],
+                         **({"filters": v["filters"]} if v.get("filters") else {}),
+                         **({"created_by": v["created_by"]} if v.get("created_by", "human") != "human" else {})})
+
+    trig_out = [
+        {"name": t["name"], "view": t["view"], "condition": t["condition"],
+         "emit": t["emit"], "cooldown": t["cooldown"],
+         **({"paused": True} if t.get("paused") else {})}
+        for t in store.list_catalog_triggers()
+        if want is None or t["view"] in kept_views
+    ]
+
+    doc = {"sources": src_out, "views": view_out, "triggers": trig_out}
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 

@@ -6,6 +6,8 @@ import App from "./App";
 import AuthGate from "./components/AuthGate";
 import AgentActivity, { ConnectPage } from "./pages/Activity";
 import Ask from "./pages/Ask";
+import CatalogExport from "./pages/CatalogExport";
+import CatalogImport from "./pages/CatalogImport";
 import DispatchDetail from "./pages/DispatchDetail";
 import Explore from "./pages/Explore";
 import SourceClaudeCode from "./pages/SourceClaudeCode";
@@ -17,7 +19,6 @@ import TriggerNew from "./pages/TriggerNew";
 import SourceDiscover from "./pages/SourceDiscover";
 import SourceNew from "./pages/SourceNew";
 import Security from "./pages/Security";
-import Settings from "./pages/Settings";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import "./styles.css";
@@ -31,6 +32,8 @@ const router = createBrowserRouter([
       { path: "sources/discover", element: <SourceDiscover /> },
       { path: "sources/claude-code", element: <SourceClaudeCode /> },
       { path: "sources/new", element: <SourceNew /> },
+      { path: "sources/export", element: <CatalogExport /> },
+      { path: "sources/import", element: <CatalogImport /> },
       { path: "sources/:name", element: <SourceDetail /> },
       { path: "organize", element: <Navigate to="/ask" replace /> },
       { path: "explore", element: <Explore /> },
@@ -46,7 +49,7 @@ const router = createBrowserRouter([
       { path: "agents", element: <Navigate to="/connect" replace /> },
       { path: "ask", element: <Ask /> },
       { path: "security", element: <Security /> },
-      { path: "settings", element: <Settings /> },
+      { path: "settings", element: <Navigate to="/" replace /> },
       // legacy paths → new homes (bookmarks, the old Entities/Activity/Catalog nav). Catalog
       // dissolved: source schema/freshness now lives on the source detail; the agent's-eye read
       // is Explore's Agent-view toggle.

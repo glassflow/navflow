@@ -154,8 +154,13 @@ export const api = {
       body: JSON.stringify({ view, where, window, client: "ui" }),
     }),
 
-  exportYaml: async () => {
-    const res = await fetch("/api/catalog/export", { headers: authHeader() });
+  // Defaults match the agent/MCP call: all sources, secrets omitted. The UI passes options.
+  exportYaml: async (opts?: { sources?: string[]; includeSecrets?: boolean }) => {
+    const q = new URLSearchParams();
+    if (opts?.sources?.length) q.set("sources", opts.sources.join(","));
+    if (opts?.includeSecrets) q.set("include_secrets", "true");
+    const qs = q.toString();
+    const res = await fetch("/api/catalog/export" + (qs ? "?" + qs : ""), { headers: authHeader() });
     if (res.status === 401) {
       unauthorized();
       throw new Error("authentication required");
