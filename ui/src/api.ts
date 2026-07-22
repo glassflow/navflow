@@ -60,7 +60,7 @@ export const api = {
   health: () => request<{ status: string; readonly: boolean; auth_required: boolean }>("/health"),
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
   capabilities: () =>
-    request<{ discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),
+    request<{ version?: string | null; discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),
   security: () =>
     request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
   keys: () => request<{ keys: ApiKey[]; enforced: boolean; scopes: string[] }>("/api/keys"),

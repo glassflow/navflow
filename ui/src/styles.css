@@ -189,8 +189,11 @@ body {
 
 .nav-spacer { flex: 1 1 auto; }
 .sidebar .sep { height: 1px; background: var(--line); margin: 8px 6px; }
-.sidebar .foot { font-size: 12px; color: var(--ink-faint); padding: 8px 10px 0; }
-.sidebar .foot a { color: var(--ink-soft); }
+.sidebar .foot { font-size: 12px; color: var(--ink-faint); padding: 8px 10px 0;
+  display: flex; align-items: center; gap: 8px; }
+.sidebar .foot a { color: var(--ink-soft); display: inline-flex; align-items: center; }
+.sidebar .foot a:hover { color: var(--ink); }
+.sidebar .foot .ico { width: 15px; height: 15px; }
 
 .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .main { flex: 1; padding: 24px 36px 64px; max-width: 1600px; }

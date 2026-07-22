@@ -662,7 +662,13 @@ def make_app() -> FastAPI:
         can't work on this deployment — e.g. a hosted cell has no Docker socket, so Auto-discover
         would be a dead end. (Claude Code is plugin-based and works everywhere, so it's not gated.)"""
         import shutil
+        from importlib.metadata import version as _pkg_version
+        try:
+            ver = _pkg_version("navflow")   # the installed release (release.sh bumps pyproject.toml)
+        except Exception:
+            ver = None
         return {
+            "version": ver,
             "discover_docker": shutil.which("docker") is not None or os.path.exists("/var/run/docker.sock"),
             "agent_key_configured": bool(ANTHROPIC_KEY),
         }
