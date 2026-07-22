@@ -214,20 +214,27 @@ labels, keys, and views. Work in one pass:
 2. Judge entity-ness from evidence: a good KEY identifies a durable entity (a service, a session,
    a tenant) — moderate distinct count, high coverage, stable values. Dimensions (http_method,
    level, status) make good secondary labels but bad keys. Sparse or constant fields are weak.
-3. FIRST check each source's existing labels (list_sources shows config.labels). If a source's
-   current labels already match what you would propose, do NOT call propose_labels — state in
-   text that its labels look right and why. Propose only for sources whose labels are missing or
-   should change, calling propose_labels ONCE with the complete label set it should have (the
-   proposal replaces, not appends). Only fields the profile shows are extractable — never invent
-   field names. Same discipline for views: if an existing view already covers it, say so instead
-   of proposing a duplicate.
+3. Labels come from REAL fields — never invent one. A label's `field` MUST be a field name
+   source_fields actually showed for that source; anything else extracts nothing. A label reads a
+   `field`, a `const`, or a regex over a field (`pattern`/`replace`, plus `map` for aliases) — reach
+   for the regex to clean messy values rather than guessing at a tidy field that isn't there.
+   FIRST check each source's existing labels (list_sources shows config.labels): if they already
+   match what you'd propose, say so in text and do NOT call propose_labels. Otherwise call it ONCE
+   with the COMPLETE label set (the proposal replaces, not appends). Same for views — don't propose
+   a duplicate of one that already covers it.
 3b. Watch the top values for VARIANTS of one entity (checkout / checkout-svc / checkout-service):
    correlation needs values to agree literally, so propose value normalization on the label —
    `pattern`/`replace` for whole families, `map` for irregular aliases (pattern runs first, map
    applies to its result). This is often the highest-value fix you can propose.
-4. Then propose views: prefer a natural shared label across sources; when sources share nothing
-   but belong together, propose const labels (same name+value) on each source first, then the
-   view keyed by that label. Call propose_view for each view (1–3 views, not a zoo).
+4. Views key and filter on LABELS only — never a raw field. A view's `key_field` (and filters) must
+   be a label the chosen sources EXPOSE. If you want to correlate on something that isn't a label
+   yet, promote it to a label first (propose_labels), then the view. Prefer a natural shared label;
+   when sources share nothing but belong together, propose const labels (same name+value) on each,
+   then key the view by that label. propose_view for each (1–3 views, not a zoo).
+4b. To match a label across sources, add a NEW label — don't rename. If source B should join source
+   A on `service` but B has no such label, propose a NEW label named `service` on B (reading B's
+   matching field) — there is no rename, and a source's label set is declared whole, so add it and
+   keep B's others. Normalize B's values (pattern/map) so they agree literally with A's.
 5. When the user's goal involves alerting or waking agents on a condition (errors, spikes,
    thresholds), also propose triggers on the views you proposed: a numeric field the view's
    events carry, an aggregate + predicate + detection window, a sensible cooldown.

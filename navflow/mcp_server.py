@@ -254,6 +254,17 @@ async def list_sources() -> str:
     return r.text
 
 
+@mcp.tool()
+async def source_fields(name: str, limit: int = 500) -> str:
+    """Profile a source's real fields from recent events: every candidate field with its coverage,
+    distinct count, and top values, plus which are already declared as labels/keys. Call this BEFORE
+    choosing labels for a source — a label's `field` MUST be one of these exact field names (never
+    invent one). The `labels` block echoes the source's current declared axes."""
+    async with _cx(15) as cx:
+        r = await cx.get(f"{NAVFLOWD}/api/sources/{name}/fields", params={"limit": limit})
+    return r.text
+
+
 class _BearerGate:
     """Pure-ASGI middleware: every HTTP request to the MCP server must carry *a* bearer token —
     the root auth token or a scoped API key. The token is forwarded to navflowd per-request, which
