@@ -166,9 +166,11 @@ _ENTITY_CARDINALITY_CAP = int(os.getenv("NAVFLOW_ENTITY_CARDINALITY_CAP", "10000
 
 def _accum_entity(ent: dict, source: str, label: str, value, ingest_time) -> None:
     """Fold one (source, label, value) observation into the batch's entity_counts deltas. Skips
-    empty/null and boolean values (not entity axes). The value is stringified to match how the read
+    empty/null, boolean, and numeric values — a number-typed label is a *measurement* you aggregate
+    (max/avg/sum), not an entity axis to facet by, and faceting it would materialize one bucket per
+    distinct number and blow the cardinality cap. The value is stringified to match how the read
     path reads it back (json_extract_string), so live deltas merge with seeded rows."""
-    if value is None or isinstance(value, bool):
+    if value is None or isinstance(value, bool) or isinstance(value, (int, float)):
         return
     v = str(value)
     if not v:

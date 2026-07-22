@@ -122,7 +122,8 @@ export interface EnvScan {
 
 export interface DiscoverProposal {
   connector: string;
-  summary: { total_metrics: number; relevant: number; hidden: number };
+  families?: string[];   // prometheus: the metric families (name prefixes) this proposal ingests
+  summary: { total_metrics: number; relevant: number; hidden: number; capped?: boolean; families?: number };
   suggested_key: { name: string; cardinality: number; values_preview: string[]; alternatives: string[] };
   proposed_labels: string[];
   metrics: DiscoverMetric[];
