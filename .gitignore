@@ -17,3 +17,6 @@ deployment.md
 # Python build artifacts
 dist/
 *.egg-info/
+
+# local staging creds — never commit
+.prometheus

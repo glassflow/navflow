@@ -23,6 +23,7 @@ const DISCOVER_HINT: Record<string, string> = {
   docker_logs: "list the containers navflowd can see, then pick one to fill this form",
   github: "enter the repo above, then Discover its default branch + author labels",
   postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
+  prometheus: "enter the URL (+ any auth) above, then Discover — it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
 };
 
 // Postgres form: plain-language field labels + grouping (main poll settings vs collapsed advanced),
@@ -36,6 +37,9 @@ const PG_LABEL: Record<string, string> = {
   limit: "Rows per poll",
 };
 const PG_GROUP: Record<string, "advanced"> = { limit: "advanced" };
+const PROM_LABEL: Record<string, string> = {
+  default_key: "Fallback entity key",
+};
 
 interface Props {
   connector: string;
@@ -117,6 +121,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [pgColumns, setPgColumns] = useState<string[]>();  // postgres: discovered column names, for the picker
   const [editConn, setEditConn] = useState(false);         // postgres: connection collapsed after discover unless editing
   const [tables, setTables] = useState<string[]>();
+  const [catalog, setCatalog] = useState<{ metrics: string[]; labels: string[] }>();  // prometheus: pickers
+  const [basket, setBasket] = useState<Set<string>>(new Set());                       // prometheus: chosen metrics
+  const [metricsConfirmed, setMetricsConfirmed] = useState(false);                    // prometheus: basket collapsed
   const [containers, setContainers] = useState<EnvScan["containers"]>();
   const [discovering, setDiscovering] = useState(false);
   const [discoverErr, setDiscoverErr] = useState<string>();
@@ -211,8 +218,12 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     // (prometheus: metrics), `colProposal` (postgres: table columns) or `tables` (postgres
     // without a table yet: pick one); simpler ones (github) just apply the proposed config
     // and report a one-line summary
-    if (Array.isArray((p as { metrics?: unknown[] }).metrics)) {
-      setProposal(p);
+    const cat = (p as { catalog?: { metrics: string[]; labels: string[] } }).catalog;
+    if (cat) {
+      // prometheus: the metric-name + label-name catalogs — feed the two-tab metric picker
+      setCatalog(cat);
+      setBasket(new Set());
+      setMetricsConfirmed(false);
     } else if (Array.isArray((p as { columns?: unknown[] }).columns)) {
       const cp = p as unknown as ColumnsProposal;
       setColProposal(cp);
@@ -233,6 +244,29 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     setTables(undefined);
     void discover({ table: t });   // straight to the columns proposal for the picked table
   };
+
+  // prometheus: add/remove metrics in the basket (both tabs feed this one set)
+  const basketAdd = (names: string[]) =>
+    setBasket((s) => { const n = new Set(s); names.forEach((m) => n.add(m)); return n; });
+  const basketRemove = (name: string) =>
+    setBasket((s) => { const n = new Set(s); n.delete(name); return n; });
+  // fetch the metrics carrying a label (the by-label tab), via a discover call
+  const fetchLabelMetrics = async (label: string): Promise<string[]> => {
+    const cfg: Record<string, unknown> = { for_label: label };
+    for (const f of spec.fields) {
+      const raw = values[f.name]?.trim();
+      if (raw && f.type !== "json") cfg[f.name] = raw;
+    }
+    const p = await api.discoverSource("prometheus", cfg) as { metrics_for_label?: string[] };
+    return p.metrics_for_label ?? [];
+  };
+  // confirm the basket → finalize (sample + propose config) → fill the form, collapse the picker
+  const confirmMetrics = () => run(async () => {
+    if (!basket.size) return;
+    if (!name.trim()) setName("prometheus-metrics");
+    await doDiscover({ selected: [...basket] });   // finalize → else-branch applyConfig
+    setMetricsConfirmed(true);
+  });
 
   const pickContainer = (c: { name: string; service: string; project: string }) => {
     setValues((v) => ({ ...v, container: c.name }));
@@ -321,7 +355,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       </span>
     ) : <span className="help">{jsonErrors[f.name] ?? f.help}</span>;
 
-  const fieldLabel = (f: ConnectorField) => (connector === "postgres" && PG_LABEL[f.name]) || f.name;
+  const fieldLabel = (f: ConnectorField) =>
+    (connector === "postgres" && PG_LABEL[f.name]) ||
+    (connector === "prometheus" && PROM_LABEL[f.name]) || f.name;
   const fieldDetected = (f: ConnectorField) =>       // value came from Discover, not the user
     connector === "postgres" && !!pgColumns?.length && !!values[f.name]?.trim()
     && ["cursor_column", "time_column"].includes(f.name);
@@ -341,6 +377,31 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
         <div className="fld-ctrl">{fieldControl(f)}</div>
       </div>
+    );
+  };
+
+  // Prometheus: the discovered queries as a compact list, with the fallback-key field + a raw
+  // query editor tucked into a collapsed Advanced group (so the form isn't 80 fat panels tall).
+  const renderPromFields = (fields: ConnectorField[]) => {
+    const queriesField = fields.find((f) => f.name === "queries");
+    const rest = fields.filter((f) => f.name !== "queries");
+    return (
+      <>
+        {queriesField && (
+          <PromQueriesView rows={rows.queries ?? []}
+                           onChange={(r) => setRows({ ...rows, queries: r })} />
+        )}
+        <details className="fld-group adv-group">
+          <summary>Advanced<span className="caret">›</span></summary>
+          <div>
+            {rest.map(renderField)}
+            {queriesField && (
+              <ListFieldEditor field={queriesField} rows={rows.queries ?? []}
+                               onChange={(r) => setRows({ ...rows, queries: r })} />
+            )}
+          </div>
+        </details>
+      </>
     );
   };
 
@@ -398,13 +459,16 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </label>
       )}
 
-      {connector === "postgres" && spec.discover && pgColumns?.length && !editConn ? (
+      {spec.discover && !editConn
+        && ((connector === "postgres" && pgColumns?.length) || (connector === "prometheus" && catalog)) ? (
         <div className="conn-summary">
           <span className="tick">✓</span>
-          <span>Connected{(() => {
+          <span>Connected{connector === "postgres" ? (() => {
             try { const u = new URL(values.dsn); const db = u.pathname.replace(/^\//, "");
               return <> to <code>{db || u.hostname}</code>{db && u.hostname ? <> · {u.hostname}</> : null}</>; }
             catch { return null; }
+          })() : (() => {
+            try { return <> to <code>{new URL(values.url).host}</code></>; } catch { return null; }
           })()}</span>
           <button type="button" className="linklike" style={{ marginLeft: "auto" }}
                   onClick={() => setEditConn(true)}>edit connection</button>
@@ -413,20 +477,27 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         (spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)
       )}
 
-      {spec.discover && !(connector === "postgres" && pgColumns?.length && !editConn) && (
+      {spec.discover && !(connector === "postgres" && pgColumns?.length && !editConn)
+        && !(connector === "prometheus" && metricsConfirmed) && (
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
-          <div className="btnrow" style={{ alignItems: "center" }}>
-            <button type="button" disabled={busy} onClick={() => discover()}>
-              {discovering ? "⏳ discovering…"
-                : `✦ ${connector === "docker_logs" ? "Discover containers" : "Discover"}`}
-            </button>
-            <span className="help" style={{ margin: 0 }}>
-              {DISCOVER_HINT[connector]
-                ?? "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
-            </span>
-          </div>
+          {!(connector === "prometheus" && catalog) && (
+            <div className="btnrow" style={{ alignItems: "center" }}>
+              <button type="button" disabled={busy} onClick={() => discover()}>
+                {discovering ? "⏳ discovering…"
+                  : `✦ ${connector === "docker_logs" ? "Discover containers" : "Discover"}`}
+              </button>
+              <span className="help" style={{ margin: 0 }}>
+                {DISCOVER_HINT[connector]
+                  ?? "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
+              </span>
+            </div>
+          )}
           {discoverErr && <div className="alert error" style={{ marginTop: 10, marginBottom: 0 }}>{discoverErr}</div>}
           {proposal && <ProposalView proposal={proposal} onApply={applyProposal} />}
+          {connector === "prometheus" && catalog && !metricsConfirmed && (
+            <MetricBasket catalog={catalog} basket={basket} onAdd={basketAdd} onRemove={basketRemove}
+                          fetchLabelMetrics={fetchLabelMetrics} onConfirm={confirmMetrics} busy={busy} />
+          )}
           {tables && (
             <table style={{ marginTop: 10 }}>
               <thead><tr><th>table</th><th style={{ width: 100 }}></th></tr></thead>
@@ -472,12 +543,25 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       )}
 
+      {connector === "prometheus" && metricsConfirmed && (
+        <div className="conn-summary" style={{ marginBottom: 12 }}>
+          <span className="tick">✓</span>
+          <span>{basket.size} metric{basket.size === 1 ? "" : "s"} chosen</span>
+          <button type="button" className="linklike" style={{ marginLeft: "auto" }}
+                  onClick={() => setMetricsConfirmed(false)}>change metrics</button>
+        </div>
+      )}
+
       {spec.discover && (connector === "postgres"
         ? renderPgFields(spec.fields.filter((f) => !f.discover_input))
+        : connector === "prometheus"
+        ? (metricsConfirmed ? renderPromFields(spec.fields.filter((f) => !f.discover_input)) : null)
         : spec.fields.filter((f) => !f.discover_input).map(renderField))}
 
-      <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
-                    fields={labelFieldOpts} fieldHints={labelFieldHints} />
+      {!(connector === "prometheus" && !metricsConfirmed) && (
+        <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
+                      fields={labelFieldOpts} fieldHints={labelFieldHints} />
+      )}
 
       {labelsChanged && (
         <div className="alert info">
@@ -486,17 +570,19 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       )}
 
-      <div className="btnrow">
-        <button type="submit" className="primary" disabled={busy || Object.keys(jsonErrors).length > 0}>
-          {submitLabel}
-        </button>
-        {spec.mode === "poll" && (
-          <button type="button" disabled={busy}
-                  onClick={() => run(async () => setTest(await api.testSource(build())))}>
-            Test connection
+      {!(connector === "prometheus" && !metricsConfirmed) && (
+        <div className="btnrow">
+          <button type="submit" className="primary" disabled={busy || Object.keys(jsonErrors).length > 0}>
+            {submitLabel}
           </button>
-        )}
-      </div>
+          {spec.mode === "poll" && (
+            <button type="button" disabled={busy}
+                    onClick={() => run(async () => setTest(await api.testSource(build())))}>
+              Test connection
+            </button>
+          )}
+        </div>
+      )}
     </form>
   );
 }
@@ -840,6 +926,254 @@ function ListFieldEditor({ field, rows, onChange }:
   );
 }
 
+// Prometheus family picker: the metric families (name prefixes) as a scannable, sortable list —
+// count-descending, each with a proportional weight bar so the real systems (pg 373) stand out
+// from the long tail. Groups with only 1–2 metrics fold behind a toggle; select-all/none acts on
+// whatever the filter currently shows.
+function FamilyPicker({ groups, sel, q, setQ, onToggle, onSelect, onIntrospect, busy }: {
+  groups: { prefix: string; count: number }[];
+  sel: Set<string>; q: string; setQ: (v: string) => void;
+  onToggle: (p: string) => void; onSelect: (s: Set<string>) => void;
+  onIntrospect: () => void; busy: boolean;
+}) {
+  const max = groups[0]?.count ?? 1;
+  const bar = (n: number) => Math.max(3, Math.round(100 * Math.log(n + 1) / Math.log(max + 1)));
+  const match = (g: { prefix: string }) => !q || g.prefix.toLowerCase().includes(q.toLowerCase());
+  const shown = groups.filter(match);
+  const main = shown.filter((g) => g.count >= 3);
+  const tail = shown.filter((g) => g.count < 3);
+  const totalMetrics = groups.reduce((n, g) => n + g.count, 0);
+
+  const Row = (g: { prefix: string; count: number }) => (
+    <label key={g.prefix} className="fam-row">
+      <input type="checkbox" checked={sel.has(g.prefix)} onChange={() => onToggle(g.prefix)} />
+      <span className="mono fam-name">{g.prefix}<span className="fam-star">_*</span></span>
+      <span className="fam-bar"><span style={{ width: `${bar(g.count)}%` }} /></span>
+      <span className="fam-count">{g.count}</span>
+    </label>
+  );
+
+  return (
+    <div style={{ marginTop: 10 }}>
+      <p className="subtitle" style={{ marginTop: 0 }}>
+        {totalMetrics.toLocaleString()} metrics across {groups.length} systems — each is one exporter
+        or app. Tick the ones you want to ingest.
+      </p>
+      <div className="btnrow" style={{ marginBottom: 6, alignItems: "center", gap: 8 }}>
+        <input type="text" placeholder="filter systems…" value={q}
+               onChange={(e) => setQ(e.target.value)} style={{ flex: 1, margin: 0 }} />
+        <button type="button" onClick={() => onSelect(new Set([...sel, ...shown.map((g) => g.prefix)]))}>
+          select shown
+        </button>
+        <button type="button" onClick={() => onSelect(new Set())}>clear</button>
+      </div>
+      <div className="fam-list">
+        {main.map(Row)}
+        {tail.length > 0 && (
+          <details style={{ marginTop: 4 }}>
+            <summary className="help" style={{ cursor: "pointer", padding: "4px 6px" }}>
+              {tail.length} smaller {tail.length === 1 ? "group" : "groups"} (1–2 metrics each)
+            </summary>
+            <div style={{ marginTop: 4 }}>{tail.map(Row)}</div>
+          </details>
+        )}
+        {shown.length === 0 && <div className="help" style={{ padding: 8 }}>no systems match “{q}”</div>}
+      </div>
+      <div className="btnrow" style={{ marginTop: 8, alignItems: "center" }}>
+        <button type="button" className="primary" disabled={busy || sel.size === 0} onClick={onIntrospect}>
+          Introspect {sel.size || ""} selected
+        </button>
+        <span className="help" style={{ margin: 0 }}>
+          each becomes one compact query that ingests the whole family
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Prometheus metric picker: two tabs (by name pattern / by label) that both add to one shared
+// basket. No PromQL — the user picks metric names; the connector compiles the basket into a single
+// {__name__=~"(a|b|…)"} selector on confirm.
+function MetricBasket({ catalog, basket, onAdd, onRemove, fetchLabelMetrics, onConfirm, busy }: {
+  catalog: { metrics: string[]; labels: string[] };
+  basket: Set<string>;
+  onAdd: (names: string[]) => void;
+  onRemove: (name: string) => void;
+  fetchLabelMetrics: (label: string) => Promise<string[]>;
+  onConfirm: () => void;
+  busy: boolean;
+}) {
+  const [tab, setTab] = useState<"name" | "label">("name");
+  const [nameQ, setNameQ] = useState("");
+  const [labelQ, setLabelQ] = useState("");
+  const [pickedLabel, setPickedLabel] = useState<string>();
+  const [labelMetrics, setLabelMetrics] = useState<string[]>();
+  const [loadingLabel, setLoadingLabel] = useState(false);
+
+  const nameMatches = useMemo(() => {
+    const q = nameQ.trim().toLowerCase();
+    if (!q) return [];
+    const star = q.endsWith("*");
+    const pat = star ? q.slice(0, -1) : q;
+    return catalog.metrics
+      .filter((m) => { const lm = m.toLowerCase(); return star ? lm.startsWith(pat) : lm.includes(pat); })
+      .slice(0, 500);
+  }, [nameQ, catalog.metrics]);
+
+  const labelMatches = useMemo(() => {
+    const q = labelQ.trim().toLowerCase();
+    return catalog.labels.filter((l) => !q || l.toLowerCase().includes(q)).slice(0, 300);
+  }, [labelQ, catalog.labels]);
+
+  const pickLabel = async (l: string) => {
+    setPickedLabel(l); setLoadingLabel(true); setLabelMetrics(undefined);
+    try { setLabelMetrics(await fetchLabelMetrics(l)); } finally { setLoadingLabel(false); }
+  };
+
+  const ResultList = ({ items }: { items: string[] }) => (
+    <>
+      <div className="btnrow" style={{ margin: "6px 0", alignItems: "center" }}>
+        <button type="button" disabled={!items.length} onClick={() => onAdd(items)}>
+          add all {items.length}
+        </button>
+        <span className="help" style={{ margin: 0 }}>{items.length} match{items.length === 1 ? "" : "es"}
+          {items.length === 500 ? " (showing first 500 — narrow the pattern)" : ""}</span>
+      </div>
+      <div className="fam-list" style={{ maxHeight: 240 }}>
+        {items.map((m) => (
+          <label key={m} className="fam-row" style={{ gridTemplateColumns: "auto minmax(0,1fr) auto" }}>
+            <input type="checkbox" checked={basket.has(m)}
+                   onChange={() => (basket.has(m) ? onRemove(m) : onAdd([m]))} />
+            <span className="mono fam-name">{m}</span>
+            {basket.has(m) && <span className="badge ok">added</span>}
+          </label>
+        ))}
+      </div>
+    </>
+  );
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <p className="subtitle" style={{ marginTop: 0 }}>
+        Choose the metrics to ingest — by name, or by a label they carry. No PromQL to write.
+      </p>
+      <div className="btnrow" style={{ gap: 6, marginBottom: 8 }}>
+        <button type="button" className={tab === "name" ? "primary" : ""} onClick={() => setTab("name")}>
+          By metric name
+        </button>
+        <button type="button" className={tab === "label" ? "primary" : ""} onClick={() => setTab("label")}>
+          By label
+        </button>
+      </div>
+
+      {tab === "name" && (
+        <div>
+          <input type="text" placeholder="type a metric name or prefix — e.g. node_* or clickhouse"
+                 value={nameQ} onChange={(e) => setNameQ(e.target.value)} />
+          {nameQ.trim()
+            ? <ResultList items={nameMatches} />
+            : <p className="help">{catalog.metrics.length.toLocaleString()} metrics available — start typing to filter (append <span className="mono">*</span> for a prefix match)</p>}
+        </div>
+      )}
+
+      {tab === "label" && (
+        <div>
+          <input type="text" placeholder="filter labels — e.g. namespace, service, clickhouse_org"
+                 value={labelQ} onChange={(e) => setLabelQ(e.target.value)} />
+          <div className="fam-list" style={{ maxHeight: 150, marginTop: 6 }}>
+            {labelMatches.map((l) => (
+              <label key={l} className="fam-row" style={{ gridTemplateColumns: "minmax(0,1fr) auto", cursor: "pointer" }}
+                     onClick={(e) => { e.preventDefault(); void pickLabel(l); }}>
+                <span className="mono fam-name">{l}</span>
+                {pickedLabel === l && <span className="badge">selected</span>}
+              </label>
+            ))}
+          </div>
+          {loadingLabel && <p className="help">loading metrics for <span className="mono">{pickedLabel}</span>…</p>}
+          {labelMetrics && !loadingLabel && (
+            <div style={{ marginTop: 8 }}>
+              <p className="help" style={{ margin: 0 }}>
+                metrics carrying <span className="mono">{pickedLabel}</span>:
+              </p>
+              <ResultList items={labelMetrics} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+        <div className="btnrow" style={{ alignItems: "center" }}>
+          <strong>{basket.size} metric{basket.size === 1 ? "" : "s"} selected</strong>
+          {basket.size > 0 && (
+            <button type="button" className="linklike" onClick={() => [...basket].forEach(onRemove)}>clear</button>
+          )}
+          <button type="button" className="primary" style={{ marginLeft: "auto" }}
+                  disabled={busy || basket.size === 0} onClick={onConfirm}>
+            Use these {basket.size || ""} metrics →
+          </button>
+        </div>
+        {basket.size > 0 && (
+          <div style={{ maxHeight: 120, overflowY: "auto", marginTop: 6 }}>
+            {[...basket].map((m) => (
+              <span key={m} className="chip mono" style={{ margin: "2px 4px 2px 0", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {m}
+                <button type="button" onClick={() => onRemove(m)}
+                        style={{ border: "none", background: "none", cursor: "pointer", padding: 0, color: "inherit", fontWeight: 700 }}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Prometheus queries rendered compactly: one line per query (a whole-family {__name__=~"fam_.*"}
+// query or a derived series), with a remove button — instead of a fat multi-input panel per row.
+// Full hand-editing stays available via the raw ListFieldEditor in the Advanced group below.
+function PromQueriesView({ rows, onChange }:
+  { rows: Array<Record<string, string>>; onChange: (r: Array<Record<string, string>>) => void }) {
+  const summarize = (q: Record<string, string>) => {
+    if (q.by_name) {
+      // inner of __name__=~"..." → either a single family (prefix_.*) or an (a|b|c) basket
+      const inner = (q.promql?.match(/=~"(.*)"/)?.[1] ?? "").replace(/^\(|\)$/g, "");
+      if (/^[A-Za-z0-9_]+_\.\*$/.test(inner)) {
+        return { icon: "▦", title: inner.replace(/_\.\*$/, "_*"),
+                 note: `whole family${q.exclude ? ` · excludes ${q.exclude}` : ""}` };
+      }
+      const names = inner.split("|").filter(Boolean);
+      return { icon: "▦", title: `${names.length} metric${names.length === 1 ? "" : "s"}`,
+               note: names.slice(0, 4).join(", ") + (names.length > 4 ? ", …" : "") };
+    }
+    return { icon: "ƒ", title: (q.text ?? "").replace(" {key}={val}", "") || q.event_type || "derived",
+             note: q.promql ?? "" };
+  };
+  return (
+    <div className="field">
+      <span className="lbl">metrics to ingest</span>
+      <span className="help" style={{ marginTop: 0, marginBottom: 6 }}>
+        the metrics this source will ingest. Remove anything you don't want, or “change metrics” above.
+      </span>
+      {rows.length === 0 && (
+        <div className="empty" style={{ padding: 10 }}>none yet — run Discover above and pick metrics</div>
+      )}
+      {rows.map((q, i) => {
+        const s = summarize(q);
+        return (
+          <div key={i} className="conn-summary" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span aria-hidden style={{ opacity: 0.6, flex: "none" }}>{s.icon}</span>
+            <span className="mono" style={{ flex: "none" }}>{s.title}</span>
+            <span className="help" style={{ margin: 0, flex: 1, minWidth: 0, overflow: "hidden",
+                                            textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.note}</span>
+            <button type="button" className="danger" style={{ marginLeft: "auto", flex: "none" }}
+                    onClick={() => onChange(rows.filter((_, j) => j !== i))}>remove</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Postgres column selection as a checklist (once discover knows the table's columns). Emits the
 // same comma-separated string the API uses: all columns checked -> "" (SELECT *); a subset ->
 // "a,b,c". The cursor/key/time columns are always pulled, so they're shown checked + locked.
@@ -926,71 +1260,99 @@ function ColumnsProposalView({ proposal, onApply }: { proposal: ColumnsProposal;
 
 function ProposalView({ proposal, onApply }: { proposal: DiscoverProposal; onApply: () => void }) {
   const k = proposal.suggested_key;
+  const families = proposal.families ?? [];
+  // group the sampled preview metrics under the family each belongs to, so the preview is one
+  // collapsible block per family rather than one flat dump across all of them
+  const famOf = (name: string) => families.find((f) => name.startsWith(f + "_")) ?? name.split("_")[0];
+  const byFamily = new Map<string, typeof proposal.metrics>();
+  for (const m of proposal.metrics) {
+    const f = famOf(m.name);
+    (byFamily.get(f) ?? byFamily.set(f, []).get(f)!).push(m);
+  }
   return (
     <div style={{ marginTop: 12 }}>
-      <p className="subtitle" style={{ marginTop: 0 }}>
-        found {proposal.summary.total_metrics} metrics · {proposal.summary.relevant} relevant ·{" "}
-        {proposal.summary.hidden} internals hidden
-      </p>
-
-      <div className="field" style={{ marginBottom: 10 }}>
-        <span className="lbl">suggested key</span>
+      <div className="field" style={{ marginBottom: 12 }}>
+        <span className="lbl">will ingest</span>
         <div>
-          <span className="chip mono">{k.name}</span>
+          {families.map((f) => <span className="chip mono" key={f}>{f}_*</span>)}
           <span className="help" style={{ marginLeft: 8 }}>
-            {k.cardinality} {k.cardinality === 1 ? "entity" : "entities"}
-            {k.values_preview.length ? ` — ${k.values_preview.join(", ")}` : ""}
-            {k.alternatives.length ? ` · alternatives: ${k.alternatives.join(", ")}` : ""}
+            {proposal.summary.total_metrics} metrics
+            {families.length > 1 ? ` · ${families.length} families` : ""}
+            {" "}— each family is one query (histogram buckets excluded)
           </span>
         </div>
       </div>
 
-      <div className="field" style={{ marginBottom: 10 }}>
-        <span className="lbl">will ingest ({proposal.metrics.filter((m) => m.ingest).length})</span>
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: 36, textAlign: "center" }} title="ingested">in</th>
-              <th>metric</th>
-              <th style={{ width: 84 }}>type</th>
-              <th>detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {proposal.metrics.map((m) => (
-              <tr key={m.name} style={{ opacity: m.ingest ? 1 : 0.5 }}>
-                <td style={{ textAlign: "center" }}>{m.ingest ? "✓" : "—"}</td>
-                <td className="mono">{m.name}</td>
-                <td><span className="chip">{m.type}</span></td>
-                <td className="help">{m.help || m.reason}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="field" style={{ marginBottom: 12 }}>
+        <span className="lbl">entity key</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div>
+            <span className="chip mono">{k.name}</span>
+            <span className="help" style={{ marginLeft: 8 }}>
+              {k.cardinality} distinct {k.cardinality === 1 ? "entity" : "entities"}
+            </span>
+          </div>
+          {k.values_preview.length > 0 && (
+            <span className="help" style={{ margin: 0 }}>
+              e.g. {k.values_preview.slice(0, 5).join(", ")}{k.cardinality > 5 ? ", …" : ""}
+            </span>
+          )}
+          {k.alternatives.length > 0 && (
+            <span className="help" style={{ margin: 0 }}>or key on: {k.alternatives.join(", ")}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="field" style={{ marginBottom: 12 }}>
+        <span className="lbl">preview</span>
+        <div>
+          {[...byFamily].map(([f, ms]) => (
+            <details key={f} style={{ marginBottom: 4 }}>
+              <summary className="help" style={{ cursor: "pointer", padding: "2px 0" }}>
+                <span className="mono">{f}_*</span> — {ms.length} sampled
+              </summary>
+              <div style={{ maxHeight: 220, overflowY: "auto", margin: "6px 0 6px 16px" }}>
+                <table>
+                  <thead><tr><th>metric</th><th style={{ width: 84 }}>type</th><th>detail</th></tr></thead>
+                  <tbody>
+                    {ms.map((m) => (
+                      <tr key={m.name}>
+                        <td className="mono">{m.name}</td>
+                        <td><span className="chip">{m.type}</span></td>
+                        <td className="help">{m.help || m.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          ))}
+        </div>
       </div>
 
       {proposal.derived_suggestions.length > 0 && (
-        <div className="field" style={{ marginBottom: 10 }}>
-          <span className="lbl">derived suggestions</span>
+        <div className="field" style={{ marginBottom: 12 }}>
+          <span className="lbl">derived series</span>
+          <span className="help" style={{ marginTop: 0, marginBottom: 6 }}>
+            extra computed series added alongside the raw metrics
+          </span>
           {proposal.derived_suggestions.map((d) => (
             <div key={d.id} style={{ marginBottom: 4 }}>
               <span className="chip">{d.label}</span>
-              <span className="help mono" style={{ marginLeft: 8 }}>{d.promql}</span>
+              <span className="help" style={{ marginLeft: 8 }}>{d.reason}</span>
             </div>
           ))}
         </div>
       )}
 
       {proposal.proposed_labels.length > 0 && (
-        <div className="field" style={{ marginBottom: 10 }}>
+        <div className="field" style={{ marginBottom: 12 }}>
           <span className="lbl">labels</span>
           <div>{proposal.proposed_labels.map((l) => <span className="chip mono" key={l}>{l}</span>)}</div>
         </div>
       )}
 
-      <button type="button" className="primary" onClick={onApply}>
-        Apply to form
-      </button>
+      <button type="button" className="primary" onClick={onApply}>Apply to form</button>
       <span className="help" style={{ marginLeft: 10 }}>
         fills the fields below — review, Test connection, then Create
       </span>
