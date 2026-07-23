@@ -1,90 +1,81 @@
 # NavFlow catalog for the demo stack (demo/docker-compose.yml).
-# Prometheus on :9090, logs via docker. All sources share key=api-server so logs, metrics,
-# and alerts correlate in one timeline.
+# Prometheus on :9090 (metrics + alerting rules), logs via docker. Everything is keyed `api-server`,
+# so logs, metrics, and the alerts Prometheus fires correlate in one timeline.
+#
+# The division of labour is the real one: Prometheus evaluates the alerting rules and fires; NavFlow
+# ingests those alerts, correlates them with the metrics and logs, and a trigger wakes a subscribed
+# agent with the whole timeline — NavFlow diagnoses, it doesn't re-implement alerting.
 #
 # Works from any directory (the logs source tails the container by its fixed name):
 #   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
 #   NAVFLOW_CATALOG=catalog.demo.yaml navflow up
 
 sources:
-  - name: metrics
+  # Prometheus metrics — context in the timeline (the signals behind the alert). Values ride on the
+  # `value` number label so they show in Fields (and could drive their own triggers if you wanted).
+  - name: demo_metrics
     connector: prometheus
     poll: 5s
     config:
       url: http://localhost:9090
-      default_key: api-server
-      labels:
-        - name: service
-          field: service        # tag each series with its Prometheus `service` label
       queries:
         - promql: 'sum(rate(http_requests_total{status=~"5.."}[1m])) by (service)'
           event_type: 5xx_rate
-          field: rate_5xx
           text: "5xx rate {service}={val}/s"
         - promql: 'histogram_quantile(0.99, sum(rate(http_request_duration_milliseconds_bucket[2m])) by (le, service))'
           event_type: p99
-          field: p99_ms
           text: "p99 {service}={val}ms"
-        - promql: 'db_pool_size'
-          event_type: db_pool
-          field: db_pool_size
-          text: "db_pool_size={val}"
         - promql: 'db_connections_active'
           event_type: db_active
-          field: db_connections_active
-          text: "db_connections_active={val}"
+          text: "db connections active={val}"
         - promql: 'dependency_up'
           event_type: dependency
-          field: dependency_up
           text: "dependency {dependency} up={val}"
+      labels:
+        - { name: service, const: api-server, primary: true }   # one service in the demo — key everything to it
+        - { name: value, field: value, type: number }           # the metric value, aggregatable
 
-  - name: logs
+  # Container logs — one line per request.
+  - name: demo_logs
     connector: docker_logs
     poll: 5s
     config:
-      container: navflow-demo-api-server  # fixed container_name in docker-compose.yml
-      key: api-server
+      container: navflow-demo-api-server   # fixed container_name in docker-compose.yml
+      labels:
+        - { name: service, const: api-server, primary: true }   # same key as metrics/alerts, and a real label
 
-  - name: alerts
-    connector: alerts
-    poll: 5s
+  # The alerts Prometheus's own rules have fired (polls /api/v1/alerts — no Alertmanager needed).
+  - name: demo_alerts
+    connector: prometheus_alerts
+    poll: 10s
     config:
       url: http://localhost:9090
-      key: api-server
-      threshold: 5
-      ratio_promql: '100*sum(rate(http_requests_total{status=~"5.."}[1m]))/sum(rate(http_requests_total[1m]))'
+      labels:
+        - { name: service, field: labels.service, primary: true }   # the rule sets service=api-server
+        - { name: alertname, field: labels.alertname }
+        - { name: severity, field: labels.severity }
+        - { name: state, field: state }
+        - { name: alert_active, const: 1, type: number }            # 1 per alert event — lets the trigger react to alerts
 
 views:
   - name: service_timeline
     key_field: service
-    sources: [logs, metrics, alerts]
+    sources: [demo_logs, demo_metrics, demo_alerts]
 
 triggers:
-  # 5xx storm — fires on an actual error spike.
-  - name: error_spike
+  # Wake the agent when Prometheus fires an alert — reacting to the alert, not re-thresholding the
+  # metric. `alert_active` is 1 on every alert event, so its sum over the window is the alert count;
+  # grouping by key_value keeps the dispatched payload the full correlated timeline for api-server.
+  - name: incident
     view: service_timeline
     condition:
-      aggregate: max
-      field: rate_5xx
-      predicate: "> 1.0"
+      aggregate: sum
+      field: alert_active
+      predicate: "> 0"
       window: 1m
       group_by: [key_value]
     emit:
-      kind: error_spike
-      attach_view: true
-    cooldown: 5m
-
-  # Latency regression — the right signal for the slow/timeout-shaped incident.
-  - name: slow_responses
-    view: service_timeline
-    condition:
-      aggregate: max
-      field: p99_ms
-      predicate: "> 1000"
-      window: 1m
-      group_by: [key_value]
-    emit:
-      kind: slow_responses
+      kind: incident
       attach_view: true
       context_window: 15m
-    cooldown: 30s
+    cooldown: 5m

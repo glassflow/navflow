@@ -31,6 +31,9 @@ services:
       - source: prometheus_config
         target: /etc/prometheus/prometheus.yml
         mode: 0444    # prometheus runs as nobody; the default config mode isn't world-readable
+      - source: prometheus_rules
+        target: /etc/prometheus/rules.yml
+        mode: 0444
     depends_on:
       - api-server
 
@@ -61,8 +64,36 @@ configs:
     content: |
       global:
         scrape_interval: 5s
+        evaluation_interval: 5s   # evaluate the alerting rules as fast as we scrape (snappy demo)
+
+      rule_files:
+        - /etc/prometheus/rules.yml
 
       scrape_configs:
         - job_name: api-server
           static_configs:
             - targets: ["api-server:8080"]
+
+  # Alerting rules — Prometheus evaluates these itself and exposes firing alerts on /api/v1/alerts,
+  # which NavFlow's `prometheus_alerts` source polls. No Alertmanager needed. Short `for:` so an
+  # injected fault fires within ~15s. Each maps 1:1 to a `./inject.sh` scenario.
+  prometheus_rules:
+    content: |
+      groups:
+        - name: api-server
+          rules:
+            - alert: HighErrorRate
+              expr: 100 * sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m])) > 5
+              for: 15s
+              labels: { severity: critical, service: api-server }
+              annotations: { summary: "5xx error rate high on api-server" }
+            - alert: HighLatency
+              expr: histogram_quantile(0.99, sum(rate(http_request_duration_milliseconds_bucket[2m])) by (le)) > 1000
+              for: 15s
+              labels: { severity: warning, service: api-server }
+              annotations: { summary: "p99 latency over 1s on api-server" }
+            - alert: DependencyDown
+              expr: dependency_up == 0
+              for: 15s
+              labels: { severity: critical, service: api-server }
+              annotations: { summary: "a dependency is down for api-server" }
