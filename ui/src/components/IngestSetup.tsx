@@ -12,6 +12,38 @@ export default function IngestSetup({ connector, url }: { connector: string; url
   const [revealed, setRevealed] = useState(false);
   useEffect(() => { api.security().then(setSec).catch(() => {}); }, []);
 
+  // Alertmanager: show a copy-paste webhook_configs block regardless of whether a token is required —
+  // the operator needs the receiver config either way; the auth is folded in only when required.
+  if (connector === "alertmanager") {
+    const authRequired = !!sec?.ingest_required && !!sec.ingest_token;
+    const token = sec?.ingest_token ?? "";
+    const auth = (t: string) => authRequired
+      ? `\n        http_config:\n          authorization:\n            credentials: ${t}`
+      : "";
+    const yaml = (t: string) =>
+      `# alertmanager.yml\nreceivers:\n  - name: navflow\n    webhook_configs:\n` +
+      `      - url: ${url}\n        send_resolved: true${auth(t)}\nroute:\n  receiver: navflow`;
+    return (
+      <div className="ingest-setup">
+        <p className="muted">
+          Add this receiver to your <span className="mono">alertmanager.yml</span> and reload
+          Alertmanager. Every alert it routes here becomes an event.
+        </p>
+        <div className="ingest-url">
+          <code className="mono" style={{ whiteSpace: "pre-wrap" }}>
+            {authRequired && !revealed ? yaml(mask(token)) : yaml(token)}
+          </code>
+          <CopyBtn text={yaml(token)} label="copy" />
+        </div>
+        {authRequired && (
+          <div className="ingest-url" style={{ marginTop: 8 }}>
+            <button onClick={() => setRevealed((r) => !r)}>{revealed ? "hide token" : "reveal token"}</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!sec?.ingest_required || !sec.ingest_token) return null;
   const token = sec.ingest_token;
   const shown = revealed ? token : mask(token);
