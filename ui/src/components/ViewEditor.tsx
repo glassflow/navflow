@@ -25,8 +25,18 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
     (initial?.filters ?? []).map((f) => ({ field: f.field, op: f.op as string, value: String(f.value) })));
   const [labelOpts, setLabelOpts] = useState<string[]>([]);
   const [fieldOpts, setFieldOpts] = useState<string[]>([]);
+  const [srcTypes, setSrcTypes] = useState<Record<string, string>>({});  // source name -> connector, for the picker tag
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+
+  // connector type per source, so the picker shows a type tag next to each name
+  useEffect(() => {
+    let live = true;
+    api.sources().then((all) => {
+      if (live) setSrcTypes(Object.fromEntries(all.map((s) => [s.name, s.connector])));
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
 
   // The key field must be a LABEL name (what extract_labels produces), never a raw payload
   // field — so suggest labels from the source definitions: config.labels plus any labels the
@@ -114,6 +124,7 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
         {remaining.length > 0 ? (
           <Combo style={{ maxWidth: 340 }} value={pick} options={remaining}
                  placeholder={sources.length ? "add another source…" : "add a source…"}
+                 hints={srcTypes} hintClass="chip"
                  onChange={(v) => (remaining.includes(v) ? addSource(v) : setPick(v))} />
         ) : sourceNames.length === 0 ? (
           <span className="help">no sources yet — add one under Sources first</span>

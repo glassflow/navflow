@@ -23,7 +23,7 @@ export interface Source {
 
 export interface ConnectorField {
   name: string;
-  type: "string" | "number" | "json" | "list";
+  type: "string" | "number" | "json" | "list" | "bool";
   required: boolean;
   help: string;
   secret?: boolean;          // render as a password input (tokens, DSNs)

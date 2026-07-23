@@ -9,7 +9,7 @@ from __future__ import annotations
 import re as _re
 
 from ..config import CatalogError
-from .alerts import AlertsConnector
+from .prometheus_alerts import PrometheusAlertsConnector
 from .base import UNIVERSAL_CONFIG
 from .claude_code import ClaudeCodeConnector
 from .docker_logs import DockerLogsConnector
@@ -18,15 +18,15 @@ from .memory import MemoryConnector
 from .otlp import OtlpConnector
 from .postgres import PostgresConnector
 from .prometheus import PrometheusConnector
-from .static import StaticConnector
+from .reference import ReferenceConnector
 from .vercel import VercelConnector
 from .webhook import WebhookConnector
 
 REGISTRY = {
     "prometheus": PrometheusConnector,
     "docker_logs": DockerLogsConnector,
-    "alerts": AlertsConnector,
-    "static": StaticConnector,
+    "prometheus_alerts": PrometheusAlertsConnector,
+    "reference": ReferenceConnector,
     "webhook": WebhookConnector,
     "memory": MemoryConnector,
     "otlp": OtlpConnector,
@@ -44,10 +44,15 @@ SPECS = {
     "docker_logs": {"label": "Docker logs", "mode": "poll", "discover": True,
                     "description": "Tails a running container's logs — all lines by default; "
                                    "optional match/drop regex filters."},
-    "alerts": {"label": "Synthesized alerts", "mode": "poll",
-               "description": "Evaluates a PromQL ratio each poll; emits an alert event past the threshold."},
-    "static": {"label": "Static records", "mode": "poll",
-               "description": "One-time import of inline records (file-shaped fixtures, demo data)."},
+    "prometheus_alerts": {"label": "Prometheus alerts", "mode": "poll", "discover": True, "poll": "30s",
+                          "description": "Polls Prometheus's own /api/v1/alerts — the alerts its rules "
+                                         "have fired — and emits one event per active alert (keyed by a "
+                                         "label), plus a resolved event when it clears. No Alertmanager, "
+                                         "no PromQL."},
+    "reference": {"label": "Reference documents", "mode": "reference",
+                  "description": "Documents (json/csv/md/txt) attached to an entity by its labels — "
+                                 "project notes, schemas, runbooks. Always surfaced when correlating "
+                                 "on that entity, regardless of time window. Edit to add or remove."},
     "webhook": {"label": "Inbound webhook", "mode": "push",
                 "description": "Push ingestion: producers POST JSON (or NDJSON) to this source's "
                                "ingest endpoint. Lossless; declare labels to map payload fields "
@@ -79,11 +84,12 @@ SPECS = {
 }
 
 
-# A source's signal type is a property of its connector, not something the user authors.
-# (Design doc's five source types; the MVP only distinguishes these three.)
+# A source's signal type is a property of its connector, not something the user authors. Mostly
+# descriptive — EXCEPT "reference", which the read path treats specially (always surfaced, never
+# time-windowed; see store.read_view_window).
 _SOURCE_TYPES = {"docker_logs": "application_log", "memory": "agent_memory",
                  "otlp": "application_log", "vercel": "application_log",
-                 "claude_code": "agent_session"}
+                 "claude_code": "agent_session", "reference": "reference"}
 
 
 def source_type_for(connector: str) -> str:
@@ -261,7 +267,7 @@ def _fields_from_schema(schema: dict) -> list:
     """SPECS form fields generated from a config schema (labels get the form's own editor).
     A `list` field carries its `item` sub-fields so the UI can render a row-by-row builder."""
     def scalar(name, spec):
-        ftype = "number" if spec["type"] == "number" else "string"
+        ftype = {"number": "number", "bool": "bool"}.get(spec["type"], "string")
         return {"name": name, "type": ftype, "required": spec.get("required", False),
                 "help": spec.get("help", ""), "secret": spec.get("secret", False),
                 "discover_input": spec.get("discover_input", False)}

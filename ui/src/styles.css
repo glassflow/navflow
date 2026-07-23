@@ -376,6 +376,18 @@ label.field .help { display: block; font-size: 12px; color: var(--ink-soft); mar
 .fam-bar > span { display: block; height: 100%; border-radius: 3px;
   background: color-mix(in srgb, var(--accent) 55%, var(--panel)); }
 .fam-count { font-variant-numeric: tabular-nums; text-align: right; color: var(--ink-soft); font-size: 13px; }
+
+/* Reference connector — one document per row: file on the left, labels inline, remove on the right */
+.ref-row { display: flex; gap: 16px; align-items: flex-start; padding: 12px 14px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.ref-file { flex: none; width: 200px; min-width: 0; }
+.ref-labels { flex: 1; display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.ref-pair { display: inline-flex; align-items: center; gap: 4px; }
+.ref-pair input { margin: 0; }
+.ref-x { border: none; background: none; cursor: pointer; color: var(--ink-soft); font-weight: 700;
+  padding: 0 2px; line-height: 1; }
+.ref-x:hover { color: var(--err); }
+.ref-remove { flex: none; color: var(--err); }
 .fld-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fld-meta .lbl { font-size: 13px; font-weight: 600; }
 .fld-meta .lbl .req { color: var(--accent); }

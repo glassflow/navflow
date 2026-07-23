@@ -46,10 +46,11 @@ export function usePolling<T>(fn: () => Promise<T>, intervalMs = 5000): {
 
 /** Input with styled suggestions — replaces native <datalist> (which can't be themed).
  *  Free text stays allowed; suggestions filter as you type. */
-export function Combo({ value, onChange, options, placeholder, style, className, hints }: {
+export function Combo({ value, onChange, options, placeholder, style, className, hints, hintClass }: {
   value: string; onChange: (v: string) => void; options: string[];
   placeholder?: string; style?: React.CSSProperties; className?: string;
-  hints?: Record<string, string>;   // per-option annotation, right-aligned dim (e.g. coverage)
+  hints?: Record<string, string>;   // per-option annotation, right-aligned (e.g. coverage, a type tag)
+  hintClass?: string;               // className for the annotation (default "dim"; "chip" for a tag)
 }) {
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -79,7 +80,7 @@ export function Combo({ value, onChange, options, placeholder, style, className,
                  onMouseDown={(e) => { e.preventDefault(); pick(o); }}
                  onMouseEnter={() => setHi(i)}>
               <span>{o}</span>
-              {hints?.[o] && <span className="dim">{hints[o]}</span>}
+              {hints?.[o] && <span className={hintClass ?? "dim"}>{hints[o]}</span>}
             </div>
           ))}
         </div>
