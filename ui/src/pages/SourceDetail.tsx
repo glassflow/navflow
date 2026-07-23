@@ -48,7 +48,7 @@ export default function SourceDetail() {
         <div>
           <h1><span className="mono">{source.name}</span></h1>
           <p className="subtitle">
-            {spec?.label ?? source.connector} · {source.type}
+            {spec?.label ?? source.connector}
           </p>
         </div>
         <div className="btnrow">

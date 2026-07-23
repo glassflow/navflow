@@ -85,10 +85,13 @@ class Runtime:
                                         affected_sources={rt.cfg.name},
                                         eval_state=self._trigger_eval_at)
             except Exception as e:  # never let one source kill the loop
-                h.last_error = str(e)
+                # some exceptions (timeouts, a few connection errors) have an empty str() — always
+                # surface the type (and repr as a fallback) so the error is never a blank line.
+                detail = str(e) or repr(e)
+                h.last_error = f"{type(e).__name__}: {detail}"
                 h.consecutive_errors += 1
                 h.status = "error"
-                print(f"[connector {rt.cfg.name}] error: {e}")
+                print(f"[connector {rt.cfg.name}] {h.last_error}")
             await asyncio.sleep(rt.cfg.poll_seconds)
 
     # ── catalog mutations (already persisted to the store by the caller) ─────

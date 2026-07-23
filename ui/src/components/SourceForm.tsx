@@ -24,6 +24,7 @@ const DISCOVER_HINT: Record<string, string> = {
   github: "enter the repo above, then Discover its default branch + author labels",
   postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
   prometheus: "enter the URL (+ any auth) above, then Discover — it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
+  prometheus_alerts: "enter the URL (+ any auth) above, then Discover — it lists the alerting rules Prometheus already has, and you ingest them as they fire (optionally filtered by severity).",
 };
 
 // Postgres form: plain-language field labels + grouping (main poll settings vs collapsed advanced),
@@ -124,6 +125,11 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [catalog, setCatalog] = useState<{ metrics: string[]; labels: string[] }>();  // prometheus: pickers
   const [basket, setBasket] = useState<Set<string>>(new Set());                       // prometheus: chosen metrics
   const [metricsConfirmed, setMetricsConfirmed] = useState(false);                    // prometheus: basket collapsed
+  // prometheus_alerts: the configured rules + severity filter, curation collapsed after confirm
+  const [alertDiscover, setAlertDiscover] = useState<{ rules: AlertRule[]; severities: string[];
+    proposed_config: Record<string, unknown>; summary: string }>();
+  const [alertSev, setAlertSev] = useState<Set<string>>(new Set());
+  const [alertsConfirmed, setAlertsConfirmed] = useState(false);
   const [containers, setContainers] = useState<EnvScan["containers"]>();
   const [discovering, setDiscovering] = useState(false);
   const [discoverErr, setDiscoverErr] = useState<string>();
@@ -224,6 +230,11 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       setCatalog(cat);
       setBasket(new Set());
       setMetricsConfirmed(false);
+    } else if (Array.isArray((p as { rules?: unknown[] }).rules)) {
+      // prometheus_alerts: the configured alerting rules — show them + a severity filter
+      setAlertDiscover(p as unknown as typeof alertDiscover);
+      setAlertSev(new Set());
+      setAlertsConfirmed(false);
     } else if (Array.isArray((p as { columns?: unknown[] }).columns)) {
       const cp = p as unknown as ColumnsProposal;
       setColProposal(cp);
@@ -267,6 +278,17 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     await doDiscover({ selected: [...basket] });   // finalize → else-branch applyConfig
     setMetricsConfirmed(true);
   });
+
+  // prometheus_alerts: toggle a severity in the filter, and confirm the curation
+  const toggleSev = (s: string) =>
+    setAlertSev((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+  const confirmAlerts = () => {
+    if (!alertDiscover) return;
+    if (!name.trim()) setName("prometheus-alerts");
+    setValues((v) => ({ ...v, severities: [...alertSev].join(",") }));
+    applyConfig(alertDiscover.proposed_config);   // key + labels
+    setAlertsConfirmed(true);
+  };
 
   const pickContainer = (c: { name: string; service: string; project: string }) => {
     setValues((v) => ({ ...v, container: c.name }));
@@ -333,6 +355,10 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </select>
       );
     }
+    if (f.type === "bool")
+      return <input type="checkbox" checked={values[f.name] === "true"}
+                    onChange={(e) => setValues({ ...values, [f.name]: e.target.checked ? "true" : "" })}
+                    style={{ width: "auto" }} />;
     if (f.type === "json")
       return <textarea className="code" value={values[f.name]}
                        onChange={(e) => setValues({ ...values, [f.name]: e.target.value })} />;
@@ -451,16 +477,32 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         <span className="help">logical source name; events carry it forever</span>
       </label>
 
-      {spec.mode === "poll" && (
-        <label className="field" style={{ maxWidth: 220 }}>
-          <span className="lbl">poll interval</span>
-          <input type="text" value={poll} onChange={(e) => setPoll(e.target.value)} />
-          <span className="help">e.g. 5s, 1m, 1h</span>
-        </label>
-      )}
+      {spec.mode === "poll" && (() => {
+        // split the stored "5m" string into a number + unit so the user can't type a malformed
+        // duration; recombine on change. Save-time validation (_check_duration) still applies.
+        const pm = /^\s*(\d+(?:\.\d+)?)\s*([smh])\s*$/.exec(poll);
+        const num = pm ? pm[1] : "5";
+        const unit = pm ? pm[2] : "s";
+        return (
+          <div className="field" style={{ maxWidth: 260 }}>
+            <span className="lbl">poll interval</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input type="number" min="1" step="1" value={num} style={{ flex: 1 }}
+                     onChange={(e) => setPoll(`${e.target.value}${unit}`)} />
+              <select value={unit} onChange={(e) => setPoll(`${num}${e.target.value}`)} style={{ width: 120 }}>
+                <option value="s">seconds</option>
+                <option value="m">minutes</option>
+                <option value="h">hours</option>
+              </select>
+            </div>
+            <span className="help">how often to poll the source</span>
+          </div>
+        );
+      })()}
 
       {spec.discover && !editConn
-        && ((connector === "postgres" && pgColumns?.length) || (connector === "prometheus" && catalog)) ? (
+        && ((connector === "postgres" && pgColumns?.length) || (connector === "prometheus" && catalog)
+            || (connector === "prometheus_alerts" && alertDiscover)) ? (
         <div className="conn-summary">
           <span className="tick">✓</span>
           <span>Connected{connector === "postgres" ? (() => {
@@ -478,9 +520,10 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       )}
 
       {spec.discover && !(connector === "postgres" && pgColumns?.length && !editConn)
-        && !(connector === "prometheus" && metricsConfirmed) && (
+        && !(connector === "prometheus" && metricsConfirmed)
+        && !(connector === "prometheus_alerts" && alertsConfirmed) && (
         <div className="panel" style={{ background: "var(--th-bg)", marginBottom: 14 }}>
-          {!(connector === "prometheus" && catalog) && (
+          {!(connector === "prometheus" && catalog) && !(connector === "prometheus_alerts" && alertDiscover) && (
             <div className="btnrow" style={{ alignItems: "center" }}>
               <button type="button" disabled={busy} onClick={() => discover()}>
                 {discovering ? "⏳ discovering…"
@@ -497,6 +540,13 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
           {connector === "prometheus" && catalog && !metricsConfirmed && (
             <MetricBasket catalog={catalog} basket={basket} onAdd={basketAdd} onRemove={basketRemove}
                           fetchLabelMetrics={fetchLabelMetrics} onConfirm={confirmMetrics} busy={busy} />
+          )}
+          {connector === "prometheus_alerts" && alertDiscover && !alertsConfirmed && (
+            <AlertRulesCuration rules={alertDiscover.rules} severities={alertDiscover.severities}
+              sev={alertSev} onSevToggle={toggleSev} summary={alertDiscover.summary} busy={busy}
+              includePending={values.include_pending === "true"}
+              onIncludePending={(v) => setValues({ ...values, include_pending: v ? "true" : "" })}
+              onConfirm={confirmAlerts} />
           )}
           {tables && (
             <table style={{ marginTop: 10 }}>
@@ -552,13 +602,26 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       )}
 
+      {connector === "prometheus_alerts" && alertsConfirmed && (
+        <div className="conn-summary" style={{ marginBottom: 12 }}>
+          <span className="tick">✓</span>
+          <span>ingesting {alertSev.size ? [...alertSev].join(", ") : "all"} alerts
+            {values.include_pending === "true" ? " (incl. pending)" : ""}</span>
+          <button type="button" className="linklike" style={{ marginLeft: "auto" }}
+                  onClick={() => setAlertsConfirmed(false)}>change filter</button>
+        </div>
+      )}
+
       {spec.discover && (connector === "postgres"
         ? renderPgFields(spec.fields.filter((f) => !f.discover_input))
         : connector === "prometheus"
         ? (metricsConfirmed ? renderPromFields(spec.fields.filter((f) => !f.discover_input)) : null)
+        : connector === "prometheus_alerts"
+        ? null   // include_pending + severities are set in the curation section
         : spec.fields.filter((f) => !f.discover_input).map(renderField))}
 
-      {!(connector === "prometheus" && !metricsConfirmed) && (
+      {!(connector === "prometheus" && !metricsConfirmed)
+        && !(connector === "prometheus_alerts" && !alertsConfirmed) && (
         <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
                       fields={labelFieldOpts} fieldHints={labelFieldHints} />
       )}
@@ -570,7 +633,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       )}
 
-      {!(connector === "prometheus" && !metricsConfirmed) && (
+      {!(connector === "prometheus" && !metricsConfirmed)
+        && !(connector === "prometheus_alerts" && !alertsConfirmed) && (
         <div className="btnrow">
           <button type="submit" className="primary" disabled={busy || Object.keys(jsonErrors).length > 0}>
             {submitLabel}
@@ -587,6 +651,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   );
 }
 
+type AlertRule = { name: string; severity: string; group: string; state: string };
 type MapRow = { from: string; to: string };
 type LabelRow = { name: string; kind: "const" | "field"; value: string; primary: boolean;
                   type: "string" | "number";
@@ -986,6 +1051,64 @@ function FamilyPicker({ groups, sel, q, setQ, onToggle, onSelect, onIntrospect, 
         <span className="help" style={{ margin: 0 }}>
           each becomes one compact query that ingests the whole family
         </span>
+      </div>
+    </div>
+  );
+}
+
+// Prometheus alerts curation: the configured alerting rules (transparency — read-only), an optional
+// severity filter (opt-out; blank = all), and the pending toggle. Unlike metrics you don't pick
+// individual rules — you ingest all fired alerts, narrowed by severity. The list previews exactly
+// what will be ingested as the severity filter changes.
+function AlertRulesCuration({ rules, severities, sev, onSevToggle, includePending, onIncludePending,
+                              onConfirm, busy, summary }: {
+  rules: AlertRule[]; severities: string[]; sev: Set<string>; onSevToggle: (s: string) => void;
+  includePending: boolean; onIncludePending: (v: boolean) => void;
+  onConfirm: () => void; busy: boolean; summary: string;
+}) {
+  const [q, setQ] = useState("");
+  const shown = rules.filter((r) =>
+    (!sev.size || sev.has(r.severity)) &&
+    (!q || `${r.name} ${r.group}`.toLowerCase().includes(q.toLowerCase())));
+  const stateBadge = (s: string) =>
+    s === "firing" ? <span className="badge" style={{ background: "var(--err-soft)", color: "var(--err)" }}>firing</span>
+    : s === "pending" ? <span className="badge" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}>pending</span>
+    : null;
+  return (
+    <div style={{ marginTop: 4 }}>
+      <p className="subtitle" style={{ marginTop: 0 }}>
+        {summary} — you'll ingest these as they fire. Optionally narrow by severity.
+      </p>
+      <div className="btnrow" style={{ marginBottom: 8, alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+        <span className="help" style={{ margin: 0 }}>severity:</span>
+        {severities.map((s) => (
+          <button type="button" key={s} className={sev.has(s) ? "primary" : ""} onClick={() => onSevToggle(s)}>{s}</button>
+        ))}
+      </div>
+      <label className="explore-item" style={{ cursor: "pointer", marginBottom: 8 }}>
+        <input type="checkbox" checked={includePending} style={{ marginRight: 8 }}
+               onChange={(e) => onIncludePending(e.target.checked)} />
+        also ingest <span className="mono" style={{ margin: "0 4px" }}>pending</span> alerts (still waiting out their
+        <span className="mono" style={{ marginLeft: 4 }}>for:</span> duration)
+      </label>
+      <input type="text" placeholder="filter rules…" value={q} onChange={(e) => setQ(e.target.value)}
+             style={{ marginBottom: 6 }} />
+      <div className="fam-list" style={{ maxHeight: 300 }}>
+        {shown.map((r, i) => (
+          <div key={`${r.group}/${r.name}/${r.severity}/${i}`} className="fam-row"
+               style={{ gridTemplateColumns: "minmax(0,1fr) auto auto", cursor: "default" }}>
+            <span className="mono fam-name">{r.name}</span>
+            {r.severity ? <span className="chip">{r.severity}</span> : <span />}
+            {stateBadge(r.state) ?? <span />}
+          </div>
+        ))}
+        {!shown.length && <div className="help" style={{ padding: 8 }}>no rules match</div>}
+      </div>
+      <div className="btnrow" style={{ marginTop: 10, alignItems: "center" }}>
+        <button type="button" className="primary" disabled={busy} onClick={onConfirm}>
+          Ingest {sev.size ? `${[...sev].join(", ")} ` : "all "}alerts →
+        </button>
+        <span className="help" style={{ margin: 0 }}>{shown.length} of {rules.length} rules shown</span>
       </div>
     </div>
   );

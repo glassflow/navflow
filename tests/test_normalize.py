@@ -38,10 +38,11 @@ async def main():
     print("== every connector is schema-backed (canonical-config migration complete) ==")
     unmigrated = [n for n in REGISTRY if full_schema(n) is None]
     check("all connectors declare a CONFIG_SCHEMA", not unmigrated, f"missing: {unmigrated}")
-    # a newly-migrated connector canonicalizes: terse defaults, advanced legacy key kept, unknowns rejected
-    a = normalize_config("alerts", {"url": "u", "ratio_promql": "r", "threshold": 5, "key": "leg"})
-    check("alerts: threshold==default dropped, legacy key kept",
-          a == {"url": "u", "ratio_promql": "r", "key": "leg"}, str(a))
+    # a connector canonicalizes: terse defaults dropped, bool coerced, unknowns rejected
+    a = normalize_config("prometheus_alerts",
+                         {"url": "u", "default_key": "unknown", "include_pending": "true"})
+    check("prometheus_alerts: default_key==default dropped, bool kept",
+          a == {"url": "u", "include_pending": True}, str(a))
     try:
         normalize_config("docker_logs", {"container": "c", "bogus": 1})
         check("docker_logs rejects unknown key", False)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re as _re
 
 from ..config import CatalogError
-from .alerts import AlertsConnector
+from .prometheus_alerts import PrometheusAlertsConnector
 from .base import UNIVERSAL_CONFIG
 from .claude_code import ClaudeCodeConnector
 from .docker_logs import DockerLogsConnector
@@ -25,7 +25,7 @@ from .webhook import WebhookConnector
 REGISTRY = {
     "prometheus": PrometheusConnector,
     "docker_logs": DockerLogsConnector,
-    "alerts": AlertsConnector,
+    "prometheus_alerts": PrometheusAlertsConnector,
     "static": StaticConnector,
     "webhook": WebhookConnector,
     "memory": MemoryConnector,
@@ -44,8 +44,11 @@ SPECS = {
     "docker_logs": {"label": "Docker logs", "mode": "poll", "discover": True,
                     "description": "Tails a running container's logs — all lines by default; "
                                    "optional match/drop regex filters."},
-    "alerts": {"label": "Synthesized alerts", "mode": "poll",
-               "description": "Evaluates a PromQL ratio each poll; emits an alert event past the threshold."},
+    "prometheus_alerts": {"label": "Prometheus alerts", "mode": "poll", "discover": True, "poll": "30s",
+                          "description": "Polls Prometheus's own /api/v1/alerts — the alerts its rules "
+                                         "have fired — and emits one event per active alert (keyed by a "
+                                         "label), plus a resolved event when it clears. No Alertmanager, "
+                                         "no PromQL."},
     "static": {"label": "Static records", "mode": "poll",
                "description": "One-time import of inline records (file-shaped fixtures, demo data)."},
     "webhook": {"label": "Inbound webhook", "mode": "push",
@@ -261,7 +264,7 @@ def _fields_from_schema(schema: dict) -> list:
     """SPECS form fields generated from a config schema (labels get the form's own editor).
     A `list` field carries its `item` sub-fields so the UI can render a row-by-row builder."""
     def scalar(name, spec):
-        ftype = "number" if spec["type"] == "number" else "string"
+        ftype = {"number": "number", "bool": "bool"}.get(spec["type"], "string")
         return {"name": name, "type": ftype, "required": spec.get("required", False),
                 "help": spec.get("help", ""), "secret": spec.get("secret", False),
                 "discover_input": spec.get("discover_input", False)}

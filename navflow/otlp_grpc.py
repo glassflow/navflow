@@ -8,6 +8,13 @@ starts this only if it imports.
 """
 from __future__ import annotations
 
+import os
+
+# Quiet grpc's C-core chatter (the "skipping fork() handlers" / "FD from fork parent" INFO lines it
+# prints around fork). Must be set before `import grpc` initializes the C-core. Respects an explicit
+# override if the operator set one.
+os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+
 import grpc
 from google.protobuf.json_format import MessageToDict
 from opentelemetry.proto.collector.logs.v1 import (
