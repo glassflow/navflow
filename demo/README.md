@@ -51,10 +51,15 @@ still empty; been running NavFlow already? Restart on a fresh `--data-dir`.)
 
 ## 3. Look around
 
-- **Explore** — pick the `api-server` entity and watch metrics, logs, and alerts merge into one
-  time-ordered timeline. Flip **Agent view** to see the exact read an agent gets over MCP.
-- **Views / Triggers** — `service_timeline` is the saved read; `error_spike` and `slow_responses`
-  are watching it.
+- **Explore** — pick the `api-server` entity and watch metrics, logs, and the alerts Prometheus
+  fires merge into one time-ordered timeline. Flip **Agent view** to see the exact read an agent
+  gets over MCP.
+- **Views / Triggers** — `service_timeline` is the saved read; the `incident` trigger watches it and
+  fires when Prometheus fires an alert, pushing the whole correlated timeline to a subscribed agent.
+
+Prometheus owns alerting here (the demo ships three rules — `HighErrorRate`, `HighLatency`,
+`DependencyDown`); NavFlow ingests the fired alerts (`prometheus_alerts`), correlates them, and wakes
+the agent to **diagnose** — it doesn't re-implement the thresholds.
 
 ## 4. Cause an incident
 
@@ -65,13 +70,16 @@ curl -s -XPOST localhost:8080/demo/inject -H 'content-type: application/json' \
   -d '{"scenario": "error_spike"}'
 ```
 
-- `error_spike` — 5xx storm → the `error_spike` trigger fires
-- `latency` — p99 > 1s → the `slow_responses` trigger fires
-- `dependency_outage` — DB down → 503s + a `dependency_up=0` metric
-- `clear` — roll back, faults cleared
+- `error_spike` — 5xx storm → Prometheus fires `HighErrorRate`
+- `latency` — p99 > 1s → Prometheus fires `HighLatency`
+- `dependency_outage` — a dependency goes down → Prometheus fires `DependencyDown`
+- `clear` — roll back; the alerts resolve (a `resolved` event lands in the timeline)
 
-Watch it land in **Explore** (the timeline turns red) and, once an agent is subscribed, in
-**Agents → Trigger dispatches**.
+Give it ~30s (the rules have a 15s `for:`, then NavFlow polls the alert). The alert lands in
+**Explore** (the timeline turns red) next to the metric that tripped it and the error logs, the
+`incident` trigger fires, and — once an agent is subscribed — it shows in
+**Agents → Trigger dispatches**. Ask the agent *"what's wrong with api-server?"* and it diagnoses
+from the one correlated read.
 
 ## 5. Stop
 

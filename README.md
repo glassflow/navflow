@@ -64,16 +64,18 @@ Then ask your agent:
 
 > Use navflow: what happened to api-server in the last 15 minutes?
 
-The agent calls `read` and gets the incident correlated: the 5xx request logs, the error-rate
-spike, and the alert in one time-ordered response — nothing to stitch together across systems.
-(The `error_spike` trigger fires too — **Agents → Trigger dispatches**; `./demo/inject.sh clear`
-rolls the fault back.) Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://www.navflow.ai/docs/agents).
+The agent calls `read` and gets the incident correlated: the `HighErrorRate` alert Prometheus fired,
+the 5xx request logs, and the error-rate spike in one time-ordered response — nothing to stitch
+together across systems. (The `incident` trigger fires too — **Agents → Trigger dispatches**;
+`./demo/inject.sh clear` rolls the fault back.) Other clients, stdio transport, and auth are covered
+in [connecting AI agents over MCP](https://www.navflow.ai/docs/agents).
 
 ## What you get: connectors, reads, triggers, MCP tools
 
-- **Connectors** — Prometheus, Docker logs, GitHub, Postgres, Vercel, OpenTelemetry (OTLP), a generic
-  webhook, agent memory, and Claude Code sessions. Add and configure sources at runtime; a **Discover**
-  step proposes config for connectors that can introspect. → [Connector setup docs](https://www.navflow.ai/docs/connectors)
+- **Connectors** — Prometheus (metrics and alerts), Alertmanager, Docker logs, GitHub, Postgres,
+  Vercel, OpenTelemetry (OTLP), a generic webhook, reference documents, agent memory, and Claude Code
+  sessions. Add and configure sources at runtime; a **Discover** step proposes config for connectors
+  that can introspect. → [Connector setup docs](https://www.navflow.ai/docs/connectors)
 - **Reads** — `read(selector, window)` returns any entity's correlated timeline across *all* sources
   with no view required; `query(view, …)` reads through a saved, narrowed view; agents `subscribe` to
   be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://www.navflow.ai/docs/concepts)
