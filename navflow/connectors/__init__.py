@@ -10,6 +10,7 @@ import re as _re
 
 from ..config import CatalogError
 from .prometheus_alerts import PrometheusAlertsConnector
+from .alertmanager import AlertmanagerConnector
 from .base import UNIVERSAL_CONFIG
 from .claude_code import ClaudeCodeConnector
 from .docker_logs import DockerLogsConnector
@@ -26,6 +27,7 @@ REGISTRY = {
     "prometheus": PrometheusConnector,
     "docker_logs": DockerLogsConnector,
     "prometheus_alerts": PrometheusAlertsConnector,
+    "alertmanager": AlertmanagerConnector,
     "reference": ReferenceConnector,
     "webhook": WebhookConnector,
     "memory": MemoryConnector,
@@ -49,6 +51,11 @@ SPECS = {
                                          "have fired — and emits one event per active alert (keyed by a "
                                          "label), plus a resolved event when it clears. No Alertmanager, "
                                          "no PromQL."},
+    "alertmanager": {"label": "Alertmanager alerts", "mode": "push",
+                     "description": "Push receiver for Alertmanager — point a webhook_configs.url at this "
+                                    "source's ingest endpoint. Each alert Alertmanager routes (with its "
+                                    "grouping, silencing and firing/resolved status) becomes one event, "
+                                    "keyed by a label. No PromQL."},
     "reference": {"label": "Reference documents", "mode": "reference",
                   "description": "Documents (json/csv/md/txt) attached to an entity by its labels — "
                                  "project notes, schemas, runbooks. Always surfaced when correlating "
