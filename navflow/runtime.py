@@ -55,13 +55,32 @@ class Runtime:
 
     def _start(self, cfg: SourceCfg) -> None:
         rt = SourceRuntime(cfg=cfg)
+        mode = SPECS.get(cfg.connector, {}).get("mode")
         if cfg.paused:
             rt.health.status = "paused"
-        elif SPECS.get(cfg.connector, {}).get("mode") == "push":
-            rt.health.status = "push"   # no poll loop; envelopes arrive via /ingest
+        elif mode == "reference":
+            self._materialize(rt)      # declarative: rows mirror the config, no poll loop
+        elif mode == "push":
+            rt.health.status = "push"  # no poll loop; envelopes arrive via /ingest
         else:
             rt.task = asyncio.create_task(self._loop(rt))
         self.sources[cfg.name] = rt
+
+    def _materialize(self, rt: SourceRuntime) -> None:
+        """(Re)build a declarative source's rows from its config, replacing whatever was there."""
+        rt.health.polls += 1
+        rt.health.last_poll_at = now_utc()
+        try:
+            envelopes = build_connector(rt.cfg, self.store).materialize()
+            self.store.replace_source_events(rt.cfg.name, envelopes)
+            rt.health.events_since_start = len(envelopes)
+            rt.health.last_ok_at = now_utc()
+            rt.health.last_error, rt.health.consecutive_errors, rt.health.status = None, 0, "ok"
+        except Exception as e:
+            rt.health.last_error = f"{type(e).__name__}: {str(e) or repr(e)}"
+            rt.health.consecutive_errors += 1
+            rt.health.status = "error"
+            print(f"[connector {rt.cfg.name}] {rt.health.last_error}")
 
     def _stop(self, name: str) -> None:
         rt = self.sources.pop(name, None)

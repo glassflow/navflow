@@ -18,7 +18,7 @@ from .memory import MemoryConnector
 from .otlp import OtlpConnector
 from .postgres import PostgresConnector
 from .prometheus import PrometheusConnector
-from .static import StaticConnector
+from .reference import ReferenceConnector
 from .vercel import VercelConnector
 from .webhook import WebhookConnector
 
@@ -26,7 +26,7 @@ REGISTRY = {
     "prometheus": PrometheusConnector,
     "docker_logs": DockerLogsConnector,
     "prometheus_alerts": PrometheusAlertsConnector,
-    "static": StaticConnector,
+    "reference": ReferenceConnector,
     "webhook": WebhookConnector,
     "memory": MemoryConnector,
     "otlp": OtlpConnector,
@@ -49,8 +49,10 @@ SPECS = {
                                          "have fired — and emits one event per active alert (keyed by a "
                                          "label), plus a resolved event when it clears. No Alertmanager, "
                                          "no PromQL."},
-    "static": {"label": "Static records", "mode": "poll",
-               "description": "One-time import of inline records (file-shaped fixtures, demo data)."},
+    "reference": {"label": "Reference documents", "mode": "reference",
+                  "description": "Documents (json/csv/md/txt) attached to an entity by its labels — "
+                                 "project notes, schemas, runbooks. Always surfaced when correlating "
+                                 "on that entity, regardless of time window. Edit to add or remove."},
     "webhook": {"label": "Inbound webhook", "mode": "push",
                 "description": "Push ingestion: producers POST JSON (or NDJSON) to this source's "
                                "ingest endpoint. Lossless; declare labels to map payload fields "
@@ -82,11 +84,12 @@ SPECS = {
 }
 
 
-# A source's signal type is a property of its connector, not something the user authors.
-# (Design doc's five source types; the MVP only distinguishes these three.)
+# A source's signal type is a property of its connector, not something the user authors. Mostly
+# descriptive — EXCEPT "reference", which the read path treats specially (always surfaced, never
+# time-windowed; see store.read_view_window).
 _SOURCE_TYPES = {"docker_logs": "application_log", "memory": "agent_memory",
                  "otlp": "application_log", "vercel": "application_log",
-                 "claude_code": "agent_session"}
+                 "claude_code": "agent_session", "reference": "reference"}
 
 
 def source_type_for(connector: str) -> str:

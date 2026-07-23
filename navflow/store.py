@@ -337,6 +337,45 @@ class Store:
         self.con.execute(
             "DELETE FROM entity_counts WHERE source = ? AND label = ?", [source, label])
 
+    def replace_source_events(self, source: str, envelopes: list[Envelope]) -> None:
+        """A declarative source (reference) mirrors its config exactly: replace ALL of its rows in
+        one transaction, keeping source_stats + entity_counts consistent. Cheap and idempotent — a
+        reference source holds a handful of documents, and re-materializing on every edit is fine."""
+        rows = [
+            (e.source, e.source_type, e.key_value, e.event_type, e.text,
+             json.dumps(e.payload), json.dumps(e.labels), e.event_time, e.ingest_time)
+            for e in envelopes
+        ]
+        ent: dict[tuple, list] = {}
+        last = None
+        for e in envelopes:
+            _accum_entity(ent, e.source, "key_value", e.key_value, e.ingest_time)
+            for lname, lval in (e.labels or {}).items():
+                _accum_entity(ent, e.source, lname, lval, e.ingest_time)
+            if last is None or e.ingest_time > last:
+                last = e.ingest_time
+        with self._lock:
+            self.con.execute("BEGIN TRANSACTION")
+            try:
+                for tbl in ("events", "source_stats", "entity_counts", "entity_label_state"):
+                    self.con.execute(f"DELETE FROM {tbl} WHERE source = ?", [source])
+                if rows:
+                    self.con.executemany(
+                        "INSERT INTO events (source, source_type, key_value, event_type, text, "
+                        "payload, labels, event_time, ingest_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        rows)
+                    self.con.execute(
+                        "INSERT INTO source_stats (source, events, last_ingest) VALUES (?, ?, ?)",
+                        [source, len(rows), last])
+                    for (src, label, val), (n, ing) in ent.items():
+                        self.con.execute(
+                            "INSERT INTO entity_counts (source, label, value, events, last_ingest) "
+                            "VALUES (?, ?, ?, ?, ?)", [src, label, val, n, ing])
+                self.con.execute("COMMIT")
+            except Exception:
+                self.con.execute("ROLLBACK")
+                raise
+
     # ── ingest ──────────────────────────────────────────────────────────────
     def append(self, envelopes: list[Envelope]) -> None:
         if not envelopes:
@@ -441,7 +480,10 @@ class Store:
                 f"SELECT {cols} FROM ("
                 f"  SELECT {cols}, "
                 f"  ROW_NUMBER() OVER (PARTITION BY source ORDER BY event_time DESC) AS rn "
-                f"  FROM events WHERE source IN ({ph}) AND event_time >= ?{ksql}{fsql}{wsql}"
+                # reference sources are declarative context — always surfaced for the matched
+                # entity, regardless of the read window (a project note doesn't 'age out').
+                f"  FROM events WHERE source IN ({ph}) "
+                f"    AND (source_type = 'reference' OR event_time >= ?){ksql}{fsql}{wsql}"
                 f") WHERE rn <= {int(cap)} ORDER BY event_time",
                 [*sources, since, *kparams, *fparams, *wparams],
             ).fetchall()

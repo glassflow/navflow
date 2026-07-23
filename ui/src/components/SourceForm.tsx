@@ -59,6 +59,12 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [name, setName] = useState(initial?.name ?? "");
   const type = initial?.type ?? "event_stream";  // ignored by the daemon; derived from connector
   const [poll, setPoll] = useState(initial?.poll ?? spec.poll ?? "5s");
+  // reference connector: per-attachment documents (each with its own labels; correlation is label-native)
+  const [refAttachments, setRefAttachments] = useState<Attachment[]>(
+    ((initial?.config?.attachments as Array<{ name?: string; format?: string; content?: string;
+      labels?: Record<string, string> }>) ?? []).map((a) => ({
+      name: a.name ?? "", format: a.format ?? "txt", content: a.content ?? "",
+      labels: Object.entries(a.labels ?? {}) })));
   // A secret that's already stored comes back from the API as a redaction placeholder, never its
   // real value. Show which secrets are set, but never prefill one — blank means "keep it" (below).
   const secretSet = (f: ConnectorField) => !!f.secret && !!initial?.config?.[f.name];
@@ -145,6 +151,23 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   }, [spec.fields, values]);
 
   const build = () => {
+    if (connector === "reference") {
+      const attachments = refAttachments
+        .filter((a) => a.name.trim() && a.content.trim())
+        .map((a) => ({
+          name: a.name.trim(), format: a.format || "txt", content: a.content,
+          labels: Object.fromEntries(a.labels.filter(([k, v]) => k.trim() && v.trim())),
+        }));
+      if (!attachments.length) throw new Error("add at least one document");
+      if (!name.trim()) throw new Error("name is required");
+      // declare the union of label names as real NavFlow labels, so the source's Labels panel shows
+      // them and views can correlate on them (field maps to the payload label surfaced by label_context)
+      const labelNames = [...new Set(refAttachments.flatMap(
+        (a) => a.labels.map(([k]) => k.trim()).filter(Boolean)))];
+      const cfg: Record<string, unknown> = { attachments };
+      if (labelNames.length) cfg.labels = labelNames.map((n) => ({ name: n, field: n }));
+      return { name: name.trim(), type, connector, poll: poll || spec.poll || "5s", config: cfg };
+    }
     const config: Record<string, unknown> = {};
     for (const f of spec.fields) {
       if (f.type === "list") {
@@ -515,6 +538,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
           <button type="button" className="linklike" style={{ marginLeft: "auto" }}
                   onClick={() => setEditConn(true)}>edit connection</button>
         </div>
+      ) : connector === "reference" ? (
+        <ReferenceForm attachments={refAttachments} setAttachments={setRefAttachments} />
       ) : (
         (spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)
       )}
@@ -620,7 +645,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         ? null   // include_pending + severities are set in the curation section
         : spec.fields.filter((f) => !f.discover_input).map(renderField))}
 
-      {!(connector === "prometheus" && !metricsConfirmed)
+      {connector !== "reference"
+        && !(connector === "prometheus" && !metricsConfirmed)
         && !(connector === "prometheus_alerts" && !alertsConfirmed) && (
         <LabelsEditor rows={labelRows} onChange={setLabelRows} sourceName={initial?.name}
                       fields={labelFieldOpts} fieldHints={labelFieldHints} />
@@ -652,6 +678,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
 }
 
 type AlertRule = { name: string; severity: string; group: string; state: string };
+// labels as an ordered [key, value] list (not a Record) so editing a key doesn't change a React
+// key and remount the input — that was eating focus after one character.
+type Attachment = { name: string; format: string; content: string; labels: [string, string][] };
 type MapRow = { from: string; to: string };
 type LabelRow = { name: string; kind: "const" | "field"; value: string; primary: boolean;
                   type: "string" | "number";
@@ -1052,6 +1081,110 @@ function FamilyPicker({ groups, sel, q, setQ, onToggle, onSelect, onIntrospect, 
           each becomes one compact query that ingests the whole family
         </span>
       </div>
+    </div>
+  );
+}
+
+// Reference connector form: upload documents (json/csv/md/txt), attach per-file labels, and pick
+// which label is the entity key. No manual data entry — files are read client-side into text. The
+// stored source mirrors this list (declarative), so re-opening + adding a file extends it.
+// Module-level (NOT defined inside ReferenceForm): a component defined inside another re-mounts on
+// every parent render, which detaches the <input> mid-dialog and drops the file selection.
+function RefUpload({ onFiles, label }: { onFiles: (f: FileList | null) => void; label: string }) {
+  return (
+    <label style={{ display: "inline-flex", cursor: "pointer" }}>
+      <span className="chip" style={{ padding: "8px 14px" }}>{label}</span>
+      <input type="file" accept=".json,.csv,.md,.txt,.markdown,.text" multiple style={{ display: "none" }}
+             onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
+    </label>
+  );
+}
+
+function ReferenceForm({ attachments, setAttachments }: {
+  attachments: Attachment[]; setAttachments: (fn: (prev: Attachment[]) => Attachment[]) => void;
+}) {
+  // which (attachment, label) pairs are open for editing; a filled label shows read-only + pencil
+  const [editing, setEditing] = useState<Set<string>>(new Set());
+  const openEdit = (id: string, on: boolean) =>
+    setEditing((prev) => { const n = new Set(prev); on ? n.add(id) : n.delete(id); return n; });
+
+  const onFiles = (files: FileList | null) => {
+    Array.from(files ?? []).forEach((f) => {
+      const r = new FileReader();
+      r.onload = () => {
+        const ext = (f.name.split(".").pop() ?? "txt").toLowerCase();
+        const format = ["json", "csv", "md", "txt"].includes(ext) ? ext : (ext === "markdown" ? "md" : "txt");
+        setAttachments((prev) => [...prev,
+          { name: f.name, format, content: String(r.result ?? ""), labels: [] }]);
+      };
+      r.readAsText(f);
+    });
+  };
+  const patch = (i: number, labels: [string, string][]) =>
+    setAttachments((prev) => prev.map((a, j) => (j === i ? { ...a, labels } : a)));
+  const remove = (i: number) => setAttachments((prev) => prev.filter((_, j) => j !== i));
+  const setPair = (i: number, li: number, next: [string, string]) =>
+    patch(i, attachments[i].labels.map((p, j) => (j === li ? next : p)));
+  const addPair = (i: number) => {
+    patch(i, [...attachments[i].labels, ["", ""]]);
+    openEdit(`${i}:${attachments[i].labels.length}`, true);
+  };
+  const delPair = (i: number, li: number) => patch(i, attachments[i].labels.filter((_, j) => j !== li));
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <span className="lbl" style={{ display: "block" }}>documents</span>
+      <p className="help" style={{ marginTop: 2, marginBottom: 10 }}>
+        Upload json / csv / md / txt files and tag each with the entity's labels (e.g.{" "}
+        <span className="mono">service=navflow</span>). Those labels become real NavFlow labels you
+        can correlate on — and the doc is always attached to that entity, no time window.
+      </p>
+
+      {attachments.length === 0 ? (
+        <div style={{ border: "1px dashed var(--line)", borderRadius: 10, padding: 28,
+                      textAlign: "center", marginBottom: 16 }}>
+          <RefUpload onFiles={onFiles} label="Upload documents" />
+          <div className="help" style={{ marginTop: 10 }}>json · csv · md · txt</div>
+        </div>
+      ) : (
+        <>
+          {attachments.map((a, i) => (
+            <div key={i} className="ref-row">
+              <div className="ref-file">
+                <div className="mono" style={{ fontWeight: 600, wordBreak: "break-all" }}>{a.name}</div>
+                <div className="help" style={{ margin: 0 }}>{a.format} · {a.content.length.toLocaleString()} chars</div>
+              </div>
+              <div className="ref-labels">
+                {a.labels.map(([k, v], li) => {
+                  const id = `${i}:${li}`;
+                  const isEditing = editing.has(id) || !k.trim();
+                  return isEditing ? (
+                    <span key={li} className="ref-pair">
+                      <input type="text" placeholder="label" value={k} style={{ width: 120 }} autoFocus
+                             onChange={(e) => setPair(i, li, [e.target.value, v])} />
+                      <span style={{ opacity: 0.5 }}>=</span>
+                      <input type="text" placeholder="value" value={v} style={{ width: 150 }}
+                             onChange={(e) => setPair(i, li, [k, e.target.value])} />
+                      <button type="button" className="ref-x" title="done" style={{ color: "var(--ok)" }}
+                              onClick={() => openEdit(id, false)}>✓</button>
+                      <button type="button" className="ref-x" title="remove label"
+                              onClick={() => delPair(i, li)}>×</button>
+                    </span>
+                  ) : (
+                    <span key={li} className="chip mono" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      {k}={v || <span className="help" style={{ margin: 0 }}>—</span>}
+                      <button type="button" className="ref-x" title="edit" onClick={() => openEdit(id, true)}>✎</button>
+                    </span>
+                  );
+                })}
+                <button type="button" onClick={() => addPair(i)}>+ label</button>
+              </div>
+              <button type="button" className="linklike ref-remove" onClick={() => remove(i)}>remove</button>
+            </div>
+          ))}
+          <div style={{ marginTop: 4, marginBottom: 4 }}><RefUpload onFiles={onFiles} label="+ Upload more" /></div>
+        </>
+      )}
     </div>
   );
 }
