@@ -8,7 +8,7 @@ One install wires Claude Code to NavFlow in **both directions**:
   progresses — via a small hook (`scripts/ship.py`) that POSTs new transcript lines to
   `{navflow_url}/ingest/claude_code`.
 
-Both wires are configured once on install (`navflow_url`, optional auth `ingest_token`, and a
+Both wires are configured once on install (`navflow_url`, optional auth `access_token`, and a
 `stream_sessions` toggle).
 
 ## Prerequisites
@@ -57,4 +57,4 @@ advances the offset on success (so failures retry). It runs on `UserPromptSubmit
   and remote alike. Capture is forward-only (sessions from install onward; no backfill of old files).
 - Secrets are redacted **server-side** by the `claude_code` connector before storage (the PII guard).
 - `sensitive` config (the token) is passed to hook/MCP processes only as
-  `CLAUDE_PLUGIN_OPTION_ingest_token`; the URL is also available as `${user_config.navflow_url}`.
+  `CLAUDE_PLUGIN_OPTION_access_token`; the URL is also available as `${user_config.navflow_url}`.

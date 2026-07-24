@@ -27,16 +27,13 @@ const INSTALL = "/plugin marketplace add glassflow/navflow\n/plugin install navf
 export default function SourceClaudeCode() {
   const origin = window.location.origin;
   const { data: sources } = usePolling(() => api.sources(), 10000);
-  const [sec, setSec] = useState<{ ingest_token: string | null; ingest_required: boolean;
-                                   auth_required?: boolean }>();
+  const [enforced, setEnforced] = useState<boolean>();
 
   useEffect(() => {
-    api.security().then(setSec).catch(() => setSec(undefined));
+    api.health().then((h) => setEnforced(h.auth_required)).catch(() => setEnforced(undefined));
   }, []);
 
   const connected = sources?.some((s) => s.connector === "claude_code") ?? false;
-  const token = sec?.ingest_token ?? "";
-  const enforced = !!(sec?.auth_required || sec?.ingest_required);
 
   return (
     <>
@@ -86,7 +83,7 @@ export default function SourceClaudeCode() {
 
         <label className="field" style={{ marginTop: 12 }}>
           <span className="lbl">
-            Auth token{sec && !enforced && <span className="dim"> (not required)</span>}
+            Auth token{enforced === false && <span className="dim"> (not required)</span>}
           </span>
           {enforced ? (
             <span className="help">
@@ -94,14 +91,10 @@ export default function SourceClaudeCode() {
               <span className="mono">ingest</span> scopes on the{" "}
               <Link to="/security">Security page</Link> and paste it here — it lets the plugin
               stream sessions <em>and</em> query NavFlow over MCP, without full admin rights.
-              {token && (
-                <> (Capture-only alternative: the shared ingest token — sessions stream in, but
-                MCP read-back won&rsquo;t work.)</>
-              )}
             </span>
           ) : (
             <span className="help">
-              This instance is open (no tokens configured) — leave it blank.
+              This instance is open (no auth configured) — leave it blank.
             </span>
           )}
         </label>

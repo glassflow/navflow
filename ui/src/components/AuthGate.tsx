@@ -10,6 +10,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let alive = true;
+    // `navflow up --auth` prints a login URL (…/?token=<root>). Capture the token into storage and
+    // strip it from the address bar so it doesn't linger in history/bookmarks. A bad token here
+    // just 401s on the first protected call and bounces to the login screen.
+    const url = new URL(window.location.href);
+    const t = url.searchParams.get("token");
+    if (t) {
+      auth.set(t.trim());
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    }
     api.health()
       .then((h) => { if (alive) setState(h.auth_required && !auth.get() ? "login" : "ok"); })
       .catch(() => { if (alive) setState("ok"); });

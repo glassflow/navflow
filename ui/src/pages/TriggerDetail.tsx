@@ -81,19 +81,31 @@ export default function TriggerDetail() {
         </div>
       )}
 
-      <h2>Agents woken by this trigger</h2>
+      <div className="pagehead" style={{ marginTop: 20 }}>
+        <h2 style={{ margin: 0 }}>Agents woken by this trigger</h2>
+        <Link className="btn primary" to={`/agents/new?trigger=${encodeURIComponent(name)}`}>
+          Add a NavFlow agent
+        </Link>
+      </div>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
-          <thead><tr><th>agent</th><th>endpoint</th><th className="num">delivered</th><th className="num">failed</th><th>status</th></tr></thead>
+          <thead><tr><th>agent</th><th>kind</th><th>endpoint</th><th className="num">delivered</th><th className="num">failed</th><th>status</th></tr></thead>
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
-                <td><Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link></td>
+                <td>{a.kind === "navflow"
+                  ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
+                  : <Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
+                <td>{a.kind === "navflow"
+                  ? <span className="badge">NavFlow</span>
+                  : <span className="badge push">connected</span>}</td>
                 <td className="mono">{a.endpoint}</td>
                 <td className="num">{a.delivered_ok}</td>
                 <td className="num" style={a.delivered_fail ? { color: "var(--err)" } : undefined}>{a.delivered_fail}</td>
                 <td>
-                  {a.unhealthy
+                  {a.pending
+                    ? <span className="badge starting">running</span>
+                    : a.unhealthy
                     ? <span className="badge error" title={a.last_error ?? "last delivery failed"}>failing{a.last_error ? `: ${a.last_error}` : ""}</span>
                     : a.delivered_ok > 0 ? <span className="badge ok">ok</span> : <span className="dim">—</span>}
                 </td>
@@ -103,11 +115,11 @@ export default function TriggerDetail() {
         </table>
       ) : (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          none yet — every firing is still logged below
+          none yet — add a NavFlow agent above, or connect an external agent's webhook below
         </p>
       )}
       <p className="help" style={{ margin: "4px 0" }}>
-        add an agent — its endpoint gets POSTed the timeline on every firing:
+        or connect an external agent — its webhook gets POSTed the timeline on every firing:
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
         <input type="text" className="mono" style={{ flex: 1 }}

@@ -29,7 +29,7 @@ async def main():
         if os.path.exists(p):
             os.remove(p)
     env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": "/tmp/none_ik.yaml",
-           "NAVFLOW_PORT": PORT, "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_VERCEL_VERIFY": "vrf-123"}
+           "NAVFLOW_PORT": PORT, "NAVFLOW_OTLP_GRPC_PORT": "off"}
     proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     B = f"http://127.0.0.1:{PORT}"
@@ -57,13 +57,14 @@ async def main():
             await cx.put(f"{B}/api/sources/evt", json={"name": "evt", "connector": "webhook", "config": {"event_type": "log"}})
             ck("ingest_key stable across update", (await cx.get(f"{B}/api/sources")).json()[0]["ingest_key"] == key)
 
-            # vercel verify
+            # vercel verify — the endpoint echoes the x-vercel-verify value Vercel sends on its probe
+            # (how the drain flow verifies). No configured/env fallback: absent header → no echo.
             g = await cx.get(f"{B}/ingest/{key}")
-            ck("GET probe echoes configured x-vercel-verify", g.headers.get("x-vercel-verify") == "vrf-123", str(g.headers.get("x-vercel-verify")))
+            ck("GET probe with no verify header → none echoed", g.headers.get("x-vercel-verify") is None)
             g2 = await cx.get(f"{B}/ingest/{key}", headers={"x-vercel-verify": "echo-me"})
             ck("GET probe echoes the request's x-vercel-verify", g2.headers.get("x-vercel-verify") == "echo-me")
-            p = await cx.post(f"{B}/ingest/{key}", json={"a": 9})
-            ck("POST response carries x-vercel-verify", p.headers.get("x-vercel-verify") == "vrf-123")
+            p = await cx.post(f"{B}/ingest/{key}", json={"a": 9}, headers={"x-vercel-verify": "echo-me"})
+            ck("POST response echoes the request's x-vercel-verify", p.headers.get("x-vercel-verify") == "echo-me")
     finally:
         proc.send_signal(signal.SIGTERM)
         try: proc.wait(timeout=5)

@@ -27,7 +27,7 @@ triggers:
     condition: {aggregate: max, field: value, predicate: "> 1.0", window: 1m}
 """)
 DB, PORT = "/tmp/keys.duckdb", "8806"
-AUTH, INGEST = "root-token", "ingest-token"
+AUTH = "root-token"
 
 
 async def _wait(url):
@@ -51,8 +51,7 @@ async def main():
         if os.path.exists(p):
             os.remove(p)
     env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-           "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_AUTH_TOKEN": AUTH,
-           "NAVFLOW_INGEST_TOKEN": INGEST}
+           "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_AUTH_TOKEN": AUTH}
     proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     B = f"http://127.0.0.1:{PORT}"
@@ -75,21 +74,17 @@ async def main():
             ck("list keys hides secrets", "secret" not in str((await cx.get(f"{B}/api/keys", headers=H(AUTH))).json()["keys"]))
             ck("read key cannot manage keys -> 403",
                (await cx.get(f"{B}/api/keys", headers=H(read_key))).status_code == 403)
-            ck("ingest env token cannot manage keys",
-               (await cx.get(f"{B}/api/keys", headers=H(INGEST))).status_code in (401, 403))
 
             # ── read scope ──
             ck("read key: /query ok",
                (await cx.post(f"{B}/query", json={"view": "v_evt", "key": "k"}, headers=H(read_key))).status_code == 200)
             ck("read key: catalog ok", (await cx.get(f"{B}/catalog", headers=H(read_key))).status_code == 200)
             ck("read key: sources list ok", (await cx.get(f"{B}/api/sources", headers=H(read_key))).status_code == 200)
-            ck("read key: /api/security denied -> 403",
-               (await cx.get(f"{B}/api/security", headers=H(read_key))).status_code == 403)
             ck("read key: create source denied -> 403",
                (await cx.post(f"{B}/api/sources", json={"name": "n", "connector": "webhook", "config": {}},
                               headers=H(read_key))).status_code == 403)
-            ck("read key: cannot ingest -> 401",
-               (await cx.post(f"{B}/ingest/evt", json={"m": 1}, headers=H(read_key))).status_code == 401)
+            ck("read key: cannot ingest -> 403 (authenticated, lacks ingest scope)",
+               (await cx.post(f"{B}/ingest/evt", json={"m": 1}, headers=H(read_key))).status_code == 403)
             ck("read key: derive ok",
                (await cx.post(f"{B}/derive", json={"key_field": "key_value", "sources": ["evt"], "client": "t"},
                               headers=H(read_key))).status_code == 201)
@@ -108,10 +103,8 @@ async def main():
                (await cx.post(f"{B}/ingest/evt", json={"m": 2}, headers=H(both_key))).status_code == 202
                and (await cx.get(f"{B}/catalog", headers=H(both_key))).status_code == 200)
 
-            # ── env tokens still root ──
-            ck("env auth token: admin ok", (await cx.get(f"{B}/api/security", headers=H(AUTH))).status_code == 200)
-            ck("env ingest token: ingest ok",
-               (await cx.post(f"{B}/ingest/evt", json={"m": 3}, headers=H(INGEST))).status_code == 202)
+            # ── env auth token is still root (admin) ──
+            ck("env auth token: admin ok", (await cx.get(f"{B}/api/keys", headers=H(AUTH))).status_code == 200)
             ck("unknown token -> 401", (await cx.get(f"{B}/catalog", headers=H("nope"))).status_code == 401)
 
             # ── whoami ──

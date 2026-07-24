@@ -19,6 +19,7 @@ from .memory import MemoryConnector
 from .otlp import OtlpConnector
 from .postgres import PostgresConnector
 from .prometheus import PrometheusConnector
+from .finding import FindingConnector
 from .reference import ReferenceConnector
 from .vercel import VercelConnector
 from .webhook import WebhookConnector
@@ -36,6 +37,7 @@ REGISTRY = {
     "vercel": VercelConnector,
     "postgres": PostgresConnector,
     "claude_code": ClaudeCodeConnector,
+    "finding": FindingConnector,
 }
 
 # Connector metadata for the UI. The `fields` of each are GENERATED from the connector's
@@ -88,6 +90,12 @@ SPECS = {
                                    "message, keyed by session, with project/branch/model labels and "
                                    "token-usage fields. Sub-agents roll up into the same source. "
                                    "Secrets are redacted before storage."},
+    # `internal`: provisioned by NavFlow itself (the first finding creates it), never offered in
+    # "Add source". Still a first-class source everywhere else — it appears on timelines, in the
+    # catalog and in exports like any other.
+    "finding": {"label": "Agent findings", "mode": "push", "internal": True,
+                "description": "What NavFlow agents conclude when a trigger fires — one finding per "
+                               "run, keyed to the entity, on that entity's timeline."},
 }
 
 
@@ -96,7 +104,8 @@ SPECS = {
 # time-windowed; see store.read_view_window).
 _SOURCE_TYPES = {"docker_logs": "application_log", "memory": "agent_memory",
                  "otlp": "application_log", "vercel": "application_log",
-                 "claude_code": "agent_session", "reference": "reference"}
+                 "claude_code": "agent_session", "reference": "reference",
+                 "finding": "finding"}
 
 
 def source_type_for(connector: str) -> str:

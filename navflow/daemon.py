@@ -21,13 +21,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .config import (CatalogError, export_db_to_yaml, import_yaml_to_db,
-                     validate_source_dict, validate_trigger_dict, validate_view_dict,
-                     _source_from_dict)
+from .config import (CatalogError, agent_url, export_db_to_yaml, import_yaml_to_db,
+                     validate_agent_dict, validate_source_dict, validate_trigger_dict,
+                     validate_view_dict, _source_from_dict)
 from .connectors import (SPECS, normalize_config, redact_config, restore_secrets,
                          source_type_for)
 from .dispatch import Dispatcher
 from .envelope import now_utc
+from .builtin_agents import (PRESETS as AGENT_PRESETS, AgentRunner,
+                             resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
 from .store import Store
 from .views import resolve_query_full, resolve_read
@@ -38,24 +40,14 @@ DB_PATH = os.getenv("NAVFLOW_DB", "navflow.duckdb")
 # operator manages a read-only demo's sources by editing the YAML and restarting).
 CATALOG_SYNC = os.getenv("NAVFLOW_CATALOG_SYNC", "").strip().lower() in ("1", "true", "yes", "on")
 
-# Read-only mode (the public demo): the CONTROL plane (authoring — create/edit sources, derive,
-# remember, …) is refused, but the DATA plane (ingest) stays open so real push services (Vercel,
-# OTLP, webhooks) can still deliver. Poll sources reach outward and need no exception.
-READONLY = os.getenv("NAVFLOW_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
-_READ_POST = {"/query"}  # the only read that happens to be a POST
-# If set, ingest (push) requires this token in X-NavFlow-Token or Authorization: Bearer — so a
-# public demo's ingest endpoints aren't wide open. Independent of READONLY.
-INGEST_TOKEN = os.getenv("NAVFLOW_INGEST_TOKEN", "").strip()
-# If set, the whole API + console require this token (self-hosted single-tenant). The SPA shell and
-# static assets stay public so the login screen can load; ingest uses its own token (above).
+# Auth mode. When set (via `navflow up --auth`, which resolves + exports a root token), the whole
+# API + console + ingest require a credential; when unset the instance is open (local default).
+# The SPA shell and static assets stay public so the login screen can load. This is the ONE security
+# switch — there is no separate ingest token and no read-only mode; producers get scoped API keys.
 AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
-# Server-provisioned Anthropic key for the in-app agent (Ask/Organize). Set at deploy time on
-# hosted cells so users never paste a key; absent locally, the console prompts (BYO, unchanged).
+# The Anthropic key for the in-app Ask agent (and NavFlow agents) is resolved at request time via
+# resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
 # Never returned by any API — capabilities exposes only a boolean.
-ANTHROPIC_KEY = os.getenv("NAVFLOW_ANTHROPIC_KEY", "").strip()
-# Vercel verifies a log-drain endpoint by checking an x-vercel-verify response header. Set this to
-# the value Vercel shows when adding the drain (or rely on echoing the request's header).
-VERCEL_VERIFY = os.getenv("NAVFLOW_VERCEL_VERIFY", "").strip()
 
 
 def _is_ingest(path: str) -> bool:
@@ -157,9 +149,20 @@ class TriggerIn(BaseModel):
     cooldown: str = "5m"
 
 
+class AgentIn(BaseModel):
+    name: str
+    trigger: str
+    prompt: str                  # the only field a user edits — see docs/design/navflow-agents.md
+    slack_webhook: str = ""
+
+
 class ImportReq(BaseModel):
     yaml: str
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
+
+
+class AnthropicKeyIn(BaseModel):
+    key: str    # blank-to-keep is not offered here: the only edits are "set a new one" or DELETE
 
 
 def make_app() -> FastAPI:
@@ -175,6 +178,9 @@ def make_app() -> FastAPI:
 
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
+    # NavFlow agents are the second kind of subscriber to a firing (the first is an external agent's
+    # webhook). In-process, so `navflow up` closes the loop with nothing to deploy.
+    dispatcher.agents = AgentRunner(store, runtime)
 
     def _otlp_source_for(header: str | None) -> str:
         """Resolve the OTLP source for an export (shared by the HTTP and gRPC receivers). Raises
@@ -226,9 +232,9 @@ def make_app() -> FastAPI:
     # ── auth: scoped credentials ──────────────────────────────────────────────
     # Three scopes — read (consume: queries, catalog reads, derive/subscribe), ingest (contribute:
     # /ingest, /v1/*, remember), admin (configure: catalog CRUD, discover, credentials, keys).
-    # Credentials: the env tokens act as implicit root keys (AUTH_TOKEN = admin, INGEST_TOKEN =
-    # ingest, non-revocable), plus revocable scoped keys in the api_keys table (docs/design).
-    _ADMIN_PATHS = ("/api/security", "/api/catalog/export", "/api/catalog/import", "/api/agent/chat")
+    # Credentials: the env AUTH_TOKEN is the implicit root (admin, non-revocable), plus revocable
+    # scoped keys in the api_keys table (docs/design/api-keys.md).
+    _ADMIN_PATHS = ("/api/catalog/export", "/api/catalog/import", "/api/agent/chat")
 
     def _required_scope(method: str, path: str) -> str | None:
         """None = public. 'any' = any valid credential. Reads of credentials and all catalog
@@ -242,10 +248,14 @@ def make_app() -> FastAPI:
             return None
         if path == "/api/whoami":
             return "any"
-        if path in _ADMIN_PATHS or path.startswith("/api/keys") or path.startswith("/api/discover"):
+        # /api/settings holds instance credentials (the Anthropic key): admin even to READ, since
+        # a read tells you whether and where a credential is configured.
+        if (path in _ADMIN_PATHS or path.startswith("/api/keys")
+                or path.startswith("/api/discover") or path.startswith("/api/settings")):
             return "admin"
-        if method != "GET" and (path.startswith("/api/sources")
-                                or path.startswith("/api/views") or path.startswith("/api/triggers")):
+        if method != "GET" and (path.startswith("/api/sources") or path.startswith("/api/views")
+                                or path.startswith("/api/triggers")
+                                or path.startswith("/api/agents")):
             return "admin"
         return "read"
 
@@ -256,8 +266,6 @@ def make_app() -> FastAPI:
             return None, None
         if AUTH_TOKEN and tok == AUTH_TOKEN:
             return {"read", "ingest", "admin"}, {"id": "env:auth", "name": "auth token (env)"}
-        if INGEST_TOKEN and tok == INGEST_TOKEN:
-            return {"ingest"}, {"id": "env:ingest", "name": "ingest token (env)"}
         key = store.find_api_key(hashlib.sha256(tok.encode()).hexdigest())
         if key:
             last = key.get("last_used_at")
@@ -266,20 +274,14 @@ def make_app() -> FastAPI:
             return set(key["scopes"]), {"id": f"key:{key['id']}", "name": key["name"]}
         return None, None
 
-    if READONLY or INGEST_TOKEN or AUTH_TOKEN:
+    # Auth off (no token) → no middleware, the instance is fully open (local default). Auth on →
+    # every non-public route needs a credential carrying the required scope; ingest is gated exactly
+    # like reads and management (admin implies all scopes).
+    if AUTH_TOKEN:
         @app.middleware("http")
         async def _guard(request, call_next):
-            path, method = request.url.path, request.method
-            required = _required_scope(method, path)
-            # activation matches the pre-keys behavior: ingest is gated only when an ingest token
-            # is configured; reads/management only when an auth token is (open local installs
-            # stay open — keys are meaningful once the root tokens exist, i.e. always on hosted).
-            if required == "ingest" and (INGEST_TOKEN or AUTH_TOKEN):
-                scopes, ident = _resolve_credential(request)
-                if not scopes or not ({"ingest", "admin"} & scopes):
-                    return JSONResponse({"detail": "invalid or missing ingest token"}, status_code=401)
-                request.state.credential = ident
-            elif required in ("read", "admin", "any") and AUTH_TOKEN:
+            required = _required_scope(request.method, request.url.path)
+            if required is not None:
                 scopes, ident = _resolve_credential(request)
                 if not scopes:
                     return JSONResponse({"detail": "authentication required"}, status_code=401)
@@ -288,10 +290,6 @@ def make_app() -> FastAPI:
                                         status_code=403)
                 request.state.credential = ident
                 request.state.scopes = sorted(scopes)
-            if (READONLY and method not in ("GET", "HEAD", "OPTIONS")
-                    and path not in _READ_POST and not _is_ingest(path)):
-                return JSONResponse({"detail": "this NavFlow instance is read-only (control plane "
-                                               "disabled; ingest still accepted)"}, status_code=403)
             return await call_next(request)
 
     def _err(e: Exception, code: int = 400):
@@ -300,7 +298,7 @@ def make_app() -> FastAPI:
     # ── agent surface (unchanged contract; queries now logged) ───────────────
     @app.get("/health")
     async def health():
-        return {"status": "ok", "readonly": READONLY, "auth_required": bool(AUTH_TOKEN),
+        return {"status": "ok", "auth_required": bool(AUTH_TOKEN),
                 "sources": [] if AUTH_TOKEN else list(runtime.catalog.sources)}
 
     @app.post("/query")
@@ -532,9 +530,9 @@ def make_app() -> FastAPI:
 
     # ── push ingestion (webhook sources) ──────────────────────────────────────
     def _verify_headers(request: Request) -> dict:
-        """Vercel verifies a drain endpoint via the x-vercel-verify response header — echo the
-        request's value if present, else the configured one."""
-        val = request.headers.get("x-vercel-verify") or VERCEL_VERIFY
+        """Vercel verifies a drain endpoint via the x-vercel-verify response header — echo back the
+        value it sends on its verification probe (how the Vercel drain flow actually verifies)."""
+        val = request.headers.get("x-vercel-verify")
         return {"x-vercel-verify": val} if val else {}
 
     async def _parse_ingest_body(request: Request):
@@ -607,16 +605,8 @@ def make_app() -> FastAPI:
     async def connectors():
         return {name: spec for name, spec in SPECS.items()}
 
-    @app.get("/api/security")
-    async def security():
-        """Instance credentials, for the authenticated operator. The ingest token is the shared,
-        machine-facing secret producers send as X-NavFlow-Token / Bearer on /ingest and /v1/*; the
-        console surfaces it here so the operator can hand it to producers without shell access."""
-        # ingest is gated whenever ANY root token is configured (a secured instance doesn't accept
-        # anonymous events); auth_required tells the UI whether this instance enforces at all
-        return {"ingest_token": INGEST_TOKEN or None,
-                "ingest_required": bool(INGEST_TOKEN or AUTH_TOKEN),
-                "auth_required": bool(AUTH_TOKEN)}
+    # (there is no /api/security — whether auth is on is a boolean on /health; producers authenticate
+    #  with scoped ingest API keys, not a shared token.)
 
     # ── API keys: scoped, revocable credentials (admin scope; see docs/design) ─
     _SCOPES = {"read", "ingest", "admin"}
@@ -670,7 +660,10 @@ def make_app() -> FastAPI:
         return {
             "version": ver,
             "discover_docker": shutil.which("docker") is not None or os.path.exists("/var/run/docker.sock"),
-            "agent_key_configured": bool(ANTHROPIC_KEY),
+            # the Ask assistant runs on the same resolved key as NavFlow agents (env ANTHROPIC_API_KEY
+            # or the console-stored key) — so once a key is set anywhere, the Ask chat stops
+            # prompting for a browser-pasted one.
+            "agent_key_configured": bool(resolve_anthropic_key(store)[0]),
         }
 
     @app.post("/api/labels/preview")
@@ -933,8 +926,9 @@ def make_app() -> FastAPI:
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
         from .agent import run_agent
-        # per-request header key wins (a user override); the server-provisioned key is the fallback
-        key = request.headers.get("x-anthropic-key", "").strip() or ANTHROPIC_KEY
+        # per-request header key wins (a user override); otherwise the same key NavFlow agents use
+        # (env, or the console-stored key) — so a key set once under Agents/Security works here too.
+        key = request.headers.get("x-anthropic-key", "").strip() or resolve_anthropic_key(store)[0]
         if not key:
             _err(ValueError("add your Anthropic API key to use the assistant"), 400)
         body = await request.json()
@@ -1053,6 +1047,138 @@ def make_app() -> FastAPI:
         runtime.reload_catalog()
         return {"ok": True}
 
+    # ── management API: NavFlow agents (a prompt attached to a trigger) ──────
+    # Definitions live under /api/agents/builtin; the roster of everything a trigger wakes (these
+    # PLUS external subscribers) is /api/agents. A NavFlow agent is "enabled" exactly when it has a
+    # subscription to its trigger — the same wiring an external agent has.
+    def _agent_enabled(name: str) -> bool:
+        return store.subscription_by_url(agent_url(name)) is not None
+
+    def _agent_payload(body: AgentIn) -> dict:
+        """Validate against the live catalog, including the loop guard (an agent may not be woken by
+        the findings source it writes into)."""
+        triggers = {t["name"]: t for t in store.list_catalog_triggers()}
+        views = {v["name"]: v for v in store.list_catalog_views()}
+        raw = body.model_dump()
+        try:
+            validate_agent_dict(raw, set(triggers), triggers, views)
+        except CatalogError as e:
+            _err(e)
+        return raw
+
+    @app.get("/api/agents/builtin")
+    async def list_builtin_agents():
+        """NavFlow agent definitions plus the state the UI needs to explain why one isn't running:
+        no key configured is the common case on a fresh install and looks identical to "disabled"
+        without this."""
+        key, origin = resolve_anthropic_key(store)
+        rows = []
+        for a in store.list_catalog_agents():
+            runs = store.list_agent_runs(a["name"], limit=1)
+            rows.append({"name": a["name"], "trigger": a["trigger"], "prompt": a["prompt"],
+                         "slack_configured": bool(a.get("slack_webhook")),
+                         "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
+                         "last_run": runs[0] if runs else None})
+        return {"agents": rows, "key_configured": bool(key), "key_source": origin,
+                "presets": [{"id": k, **v} for k, v in AGENT_PRESETS.items()]}
+
+    @app.post("/api/agents/builtin", status_code=201)
+    async def create_builtin_agent(body: AgentIn):
+        if store.get_catalog_agent(body.name) is not None:
+            _err(ValueError(f"agent {body.name!r} already exists"), 409)
+        _agent_payload(body)
+        store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook)
+        runtime.reload_catalog()
+        return {"ok": True, "enabled": False,
+                "note": "agents start disabled — enable it to run on the next firing"}
+
+    @app.put("/api/agents/builtin/{name}")
+    async def update_builtin_agent(name: str, body: AgentIn):
+        existing = store.get_catalog_agent(name)
+        if existing is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        if body.name != name:
+            _err(ValueError("renaming an agent is not supported; delete and recreate"), 400)
+        _agent_payload(body)
+        # blank-to-keep for the webhook, matching the connector-secret convention: the UI never
+        # receives the stored URL back, so an unedited form must not wipe it.
+        hook = body.slack_webhook or existing.get("slack_webhook", "")
+        store.upsert_catalog_agent(name, body.trigger, body.prompt, hook)
+        # if the trigger changed while enabled, re-point the subscription so the agent fires on the
+        # new trigger (the subscription, not the definition, is what the dispatcher reads).
+        if body.trigger != existing["trigger"] and _agent_enabled(name):
+            store.remove_subscription_by_url(agent_url(name))
+            store.add_subscription("sub_" + uuid.uuid4().hex[:8], body.trigger,
+                                   agent_url(name), created_by="navflow")
+        runtime.reload_catalog()
+        return {"ok": True}
+
+    @app.delete("/api/agents/builtin/{name}")
+    async def delete_builtin_agent(name: str):
+        if store.get_catalog_agent(name) is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        store.remove_subscription_by_url(agent_url(name))   # unwire before dropping the definition
+        store.delete_catalog_agent(name)
+        runtime.reload_catalog()
+        return {"ok": True}
+
+    @app.post("/api/agents/builtin/{name}/enable")
+    async def enable_builtin_agent(name: str):
+        agent = store.get_catalog_agent(name)
+        if agent is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        key, _ = resolve_anthropic_key(store)
+        if not key:
+            _err(ValueError("no Anthropic key configured — set ANTHROPIC_API_KEY or add one "
+                            "under Security before enabling an agent"))
+        # enable = subscribe to the trigger (the same wiring an external agent has). Idempotent.
+        if not _agent_enabled(name):
+            store.add_subscription("sub_" + uuid.uuid4().hex[:8], agent["trigger"],
+                                   agent_url(name), created_by="navflow")
+        return {"ok": True, "enabled": True}
+
+    @app.post("/api/agents/builtin/{name}/disable")
+    async def disable_builtin_agent(name: str):
+        if store.get_catalog_agent(name) is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        store.remove_subscription_by_url(agent_url(name))
+        return {"ok": True, "enabled": False}
+
+    @app.get("/api/agents/builtin/{name}/runs")
+    async def builtin_agent_runs(name: str, limit: int = 50):
+        """The operational record — status, duration, errors. Distinct from findings, which are
+        events on the entity's timeline; a failed run must never look like a conclusion."""
+        if store.get_catalog_agent(name) is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        return store.list_agent_runs(name, limit=min(limit, 200))
+
+    # ── the Anthropic key: env wins, console is the fallback ─────────────────
+    @app.get("/api/settings/anthropic-key")
+    async def get_anthropic_key():
+        """Never returns the key — only whether one is resolvable and where it came from, so the
+        console can explain that an env-set key overrides what's stored."""
+        key, origin = resolve_anthropic_key(store)
+        return {"configured": bool(key), "source": origin,
+                "stored": bool(store.get_setting("anthropic_key")),
+                "env_overrides": origin.startswith("env:")}
+
+    @app.put("/api/settings/anthropic-key")
+    async def set_anthropic_key(body: AnthropicKeyIn):
+        key = body.key.strip()
+        if not key:
+            _err(ValueError("key is required (use DELETE to remove the stored key)"))
+        store.set_setting("anthropic_key", key)
+        _, origin = resolve_anthropic_key(store)
+        return {"ok": True, "source": origin,
+                **({"note": "an environment key takes precedence and is still in use"}
+                   if origin.startswith("env:") else {})}
+
+    @app.delete("/api/settings/anthropic-key")
+    async def clear_anthropic_key():
+        store.set_setting("anthropic_key", None)
+        key, origin = resolve_anthropic_key(store)
+        return {"ok": True, "configured": bool(key), "source": origin}
+
     # ── management API: activity (what agents saw / what woke them) ──────────
     @app.get("/api/activity/queries")
     async def activity_queries(limit: int = 100):
@@ -1084,8 +1210,14 @@ def make_app() -> FastAPI:
                    "keel", "lantern", "mast", "pilot", "rudder", "sextant", "tide", "wake"]
 
     def _agent_identity(url: str) -> tuple[str, str]:
-        """(deterministic name, masked display URL) for a subscriber endpoint. The URL is the
-        identity; hook URLs carry secrets in the path, so the last path segment is masked."""
+        """(name, masked display URL) for a subscriber endpoint. A NavFlow agent's URL carries its
+        real name and no secret, so it's shown verbatim. An external hook URL is the identity but
+        carries a secret in the path, so it's anonymized (deterministic name) and the last path
+        segment masked."""
+        from .config import agent_name_from_url
+        internal = agent_name_from_url(url.rstrip("/"))
+        if internal is not None:
+            return internal, "in-process (NavFlow agent)"
         norm = url.rstrip("/")
         h = int(hashlib.sha256(norm.encode()).hexdigest(), 16)
         name = f"{_AGENT_ADJ[h % len(_AGENT_ADJ)]}-{_AGENT_NOUN[(h // 16) % len(_AGENT_NOUN)]}"
@@ -1101,23 +1233,26 @@ def make_app() -> FastAPI:
         return name, masked
 
     @app.get("/api/agents")
-    async def connected_agents():
-        """The roster: every subscribed endpoint as a named agent — its wiring (triggers,
-        creating credential), delivery health, and recent wakes."""
+    async def agent_roster():
+        """The roster of everything a trigger wakes: NavFlow agents (run in-process) and connected
+        external agents (webhooks), one row each, tagged by `kind`. Both are subscriptions, so both
+        appear here identically — wiring (triggers), delivery health, recent wakes."""
         stats = store.delivery_stats()
         agents: dict[str, dict] = {}
         for sub in store.all_subscriptions():
             norm = sub["url"].rstrip("/")
             a = agents.get(norm)
             if a is None:
+                from .config import agent_name_from_url
                 name, masked = _agent_identity(norm)
+                kind = "navflow" if agent_name_from_url(norm) is not None else "connected"
                 st = stats.get(sub["url"], stats.get(norm, {}))
                 a = agents[norm] = {
-                    "name": name, "endpoint": masked,
+                    "name": name, "endpoint": masked, "kind": kind,
                     "subscriptions": [], "triggers": [], "created_by": set(),
                     "first_seen": sub["created_at"],
                     "delivered_ok": st.get("ok", 0), "delivered_fail": st.get("fail", 0),
-                    "last_woken": st.get("last_at"),
+                    "pending": st.get("pending", 0), "last_woken": st.get("last_at"),
                     # currently failing: the most recent delivery to this endpoint did not succeed.
                     "unhealthy": st.get("fail", 0) > 0 and not st.get("last_ok", True),
                     "last_error": None if st.get("last_ok", True) else st.get("last_error"),

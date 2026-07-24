@@ -1,20 +1,20 @@
-# NavFlow public demo — read-only, one hostname (Caddy) fronting the daemon + remote MCP.
+# NavFlow single-host deploy — one hostname (Caddy) fronting the daemon + remote MCP.
 # Pulls the prebuilt image (NAVFLOW_REGISTRY / NAVFLOW_VERSION override it; build locally with the
-# docker-compose.build.yml override). The demo tracks :latest.
+# docker-compose.build.yml override). Tracks :latest.
 #   docker compose -f deploy/compose/docker-compose.yml up -d
 # Local: browse http://localhost (NAVFLOW_HTTP_PORT overrides the host port).
-# Real demo: set NAVFLOW_DOMAIN=demo.navflow.dev for automatic HTTPS, point its DNS A record here.
-name: navflow-demo
+# With a domain: set NAVFLOW_DOMAIN=navflow.example.com for automatic HTTPS, point its DNS A record here.
+# This runs OPEN (no auth). To require a login + scoped keys, add `--auth` to the navflow up command
+# (or set NAVFLOW_AUTH_TOKEN) — see docker-compose.selfhost.yml for the secured single-tenant setup.
+name: navflow-host
 
 services:
   navflowd:
     image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
     command: ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
     environment:
-      NAVFLOW_READONLY: "1"               # control plane (UI/MCP authoring) refused; ingest stays open
       NAVFLOW_CATALOG: /seed/catalog.yaml # the operator's source config (real services)
       NAVFLOW_CATALOG_SYNC: "1"           # re-import the catalog every boot: edit + restart to manage
-      # NAVFLOW_INGEST_TOKEN: "change-me" # require this token on /ingest/* and /v1/* (set it on drains)
     volumes:
       - navflow-data:/data
       - ../demo/catalog.yaml:/seed/catalog.yaml:ro
@@ -27,8 +27,6 @@ services:
     image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
     command: ["navflow", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0",
               "--port", "8788", "--navflowd", "http://navflowd:8787"]
-    environment:
-      NAVFLOW_READONLY: "1"
     expose: ["8788"]
     depends_on: [navflowd]
     restart: unless-stopped

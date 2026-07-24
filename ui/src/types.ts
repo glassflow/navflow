@@ -36,6 +36,7 @@ export interface ConnectorSpec {
   mode: "poll" | "push";
   discover?: boolean;
   poll?: string;   // connector-specific default poll interval (e.g. github: "2m")
+  internal?: boolean;   // provisioned by NavFlow itself (agent findings) — not offered in the UI
   description: string;
   fields: ConnectorField[];
   provides?: { name: string; primary?: boolean; help?: string }[];   // synthesized label fields
@@ -135,16 +136,18 @@ export interface DiscoverProposal {
 export interface AgentInfo {
   name: string;
   endpoint: string;   // masked — the last path segment may carry a secret
+  kind: "navflow" | "connected";   // a NavFlow agent (in-process) or an external webhook
   subscriptions: { subscription_id: string; trigger: string; created_at: string | null }[];
   triggers: string[];
   created_by: string[];
   first_seen: string | null;
   delivered_ok: number;
   delivered_fail: number;
+  pending?: number;             // in-flight NavFlow-agent runs
   last_woken: string | null;
   unhealthy?: boolean;          // the most recent delivery to this endpoint failed
   last_error?: string | null;   // why, when unhealthy
-  recent: { at: string | null; ok: boolean; trigger: string | null; key: string | null; error?: string | null; dispatch_id?: string }[];
+  recent: { at: string | null; ok: boolean | null; trigger: string | null; key: string | null; error?: string | null; dispatch_id?: string }[];
 }
 
 export interface ApiKey {
@@ -215,6 +218,41 @@ export interface Trigger {
   emit: Record<string, unknown>;
   cooldown: string;
   paused?: boolean;   // paused triggers are not evaluated and never fire
+}
+
+// A NavFlow agent is a prompt attached to a trigger: when the trigger fires, the agent takes a
+// first look and writes a finding onto the entity's timeline. It's a real agent, configured inside
+// NavFlow rather than connected over a webhook. The prompt is the only field a user edits; enabled
+// means it's subscribed to its trigger, exactly like an external agent.
+export interface BuiltinAgent {
+  name: string;
+  trigger: string;
+  prompt: string;
+  enabled: boolean;
+  slack_configured: boolean;   // the webhook URL itself is never sent to the client
+  updated_at?: string;
+  last_run?: AgentRun | null;
+}
+
+export interface AgentRun {
+  id: string;
+  agent: string;
+  trigger: string;
+  dispatch_id: string;
+  key: string;
+  status: "running" | "ok" | "empty" | "failed" | "capped";
+  rounds: number;
+  tool_calls: number;
+  started_at: string;
+  duration_ms: number | null;
+  finding: string | null;
+  error: string | null;
+}
+
+export interface AgentPreset {
+  id: string;
+  label: string;
+  prompt: string;
 }
 
 export interface QueryLogEntry {

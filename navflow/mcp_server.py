@@ -7,9 +7,6 @@ Two tool groups: the READ surface (query/catalog/list_*) and the WRITE/SETUP sur
 (subscribe/derive/remember/discover_*/create_source/…), which lets an agent author views and wire
 up its own data sources. The design doc keeps admin ops off the MCP surface; exposing them here is a
 deliberate MVP test of agent-operable onboarding (no auth — the proxy talks to the local daemon).
-
-Read-only mode (NAVFLOW_READONLY, for the public demo): the write/setup tools are not registered at
-all, so a connected agent sees only the read surface (the daemon refuses the writes too).
 """
 from __future__ import annotations
 
@@ -21,7 +18,6 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 NAVFLOWD = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
-READONLY = os.getenv("NAVFLOW_READONLY", "").strip().lower() in ("1", "true", "yes", "on")
 # Bearer credentials. Over HTTP transports each caller presents its own token (the root auth token
 # or a scoped API key) and we forward it per-request — the daemon enforces scopes per route. Over
 # stdio (a local agent spawned the proxy) there is no inbound token; the env token is used.
@@ -44,9 +40,9 @@ mcp = FastMCP("navflow",
 
 
 def writable():
-    """Decorator for a write/setup tool: registers it normally, or drops it (no-op) when the
-    server is read-only, so it isn't even listed to the agent."""
-    return mcp.tool() if not READONLY else (lambda fn: fn)
+    """Decorator for a write/setup tool. (Kept as a distinct marker from a plain read tool; there is
+    no longer a read-only mode, so it registers normally — the daemon enforces scopes per route.)"""
+    return mcp.tool()
 
 
 @mcp.tool()
