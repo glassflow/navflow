@@ -66,9 +66,11 @@ Then ask your agent:
 
 The agent calls `read` and gets the incident correlated: the `HighErrorRate` alert Prometheus fired,
 the 5xx request logs, and the error-rate spike in one time-ordered response — nothing to stitch
-together across systems. (The `incident` trigger fires too — **Agents → Trigger dispatches**;
-`./demo/inject.sh clear` rolls the fault back.) Other clients, stdio transport, and auth are covered
-in [connecting AI agents over MCP](https://www.navflow.ai/docs/agents).
+together across systems. (The `incident` trigger fires too, and the catalog ships a NavFlow agent
+that wakes on it and writes its diagnosis back as a **finding** on the timeline — set
+`ANTHROPIC_API_KEY` first, or see [`demo/`](demo/). `./demo/inject.sh clear` rolls the fault back.)
+Other clients, stdio transport, and auth are covered in
+[connecting AI agents over MCP](https://www.navflow.ai/docs/agents).
 
 ## What you get: connectors, reads, triggers, MCP tools
 
