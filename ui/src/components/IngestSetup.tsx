@@ -3,26 +3,28 @@ import { Link } from "react-router-dom";
 
 import { api } from "../api";
 
-// Auth + setup hints shown next to a push source's ingest URL. When this instance requires an
-// ingest token (a hosted cell always does), the bare URL is not enough — producers get a 401 —
-// so surface the token header and a paste-ready snippet right where the URL is handed out.
-// Renders nothing when ingest is open (a plain local install).
-export default function IngestSetup({ connector, url }: { connector: string; url: string }) {
-  const [sec, setSec] = useState<{ ingest_token: string | null; ingest_required: boolean }>();
-  const [revealed, setRevealed] = useState(false);
-  useEffect(() => { api.security().then(setSec).catch(() => {}); }, []);
+// Setup hints shown next to a push source's ingest URL. The URL is the address; on a secured
+// instance (`navflow up --auth`) the producer ALSO needs an ingest API key in the Authorization
+// header. At source creation we have the freshly minted key (`authKey`) and embed it in the snippet;
+// on the detail page later we don't (it's show-once), so we show a placeholder + a pointer to it.
+// Renders nothing when the instance is open (no auth) — the URL alone accepts events.
+export default function IngestSetup({ connector, url, authKey }: {
+  connector: string; url: string; authKey?: string;
+}) {
+  const [authRequired, setAuthRequired] = useState<boolean>();
+  useEffect(() => { api.health().then((h) => setAuthRequired(h.auth_required)).catch(() => {}); }, []);
 
-  // Alertmanager: show a copy-paste webhook_configs block regardless of whether a token is required —
-  // the operator needs the receiver config either way; the auth is folded in only when required.
+  const key = authKey ?? "<your ingest key>";
+
+  // Alertmanager always shows its receiver YAML (the operator needs it regardless); the auth block
+  // folds in only when the instance requires it.
   if (connector === "alertmanager") {
-    const authRequired = !!sec?.ingest_required && !!sec.ingest_token;
-    const token = sec?.ingest_token ?? "";
-    const auth = (t: string) => authRequired
-      ? `\n        http_config:\n          authorization:\n            credentials: ${t}`
+    const authBlock = authRequired
+      ? `\n        http_config:\n          authorization:\n            type: Bearer\n            credentials: ${key}`
       : "";
-    const yaml = (t: string) =>
+    const yaml =
       `# alertmanager.yml\nreceivers:\n  - name: navflow\n    webhook_configs:\n` +
-      `      - url: ${url}\n        send_resolved: true${auth(t)}\nroute:\n  receiver: navflow`;
+      `      - url: ${url}\n        send_resolved: true${authBlock}\nroute:\n  receiver: navflow`;
     return (
       <div className="ingest-setup">
         <p className="muted">
@@ -30,68 +32,63 @@ export default function IngestSetup({ connector, url }: { connector: string; url
           Alertmanager. Every alert it routes here becomes an event.
         </p>
         <div className="ingest-url">
-          <code className="mono" style={{ whiteSpace: "pre-wrap" }}>
-            {authRequired && !revealed ? yaml(mask(token)) : yaml(token)}
-          </code>
-          <CopyBtn text={yaml(token)} label="copy" />
+          <code className="mono" style={{ whiteSpace: "pre-wrap" }}>{yaml}</code>
+          <CopyBtn text={yaml} label="copy" />
         </div>
-        {authRequired && (
-          <div className="ingest-url" style={{ marginTop: 8 }}>
-            <button onClick={() => setRevealed((r) => !r)}>{revealed ? "hide token" : "reveal token"}</button>
-          </div>
-        )}
+        {authRequired && <KeyNote authKey={authKey} />}
       </div>
     );
   }
 
-  if (!sec?.ingest_required || !sec.ingest_token) return null;
-  const token = sec.ingest_token;
-  const shown = revealed ? token : mask(token);
+  if (!authRequired) return null;   // open instance — the URL alone accepts events
 
   const snippet = connector === "otlp"
     ? [
         `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`,
         `OTEL_EXPORTER_OTLP_ENDPOINT=${new URL(url).origin}`,
-        `OTEL_EXPORTER_OTLP_HEADERS=X-NavFlow-Token=${token}`,
+        `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer ${key}`,
       ].join("\n")
     : [
         `curl -X POST ${url} \\`,
         `  -H 'Content-Type: application/json' \\`,
-        `  -H 'X-NavFlow-Token: ${token}' \\`,
+        `  -H 'Authorization: Bearer ${key}' \\`,
         `  -d '{"message": "hello from my producer"}'`,
       ].join("\n");
 
   return (
     <div className="ingest-setup">
-      <p className="muted">
-        This instance requires the <Link to="/security">ingest token</Link> — send it as an{" "}
-        <span className="mono">X-NavFlow-Token</span> header (or{" "}
-        <span className="mono">Authorization: Bearer</span>):
-      </p>
-      <div className="ingest-url">
-        <code className="mono">X-NavFlow-Token: {shown}</code>
-        <button onClick={() => setRevealed((r) => !r)}>{revealed ? "hide" : "reveal"}</button>
-        <CopyBtn text={token} label="copy token" />
-      </div>
+      <KeyNote authKey={authKey} />
       <p className="muted" style={{ marginTop: 12 }}>
         {connector === "otlp"
           ? <>Exporter setup — NavFlow accepts OTLP/HTTP <strong>JSON</strong> (not protobuf); use a
               JSON-capable exporter, e.g. the OTel Collector's <span className="mono">otlphttp</span>{" "}
               exporter with <span className="mono">encoding: json</span>:</>
-          : <>Or test it right away:</>}
+          : <>Test it right away:</>}
       </p>
       <div className="ingest-url">
-        <code className="mono" style={{ whiteSpace: "pre-wrap" }}>
-          {revealed ? snippet : snippet.replace(token, mask(token))}
-        </code>
+        <code className="mono" style={{ whiteSpace: "pre-wrap" }}>{snippet}</code>
         <CopyBtn text={snippet} label="copy" />
       </div>
     </div>
   );
 }
 
-function mask(token: string) {
-  return token.length > 8 ? `${token.slice(0, 4)}…${token.slice(-4)}` : "••••••••";
+// The producer's auth requirement. With the freshly minted key in hand (creation), say "copy it
+// now"; without it (detail page), point at the key that was minted for the source or Security.
+function KeyNote({ authKey }: { authKey?: string }) {
+  return authKey ? (
+    <p className="muted">
+      This instance requires auth — send this source's <strong>ingest key</strong> as{" "}
+      <span className="mono">Authorization: Bearer …</span>. Copy it now; it's shown once and listed
+      under <Link to="/security">Security</Link>.
+    </p>
+  ) : (
+    <p className="muted">
+      This instance requires auth — the producer needs this source's <strong>ingest key</strong> in{" "}
+      <span className="mono">Authorization: Bearer …</span>. Use the key shown when you created the
+      source, or mint one under <Link to="/security">Security</Link> (scope <span className="mono">ingest</span>).
+    </p>
+  );
 }
 
 function CopyBtn({ text, label }: { text: string; label: string }) {

@@ -22,7 +22,7 @@
       "description": "Base URL of your NavFlow daemon. Local default works for `navflow up`; set your remote URL otherwise.",
       "default": "http://127.0.0.1:8787"
     },
-    "ingest_token": {
+    "access_token": {
       "type": "string",
       "title": "API key / token (optional)",
       "description": "Only if your NavFlow requires auth. Recommended: an API key with the read + ingest scopes (console -> Security -> API keys) \u2014 streams sessions and enables MCP read-back without admin rights. The root auth token also works.",

@@ -33,7 +33,8 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "Serve to agents", items: [
     { to: "/views", label: "Views", icon: Book },
     { to: "/triggers", label: "Triggers", icon: Bolt },
-    { to: "/activity", label: "Agents", icon: Filter },
+    { to: "/agents", label: "Agents", icon: Chat },
+    { to: "/activity", label: "Activity", icon: Filter },
     { to: "/connect", label: "Connect", icon: Terminal },
   ] },
 ];
@@ -42,8 +43,9 @@ const SECTION_LABEL: Record<string, string> = {
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",
+  agents: "Agents",
   connect: "Connect",
-  activity: "Agents",
+  activity: "Activity",
   catalog: "Catalog",
   ask: "Ask",
   security: "Security",
@@ -69,6 +71,12 @@ function useCrumbs(): Crumb[] {
       : sub === "claude-code" ? { label: "Claude Code" }
       : { label: sub, mono: true };
     return [{ label: "Sources", to: "/" }, last];
+  }
+
+  if (parts[0] === "agents" && parts.length > 1) {
+    const sub = decodeURIComponent(parts[1]);
+    const last: Crumb = sub === "new" ? { label: "Create agent" } : { label: sub, mono: true };
+    return [{ label: "Agents", to: "/agents" }, last];
   }
 
   return [{ label: SECTION_LABEL[parts[0]] ?? parts[0] }];

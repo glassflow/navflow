@@ -6,6 +6,7 @@ Declares the sources (what to ingest and how), the views (named query shapes), a
 from __future__ import annotations
 
 import re
+import uuid
 from dataclasses import dataclass, field as dc_field
 from functools import lru_cache
 from pathlib import Path
@@ -62,10 +63,40 @@ class TriggerCfg:
 
 
 @dataclass
+class AgentCfg:
+    """A NavFlow agent: a prompt attached to a trigger. When the trigger fires, the agent reads the
+    correlated timeline it was handed and writes ONE finding back into NavFlow. It's a real agent
+    (it reasons with an LLM), configured inside NavFlow rather than connected over a webhook; today
+    its tools are read-only (query/read). The prompt is the only field a user edits; model/tools/
+    budgets are NavFlow's decisions. `enabled` is derived — an agent is enabled exactly when it has
+    a subscription to its trigger, the same wiring an external agent has (docs/design/navflow-agents.md)."""
+    name: str
+    trigger: str
+    prompt: str
+    slack_webhook: str = ""
+    enabled: bool = False
+
+
+# A NavFlow agent is wired to its trigger through an ordinary subscription whose URL uses this
+# scheme; the dispatcher runs it in-process instead of POSTing. Everything downstream (the roster,
+# a trigger's woken-agents list, recent firings) then treats it identically to an external agent.
+AGENT_URL_PREFIX = "navflow://agent/"
+
+
+def agent_url(name: str) -> str:
+    return AGENT_URL_PREFIX + name
+
+
+def agent_name_from_url(url: str) -> str | None:
+    return url[len(AGENT_URL_PREFIX):] if url.startswith(AGENT_URL_PREFIX) else None
+
+
+@dataclass
 class Catalog:
     sources: dict   # name -> SourceCfg
     views: dict     # name -> ViewCfg
     triggers: list  # [TriggerCfg]
+    agents: list = dc_field(default_factory=list)   # [AgentCfg]
 
 
 def _source_from_dict(s: dict) -> SourceCfg:
@@ -101,6 +132,14 @@ def _trigger_from_dict(t: dict) -> TriggerCfg:
     )
 
 
+def _agent_from_dict(a: dict, enabled: bool = False) -> AgentCfg:
+    return AgentCfg(
+        name=a["name"], trigger=a["trigger"], prompt=a["prompt"],
+        slack_webhook=a.get("slack_webhook") or "",
+        enabled=bool(a.get("enabled", enabled)),
+    )
+
+
 def load_catalog(path) -> Catalog:
     raw = yaml.safe_load(Path(path).read_text())
 
@@ -110,7 +149,9 @@ def load_catalog(path) -> Catalog:
 
     triggers = [_trigger_from_dict(t) for t in raw.get("triggers", [])]
 
-    return Catalog(sources=sources, views=views, triggers=triggers)
+    agents = [_agent_from_dict(a) for a in raw.get("agents", []) or []]
+
+    return Catalog(sources=sources, views=views, triggers=triggers, agents=agents)
 
 
 # ── DB-backed catalog (the YAML above becomes import/export) ─────────────────
@@ -129,7 +170,12 @@ def catalog_from_db(store) -> Catalog:
             {"name": t["name"], "view": t["view"], "condition": t["condition"],
              "emit": t["emit"], "cooldown": t["cooldown"], "paused": t.get("paused", False)}))
 
-    return Catalog(sources=sources, views=views, triggers=triggers)
+    # enabled is derived: an agent is enabled exactly when it has a subscription to its trigger.
+    enabled_urls = {s["url"] for s in store.all_subscriptions()}
+    agents = [_agent_from_dict(a, enabled=agent_url(a["name"]) in enabled_urls)
+              for a in store.list_catalog_agents()]
+
+    return Catalog(sources=sources, views=views, triggers=triggers, agents=agents)
 
 
 def import_yaml_to_db(store, text: str) -> dict:
@@ -138,6 +184,7 @@ def import_yaml_to_db(store, text: str) -> dict:
     sources = raw.get("sources", []) or []
     views = raw.get("views", []) or []
     triggers = raw.get("triggers", []) or []
+    agents = raw.get("agents", []) or []
 
     # validate the whole document before writing anything
     names = {s["name"] for s in sources}
@@ -148,6 +195,13 @@ def import_yaml_to_db(store, text: str) -> dict:
     view_names = {v["name"] for v in views} | {v["name"] for v in store.list_catalog_views()}
     for t in triggers:
         validate_trigger_dict(t, view_names)
+    trigger_names = {t["name"] for t in triggers} | {t["name"] for t in store.list_catalog_triggers()}
+    all_views = {v["name"]: v for v in store.list_catalog_views()}
+    all_views.update({v["name"]: v for v in views})
+    all_triggers = {t["name"]: t for t in store.list_catalog_triggers()}
+    all_triggers.update({t["name"]: t for t in triggers})
+    for a in agents:
+        validate_agent_dict(a, trigger_names, all_triggers, all_views)
 
     from .connectors import normalize_config, source_type_for
     for s in sources:
@@ -166,8 +220,20 @@ def import_yaml_to_db(store, text: str) -> dict:
         # upsert doesn't touch paused (it's toggled separately); reflect the document's state so a
         # paused trigger round-trips. Sources carry paused through upsert_catalog_source already.
         store.set_trigger_paused(t["name"], bool(t.get("paused", False)))
+    for a in agents:
+        store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"))
+        # enabled ⟺ a subscription to the trigger. Reflect the document's state so an enabled agent
+        # round-trips: add the internal subscription if enabled, remove it if not.
+        url = agent_url(a["name"])
+        if bool(a.get("enabled", False)):
+            if not store.subscription_by_url(url):
+                store.add_subscription("sub_" + uuid.uuid4().hex[:8], a["trigger"], url,
+                                       created_by="navflow")
+        else:
+            store.remove_subscription_by_url(url)
 
-    return {"sources": len(sources), "views": len(views), "triggers": len(triggers)}
+    return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
+            "agents": len(agents)}
 
 
 def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:
@@ -213,8 +279,25 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
         for t in store.list_catalog_triggers()
         if want is None or t["view"] in kept_views
     ]
+    kept_triggers = {t["name"] for t in trig_out}
+
+    # A NavFlow agent follows its trigger. Its Slack webhook URL is a credential (anyone holding it
+    # can post to the channel), so it's omitted unless secrets are explicitly requested — same rule
+    # as connector secrets above; the operator re-enters it on the target. enabled is derived from
+    # the presence of the agent's internal subscription.
+    enabled_urls = {s["url"] for s in store.all_subscriptions()}
+    agent_out = [
+        {"name": a["name"], "trigger": a["trigger"], "prompt": a["prompt"],
+         **({"slack_webhook": a["slack_webhook"]}
+            if include_secrets and a.get("slack_webhook") else {}),
+         **({"enabled": True} if agent_url(a["name"]) in enabled_urls else {})}
+        for a in store.list_catalog_agents()
+        if a["trigger"] in kept_triggers
+    ]
 
     doc = {"sources": src_out, "views": view_out, "triggers": trig_out}
+    if agent_out:
+        doc["agents"] = agent_out
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 
@@ -423,3 +506,40 @@ def validate_trigger_dict(t: dict, view_names: set) -> None:
     if c.get("aggregate") != "count" and not c.get("field"):
         raise CatalogError(
             f"trigger {t['name']!r}: condition needs a field for aggregate {c['aggregate']!r}")
+
+
+# The built-in source findings are written to. Named here (not in builtin_agents.py) because the
+# loop guard below is a catalog-validation concern and config must not import the runtime.
+FINDINGS_SOURCE = "findings"
+
+_AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+MAX_PROMPT_CHARS = 8000
+
+
+def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = None,
+                        views: dict | None = None) -> None:
+    for field in ("name", "trigger", "prompt"):
+        if not str(a.get(field) or "").strip():
+            raise CatalogError(f"agent is missing required field {field!r}")
+    if not _AGENT_NAME_RE.match(str(a["name"])):
+        raise CatalogError(f"agent name {a['name']!r} must be alphanumeric/_/-")
+    if a["trigger"] not in trigger_names:
+        raise CatalogError(f"agent {a['name']!r}: unknown trigger {a['trigger']!r}")
+    if len(str(a["prompt"])) > MAX_PROMPT_CHARS:
+        raise CatalogError(
+            f"agent {a['name']!r}: prompt is longer than {MAX_PROMPT_CHARS} characters")
+    hook = str(a.get("slack_webhook") or "").strip()
+    if hook and not hook.startswith("https://"):
+        raise CatalogError(f"agent {a['name']!r}: slack_webhook must be an https URL")
+
+    # Loop guard: a NavFlow agent writes a finding into the `findings` source. If its trigger
+    # watches a view containing that source, the finding re-fires the trigger, which runs the agent
+    # again — forever. Reject at definition time; there is no valid form of this.
+    if triggers is not None and views is not None:
+        trig = triggers.get(a["trigger"])
+        view = views.get(trig.get("view")) if trig else None
+        if view and FINDINGS_SOURCE in (view.get("sources") or []):
+            raise CatalogError(
+                f"agent {a['name']!r}: trigger {a['trigger']!r} watches view "
+                f"{trig['view']!r}, which includes the {FINDINGS_SOURCE!r} source — an agent "
+                f"cannot be woken by findings (it would fire itself forever)")

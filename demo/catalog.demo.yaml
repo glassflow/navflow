@@ -79,3 +79,24 @@ triggers:
       attach_view: true
       context_window: 15m
     cooldown: 5m
+
+agents:
+  # A NavFlow agent shipped with the demo — the loop closes with nothing to deploy. When the
+  # `incident` trigger fires it reads the correlated timeline (the fired alert plus the signals
+  # behind it and the request logs) and writes a finding onto api-server's timeline. It's a real
+  # agent, so it needs an Anthropic key: export ANTHROPIC_API_KEY before `navflow up` (or set one in
+  # the console -> Security). Without a key the run is logged as "no key" and no finding is written.
+  # Enabled here (= subscribed to the trigger); disable it on the trigger's page any time.
+  - name: incident-first-look
+    trigger: incident
+    enabled: true
+    prompt: |
+      You are an SRE taking the first look when Prometheus fires an alert on api-server. You are
+      handed the correlated timeline: the firing alert (HighErrorRate / HighLatency / DependencyDown)
+      plus the signals behind it — 5xx request rate, p99 latency, active DB connections, dependency
+      health — and the service's request logs. That is your evidence.
+
+      Produce a tight incident note: (1) what is failing and since when, (2) the most likely cause,
+      tied to the specific evidence lines (which signal crossed, what the logs show), (3) a suggested
+      next action. If the timeline is too narrow, read a wider window (1h) once before concluding. Do
+      not speculate beyond the evidence; if it's inconclusive, say what you'd look at next.

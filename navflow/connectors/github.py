@@ -5,12 +5,11 @@ ingests everything above the cursor, so there are no duplicates. Keyed by `repo`
 one repo); `author` is a secondary label. Point it at a service's repo and commits land in that
 service's timeline next to its metrics and logs.
 
-Auth: a token (config `token` or the GITHUB_TOKEN env var) is optional for public repos, required
-for private ones. `discover()` validates the repo, finds its default branch, and proposes labels.
+Auth: a token (the source's `token` config) is optional for public repos, required for private
+ones. `discover()` validates the repo, finds its default branch, and proposes labels.
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 import httpx
@@ -59,8 +58,7 @@ class GithubConnector(Connector):
                            "to watch several"},
         "token": {"type": "string", "secret": True, "discover_input": True,
                   "help": "GitHub token — required for private repos, recommended otherwise: "
-                          "without one GitHub allows 60 API requests/hour per IP "
-                          "(or set the GITHUB_TOKEN env var — kept out of the catalog)"},
+                          "without one GitHub allows 60 API requests/hour per IP"},
         "limit": {"type": "number", "default": 20,
                   "help": "newest commits fetched per poll (the first poll imports this many)"},
         "api_url": {"type": "string", "advanced": True,
@@ -108,7 +106,7 @@ class GithubConnector(Connector):
         c = self.cfg.config
         repo = _normalize_repo(c["repo"])
         api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
-        token = c.get("token") or os.getenv("GITHUB_TOKEN")
+        token = c.get("token")
         limit = int(c.get("limit", 20))
         async with httpx.AsyncClient(timeout=15) as cx:
             branch = str(c.get("branch") or "")
@@ -172,7 +170,7 @@ class GithubConnector(Connector):
             raise ValueError("enter the repo (owner/name) first, then Discover")
         repo = _normalize_repo(config["repo"])
         api = (config.get("api_url") or _API_DEFAULT).rstrip("/")
-        token = config.get("token") or os.getenv("GITHUB_TOKEN")
+        token = config.get("token")
         async with httpx.AsyncClient(timeout=15) as cx:
             try:
                 meta = await cx.get(f"{api}/repos/{repo}", headers=_headers(token))

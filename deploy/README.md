@@ -85,7 +85,7 @@ An agent connects by adding the `/mcp` URL as a streamable-http MCP server. Rout
 ## Scenario 3 — self-hosted single-tenant
 
 A writable instance for one team, behind a shared token. `docker-compose.selfhost.yml` runs navflowd
-(not read-only) + the MCP server + Caddy, all requiring `NAVFLOW_AUTH_TOKEN`.
++ the MCP server + Caddy, all requiring `NAVFLOW_AUTH_TOKEN`.
 
 ```sh
 export NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24)   # the access token (humans + agents)
@@ -99,8 +99,9 @@ docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
 - **MCP (agents):** add `https://<host>/mcp` as a streamable-http MCP server with
   `Authorization: Bearer $NAVFLOW_AUTH_TOKEN`. The token is required to connect and is forwarded to
   navflowd.
-- **Ingest (producers):** set `NAVFLOW_INGEST_TOKEN` and have producers send it as `X-NavFlow-Token`
-  (or Bearer). Ingest is *not* gated by the auth token — it's a separate, machine-facing secret.
+- **Ingest (producers):** create a scoped `ingest` API key per producer (console → Security → API
+  keys) and have producers send it as `Authorization: Bearer …`. Ingest is gated by auth like every
+  other route — there is no separate ingest token.
 - **Auth model:** one shared bearer token. For per-user SSO, front the console with oauth2-proxy /
   Tailscale / Caddy basic-auth (machine paths — MCP + ingest — keep their tokens).
 

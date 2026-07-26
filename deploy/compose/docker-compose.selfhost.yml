@@ -5,9 +5,10 @@
 #   NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24) NAVFLOW_DOMAIN=navflow.acme.com \
 #     docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
 #
-# The console + MCP require NAVFLOW_AUTH_TOKEN (humans log in with it; agents send it as a bearer
-# token). Ingest endpoints take a separate NAVFLOW_INGEST_TOKEN (give it to your producers). DuckDB
-# is single-writer, so this is exactly ONE navflowd + one volume — do not scale to replicas.
+# The console + MCP + ingest all require NAVFLOW_AUTH_TOKEN (humans log in with it; agents send it as
+# a bearer token). Give producers their own scoped ingest API keys from the console (Security → API
+# keys) rather than the root token. DuckDB is single-writer, so this is exactly ONE navflowd + one
+# volume — do not scale to replicas.
 name: navflow
 
 services:
@@ -16,7 +17,6 @@ services:
     command: ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
     environment:
       NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN (e.g. openssl rand -hex 24)}"
-      NAVFLOW_INGEST_TOKEN: "${NAVFLOW_INGEST_TOKEN:-}"  # optional: require a token on /ingest, /v1/*
     volumes:
       - navflow-data:/data                              # back this up: it holds navflow.duckdb
     expose: ["8787"]

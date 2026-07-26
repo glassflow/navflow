@@ -2,80 +2,128 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { Close } from "../components/icons";
 import { TimeAgo } from "../components/bits";
 import type { ApiKey } from "../types";
 
-function Copy({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      className="copybtn"
-      onClick={() => {
-        navigator.clipboard?.writeText(text);
-        setDone(true);
-        setTimeout(() => setDone(false), 1500);
-      }}
-    >
-      {done ? "copied" : "copy"}
-    </button>
-  );
-}
-
-// Instance credentials the operator hands to machines. Read-only for now; create/revoke lands here
-// later (today the ingest token is set once via NAVFLOW_INGEST_TOKEN on the daemon).
+// Three distinct credential concepts, one box each:
+//   · Access     — is this instance open, or does it require a login? (navflow up --auth)
+//   · API keys   — scoped, revocable, show-once credentials the operator mints for machines
+//   · Anthropic  — the model key NavFlow agents (and Ask) run on
+// The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
 export default function Security() {
-  const [data, setData] = useState<{ ingest_token: string | null; ingest_required: boolean }>();
-  const [err, setErr] = useState<string>();
-  const [revealed, setRevealed] = useState(false);
-
-  useEffect(() => {
-    api.security().then(setData).catch((e) => setErr(String((e as Error).message ?? e)));
-  }, []);
-
-  const token = data?.ingest_token ?? "";
-  const masked =
-    token.length > 8
-      ? `${token.slice(0, 4)}${"•".repeat(token.length - 8)}${token.slice(-4)}`
-      : "••••••••";
-
   return (
     <>
       <h1>Security</h1>
-      <p className="subtitle">
-        instance credentials — the tokens machines use to reach this NavFlow
+      <p className="subtitle">how this instance is secured, and the credentials it issues</p>
+      <AccessPanel />
+      <ApiKeysPanel />
+      <AnthropicKeyPanel />
+    </>
+  );
+}
+
+// Auth is set at launch: `navflow up` is open; `navflow up --auth` requires a login (a root token
+// printed to the terminal). This box states which mode you're in — there's no runtime toggle, so
+// it's status, not a control.
+function AccessPanel() {
+  const [authRequired, setAuthRequired] = useState<boolean>();
+  useEffect(() => {
+    api.health().then((h) => setAuthRequired(h.auth_required)).catch(() => setAuthRequired(undefined));
+  }, []);
+
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Access</h2>
+      {authRequired === undefined ? <div className="muted">loading…</div>
+        : authRequired ? (
+          <p style={{ margin: 0 }}>
+            <span className="badge ok">auth on</span>{" "}
+            <span className="help">
+              the console and API require a login. You signed in with the root token printed by{" "}
+              <code>navflow up --auth</code>. Hand machines their own scoped <strong>API keys</strong>{" "}
+              below — never the root token.
+            </span>
+          </p>
+        ) : (
+          <div className="alert">
+            <span className="badge">auth off</span> — this instance is <strong>open</strong>: anyone
+            who can reach it can read and write, and API keys are not enforced. Restart with{" "}
+            <code>navflow up --auth</code> to require a login.
+          </div>
+        )}
+    </div>
+  );
+}
+
+// The key NavFlow agents run on. Two ways in — the environment, or here — because plenty of local
+// users launch NavFlow from a desktop shortcut and have no shell to export into. Env always wins,
+// so a deployment's config is never silently overridden by something typed in here months earlier.
+function AnthropicKeyPanel() {
+  const [st, setSt] = useState<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>();
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const [msg, setMsg] = useState<string>();
+
+  const load = () =>
+    api.anthropicKeyStatus().then(setSt).catch((e) => setErr(String((e as Error).message ?? e)));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true); setErr(undefined); setMsg(undefined);
+    try {
+      const r = await api.setAnthropicKey(key.trim());
+      setKey("");
+      setMsg(r.note ?? "✓ saved");
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Anthropic key</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        What <strong>NavFlow agents</strong> run on — their first look at an entity when a trigger
+        fires. Set <code>ANTHROPIC_API_KEY</code> in the daemon's environment, or store one here.
+        It is never returned by the API and never included in a catalog export.
       </p>
 
       {err && <div className="alert error">{err}</div>}
+      {msg && <p className="help">{msg}</p>}
 
-      <div className="panel">
-        <h2 style={{ marginTop: 0 }}>Ingest token</h2>
-        <p className="help" style={{ marginTop: 0 }}>
-          Producers (webhooks, Vercel / OTLP drains) send this as <code>X-NavFlow-Token</code> or{" "}
-          <code>Authorization: Bearer …</code> when POSTing to <code>/ingest/&lt;source&gt;</code> and{" "}
-          <code>/v1/*</code>. It is separate from your console / MCP login token.
-        </p>
-
-        {!data && !err ? (
-          <div className="muted">loading…</div>
-        ) : data?.ingest_required && token ? (
-          <div className="btnrow" style={{ alignItems: "center" }}>
-            <code className="payload" style={{ flex: 1, margin: 0, wordBreak: "break-all" }}>
-              {revealed ? token : masked}
-            </code>
-            <button onClick={() => setRevealed((r) => !r)}>{revealed ? "hide" : "reveal"}</button>
-            <Copy text={token} />
+      {!st ? <div className="muted">loading…</div> : (
+        <>
+          <p style={{ margin: "0 0 10px" }}>
+            {st.configured
+              ? <><span className="badge ok">configured</span>{" "}
+                  <span className="help">from <span className="mono">{st.source}</span></span></>
+              : <><span className="badge error">not configured</span>{" "}
+                  <span className="help">agents cannot be enabled until one is set</span></>}
+          </p>
+          {st.env_overrides && st.stored && (
+            <div className="alert">
+              A key is set in the environment and takes precedence — the one stored here is not in
+              use. Remove the environment variable, or clear the stored key to avoid confusion.
+            </div>
+          )}
+          <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
+            <input type="password" className="mono" style={{ flex: 1 }} placeholder="sk-ant-…"
+                   value={key} onChange={(e) => setKey(e.target.value)} />
+            <button className="primary" disabled={busy || !key.trim()} onClick={save}>Save</button>
+            {st.stored && (
+              <button className="danger" disabled={busy} onClick={async () => {
+                setBusy(true);
+                try { await api.clearAnthropicKey(); await load(); }
+                catch (e) { setErr(String((e as Error).message ?? e)); }
+                setBusy(false);
+              }}>Clear stored</button>
+            )}
           </div>
-        ) : data ? (
-          <div className="alert">
-            Ingest is <strong>open</strong> on this instance — no token is required, so anyone who
-            knows an <code>/ingest/&lt;key&gt;</code> URL can post to it. Set{" "}
-            <code>NAVFLOW_INGEST_TOKEN</code> on the daemon to require a token.
-          </div>
-        ) : null}
-      </div>
-
-      <ApiKeysPanel />
-    </>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -91,33 +139,20 @@ function ApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>();
   const [enforced, setEnforced] = useState(true);
   const [err, setErr] = useState<string>();
-  const [name, setName] = useState("");
-  const [scopes, setScopes] = useState<string[]>(["read"]);
   const [minted, setMinted] = useState<{ name: string; secret: string }>();
   const [revoking, setRevoking] = useState<ApiKey>();
-  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = () => api.keys().then((r) => { setKeys(r.keys); setEnforced(r.enforced); })
     .catch((e) => setErr(String((e as Error).message ?? e)));
   useEffect(() => { load(); }, []);
 
-  const create = async () => {
-    setBusy(true);
-    setErr(undefined);
-    try {
-      const r = await api.createKey(name.trim(), scopes);
-      setMinted({ name: r.name, secret: r.secret });
-      setName("");
-      load();
-    } catch (e) { setErr(String((e as Error).message ?? e)); }
-    setBusy(false);
-  };
-
-  const active = (keys ?? []).filter((k) => !k.revoked_at);
-
   return (
     <div className="panel">
-      <h2 style={{ marginTop: 0 }}>API keys</h2>
+      <div className="pagehead" style={{ marginBottom: 6 }}>
+        <h2 style={{ margin: 0 }}>API keys</h2>
+        <button className="primary" onClick={() => setCreating(true)}>Create key</button>
+      </div>
       <p className="help" style={{ marginTop: 0 }}>
         Scoped, revocable credentials — hand each producer and agent its own key instead of a
         shared token. <strong>read</strong>: agents over MCP · <strong>ingest</strong>: producers ·{" "}
@@ -142,7 +177,7 @@ function ApiKeysPanel() {
         </div>
       )}
 
-      {keys && keys.length > 0 && (
+      {keys && keys.length > 0 ? (
         <table style={{ marginBottom: 14 }}>
           <thead><tr><th>name</th><th>scopes</th><th>key</th><th>created</th><th>last used</th><th></th></tr></thead>
           <tbody>
@@ -162,34 +197,16 @@ function ApiKeysPanel() {
             ))}
           </tbody>
         </table>
+      ) : (
+        <p className="help">no keys yet — <strong>Create key</strong> to issue one for a producer or agent.</p>
       )}
-      {keys && active.length === 0 && <p className="help">no active keys yet — create one below</p>}
 
-      <div style={{ borderTop: "1px solid var(--line)", marginTop: 18, paddingTop: 16, maxWidth: 560 }}>
-        <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>Create a key</h3>
-        <label className="field" style={{ maxWidth: 320 }}>
-          <span className="lbl">name</span>
-          <input type="text" placeholder="e.g. otel-prod, my-agent" value={name}
-                 onChange={(e) => setName(e.target.value)} />
-          <span className="help">who holds it — one key per producer or agent</span>
-        </label>
-        <div className="field">
-          <span className="lbl">scopes</span>
-          {Object.entries(SCOPE_HELP).map(([s, help]) => (
-            <label key={s} style={{ display: "flex", gap: 10, alignItems: "baseline",
-                                     padding: "5px 0", cursor: "pointer" }}>
-              <input type="checkbox" checked={scopes.includes(s)}
-                     style={{ transform: "translateY(1px)" }}
-                     onChange={(e) => setScopes(e.target.checked
-                       ? [...scopes, s] : scopes.filter((x) => x !== s))} />
-              <span className="mono" style={{ minWidth: 56 }}>{s}</span>
-              <span className="help" style={{ margin: 0 }}>{help}</span>
-            </label>
-          ))}
-        </div>
-        <button className="primary" disabled={busy || !name.trim() || scopes.length === 0}
-                onClick={create}>Create key</button>
-      </div>
+      {creating && (
+        <KeyModal
+          onClose={() => setCreating(false)}
+          onCreated={(m) => { setCreating(false); setMinted(m); load(); }}
+        />
+      )}
 
       {revoking && (
         <ConfirmDialog
@@ -206,6 +223,72 @@ function ApiKeysPanel() {
         />
       )}
     </div>
+  );
+}
+
+// Create-key modal — name + scope checkboxes. The secret only exists in the create response, so it
+// surfaces once (in the panel's "created" alert) and never again; this dialog just collects inputs.
+function KeyModal({ onClose, onCreated }: {
+  onClose: () => void;
+  onCreated: (m: { name: string; secret: string }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<string[]>(["read"]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const create = async () => {
+    setBusy(true); setErr(undefined);
+    try {
+      const r = await api.createKey(name.trim(), scopes);
+      onCreated({ name: r.name, secret: r.secret });
+    } catch (e) { setErr(String((e as Error).message ?? e)); setBusy(false); }
+  };
+
+  return (
+    <>
+      <div className="sheet-overlay" style={{ zIndex: 100 }} onClick={onClose} />
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Create API key">
+        <div className="sheet-head">
+          <div className="sheet-title"><h2 style={{ margin: 0 }}>Create API key</h2></div>
+          <button className="sheet-close" onClick={onClose} aria-label="Close"><Close /></button>
+        </div>
+        <div className="modal-body">
+          {err && <div className="alert error">{err}</div>}
+          <label className="field">
+            <span className="lbl">name</span>
+            <input type="text" placeholder="e.g. otel-prod, my-agent" value={name} autoFocus
+                   onChange={(e) => setName(e.target.value)} />
+            <span className="help">who holds it — one key per producer or agent</span>
+          </label>
+          <div className="field">
+            <span className="lbl">scopes</span>
+            {Object.entries(SCOPE_HELP).map(([s, help]) => (
+              <label key={s} style={{ display: "flex", gap: 10, alignItems: "baseline",
+                                       padding: "5px 0", cursor: "pointer" }}>
+                <input type="checkbox" checked={scopes.includes(s)}
+                       style={{ transform: "translateY(1px)" }}
+                       onChange={(e) => setScopes(e.target.checked
+                         ? [...scopes, s] : scopes.filter((x) => x !== s))} />
+                <span className="mono" style={{ minWidth: 56 }}>{s}</span>
+                <span className="help" style={{ margin: 0 }}>{help}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="sheet-foot">
+          <button className="primary" disabled={busy || !name.trim() || scopes.length === 0}
+                  onClick={create}>{busy ? "…" : "Create key"}</button>
+          <button onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </>
   );
 }
 

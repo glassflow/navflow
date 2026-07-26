@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -344,7 +344,8 @@ function CopyableUrl({ url }: { url: string }) {
 }
 
 // The full, copyable ingest URL — built from the browser's own origin, so it's correct wherever the
-// console is served. OTLP uses the /v1/* endpoints (source chosen by header) instead of a path key.
+// console is served. The URL is an address (always shown here); on a secured instance IngestSetup
+// adds the auth-key guidance. OTLP uses the /v1/* endpoints (source chosen by header), no path key.
 function IngestEndpoint({ source }: { source: Source }) {
   const origin = window.location.origin;
   if (source.connector === "otlp") {

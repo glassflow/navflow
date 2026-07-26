@@ -26,7 +26,7 @@ def _truthy(v: str) -> bool:
 
 def _opt(name: str, default: str = "") -> str:
     """userConfig option from the hook env. Claude Code injects CLAUDE_PLUGIN_OPTION_<KEY> with
-    the key UPPERCASED (user_config.ingest_token -> CLAUDE_PLUGIN_OPTION_INGEST_TOKEN); check the
+    the key UPPERCASED (user_config.access_token -> CLAUDE_PLUGIN_OPTION_ACCESS_TOKEN); check the
     verbatim casing too for robustness across versions."""
     return (os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name.upper()}")
             or os.environ.get(f"CLAUDE_PLUGIN_OPTION_{name}")
@@ -68,7 +68,7 @@ def main() -> None:
         return
 
     base = (_opt("navflow_url") or "http://127.0.0.1:8787").rstrip("/")
-    token = (_opt("ingest_token") or "").strip()
+    token = (_opt("access_token") or "").strip()
     headers = {"Content-Type": "application/x-ndjson"}
     if token:
         headers["Authorization"] = f"Bearer {token}"

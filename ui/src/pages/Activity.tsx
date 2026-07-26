@@ -35,15 +35,17 @@ export function ConnectPage() {
   );
 }
 
-type ActivityTab = "agents" | "queries" | "dispatches";
+type ActivityTab = "queries" | "dispatches";
 const ACTIVITY_LABELS: Record<ActivityTab, string> = {
-  agents: "Agents", queries: "Reads", dispatches: "Trigger dispatches",
+  dispatches: "Trigger dispatches", queries: "Reads",
 };
 
+// The connected-agent roster moved to the Agents page (which lists NavFlow agents too); Activity is
+// now just what's been happening — reads agents ran, and trigger dispatches.
 export default function AgentActivity() {
   const [params, setParams] = useSearchParams();
-  const tab = (["agents", "queries", "dispatches"].includes(params.get("tab") ?? "")
-    ? params.get("tab") : "agents") as ActivityTab;
+  const tab = (["queries", "dispatches"].includes(params.get("tab") ?? "")
+    ? params.get("tab") : "dispatches") as ActivityTab;
   const setTab = (t: ActivityTab) => {
     const next = new URLSearchParams(params);
     next.set("tab", t);
@@ -52,8 +54,8 @@ export default function AgentActivity() {
 
   return (
     <>
-      <h1>Agents</h1>
-      <p className="subtitle">who is connected, and what agents have been doing — every wake, read and dispatch</p>
+      <h1>Activity</h1>
+      <p className="subtitle">what's been happening — the reads agents made and every trigger dispatch</p>
 
       <div className="tabs">
         {(Object.keys(ACTIVITY_LABELS) as ActivityTab[]).map((t) => (
@@ -61,7 +63,6 @@ export default function AgentActivity() {
         ))}
       </div>
 
-      {tab === "agents" && <AgentsRoster />}
       {tab === "queries" && <Queries />}
       {tab === "dispatches" && <Dispatches />}
     </>
@@ -351,7 +352,8 @@ function Connect({ tab }: { tab: ConnectTab }) {
   );
 }
 
-function AgentsRoster() {
+// Exported so the Agents page can show connected agents (only="connected") beneath NavFlow agents.
+export function AgentsRoster({ only }: { only?: "connected" | "navflow" }) {
   const nav = useNavigate();
   const { data, error } = usePolling(() => api.agents(), 10000);
   const [params] = useSearchParams();
@@ -360,10 +362,11 @@ function AgentsRoster() {
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <div className="dim">loading…</div>;
-  if (!data.agents.length) {
+  const agents = only ? data.agents.filter((a) => a.kind === only) : data.agents;
+  if (!agents.length) {
     return (
       <div className="empty">
-        no agents connected — subscribe one to a trigger on the <Link to="/triggers">Triggers</Link> page
+        no external agents connected — connect one from a <Link to="/triggers">trigger's</Link> page
       </div>
     );
   }
@@ -373,7 +376,7 @@ function AgentsRoster() {
       <table>
         <thead><tr><th>agent</th><th>endpoint</th><th>wakes on</th><th className="num">delivered</th><th className="num">failed</th><th>last woken</th><th></th></tr></thead>
         <tbody>
-          {data.agents.map((a) => (
+          {agents.map((a) => (
             <>
               <tr key={a.name} className="clickable" onClick={() => setOpen(open === a.name ? undefined : a.name)}>
                 <td>

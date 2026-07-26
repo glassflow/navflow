@@ -5,6 +5,9 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import App from "./App";
 import AuthGate from "./components/AuthGate";
 import AgentActivity, { ConnectPage } from "./pages/Activity";
+import Agents from "./pages/Agents";
+import AgentDetail from "./pages/AgentDetail";
+import AgentNew from "./pages/AgentNew";
 import Ask from "./pages/Ask";
 import CatalogExport from "./pages/CatalogExport";
 import CatalogImport from "./pages/CatalogImport";
@@ -46,7 +49,9 @@ const router = createBrowserRouter([
       { path: "connect", element: <ConnectPage /> },
       { path: "activity", element: <AgentActivity /> },
       { path: "dispatches/:id", element: <DispatchDetail /> },
-      { path: "agents", element: <Navigate to="/connect" replace /> },
+      { path: "agents", element: <Agents /> },
+      { path: "agents/new", element: <AgentNew /> },
+      { path: "agents/:name", element: <AgentDetail /> },
       { path: "ask", element: <Ask /> },
       { path: "security", element: <Security /> },
       { path: "settings", element: <Navigate to="/" replace /> },

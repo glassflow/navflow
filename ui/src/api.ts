@@ -2,7 +2,9 @@ import type {
   AgentInfo,
   ApiKey,
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchDetail, DispatchLogEntry, Entity, EnvScan,
-  LabelFacet, QueryLogEntry, Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
+  AgentPreset, AgentRun, BuiltinAgent,
+  LabelFacet, QueryLogEntry,
+  Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
   TimelineEventRow, Trigger, View,
 } from "./types";
 
@@ -57,12 +59,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; readonly: boolean; auth_required: boolean }>("/health"),
+  health: () => request<{ status: string; auth_required: boolean }>("/health"),
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
   capabilities: () =>
     request<{ version?: string | null; discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),
-  security: () =>
-    request<{ ingest_token: string | null; ingest_required: boolean }>("/api/security"),
   keys: () => request<{ keys: ApiKey[]; enforced: boolean; scopes: string[] }>("/api/keys"),
   createKey: (name: string, scopes: string[]) =>
     request<{ id: string; name: string; scopes: string[]; secret: string }>(
@@ -112,6 +112,32 @@ export const api = {
   deleteTrigger: (name: string) => request(`/api/triggers/${name}`, { method: "DELETE" }),
   pauseTrigger: (name: string) => request(`/api/triggers/${name}/pause`, { method: "POST" }),
   resumeTrigger: (name: string) => request(`/api/triggers/${name}/resume`, { method: "POST" }),
+  // ── NavFlow agents: a first look when a trigger fires (managed under /builtin) ──
+  builtinAgents: () =>
+    request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
+              presets: AgentPreset[] }>("/api/agents/builtin"),
+  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string }) =>
+    request<{ ok: boolean; enabled: boolean }>("/api/agents/builtin",
+      { method: "POST", body: JSON.stringify(body) }),
+  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string }) =>
+    request(`/api/agents/builtin/${name}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
+  enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),
+  disableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/disable`, { method: "POST" }),
+  builtinAgentRuns: (name: string, limit = 20) =>
+    request<AgentRun[]>(`/api/agents/builtin/${name}/runs?limit=${limit}`),
+
+  // The Anthropic key NavFlow agents run on. Never returned — only whether one resolves and where.
+  anthropicKeyStatus: () =>
+    request<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>(
+      "/api/settings/anthropic-key"),
+  setAnthropicKey: (key: string) =>
+    request<{ ok: boolean; source: string; note?: string }>("/api/settings/anthropic-key",
+      { method: "PUT", body: JSON.stringify({ key }) }),
+  clearAnthropicKey: () =>
+    request<{ ok: boolean; configured: boolean }>("/api/settings/anthropic-key",
+      { method: "DELETE" }),
+
   agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),
   unsubscribe: (subscription_id: string) =>
     request<{ ok: boolean }>("/unsubscribe",

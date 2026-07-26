@@ -41,13 +41,19 @@ directory:
 ```bash
 uv tool install navflow          # or: pipx install navflow  (or from source: uv pip install -e .)
 
-# seed the demo sources/views/triggers and start the daemon + console
+# seed the demo sources/views/triggers/agent and start the daemon + console
 curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
+export ANTHROPIC_API_KEY=sk-ant-…     # so the shipped NavFlow agent can run (or set one later in the console)
 NAVFLOW_CATALOG=catalog.demo.yaml navflow up
 ```
 
 The console opens at http://127.0.0.1:8787. (`navflow up` imports the catalog while the catalog is
 still empty; been running NavFlow already? Restart on a fresh `--data-dir`.)
+
+The catalog also ships a **NavFlow agent** (`incident-first-look`) wired to the `incident` trigger —
+so the loop closes with nothing to deploy. It needs an Anthropic key (the `ANTHROPIC_API_KEY` above,
+or set one in the console → Security); without a key it stays enabled but each run is logged as
+"no key" and no finding is written.
 
 ## 3. Look around
 
@@ -76,10 +82,14 @@ curl -s -XPOST localhost:8080/demo/inject -H 'content-type: application/json' \
 - `clear` — roll back; the alerts resolve (a `resolved` event lands in the timeline)
 
 Give it ~30s (the rules have a 15s `for:`, then NavFlow polls the alert). The alert lands in
-**Explore** (the timeline turns red) next to the metric that tripped it and the error logs, the
-`incident` trigger fires, and — once an agent is subscribed — it shows in
-**Agents → Trigger dispatches**. Ask the agent *"what's wrong with api-server?"* and it diagnoses
-from the one correlated read.
+**Explore** (the timeline turns red) next to the metric that tripped it and the error logs, and the
+`incident` trigger fires. The shipped **`incident-first-look` agent** wakes on that firing, reads the
+correlated timeline, and writes its diagnosis back as a **finding** on api-server's timeline (watch
+it appear in Explore, or under **Agents → `incident-first-look` → Runs & findings**). Any external
+agent you've subscribed is woken by the same firing.
+
+Prefer to drive it yourself? Connect over MCP and ask *"what's wrong with api-server?"* — it
+diagnoses from the same one correlated read.
 
 ## 5. Stop
 
@@ -92,5 +102,5 @@ docker compose down              # from the directory with docker-compose.yml
 - `docker-compose.build.yml` — override to build `api-server` from source instead of pulling.
 - `api-server/` — the monitored app (`app.py`): metrics, logs, and the `/demo/inject` fault switch.
   Published as `ghcr.io/glassflow/navflow-demo-api-server`.
-- `catalog.demo.yaml` — NavFlow's view of the stack (sources, views, triggers).
+- `catalog.demo.yaml` — NavFlow's view of the stack (sources, views, trigger, and the shipped agent).
 - `inject.sh` — cause/clear an incident.

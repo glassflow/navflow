@@ -112,6 +112,39 @@ CREATE TABLE IF NOT EXISTS catalog_triggers (
   updated_at TIMESTAMPTZ,
   paused     BOOLEAN DEFAULT FALSE
 );
+-- A NavFlow agent: the DEFINITION only (prompt + optional Slack). Whether it's enabled is not a
+-- column — an agent is enabled exactly when it has a subscription to its trigger, the same wiring
+-- an external agent has. That keeps one source of truth for "will it be woken" (subscriptions).
+CREATE TABLE IF NOT EXISTS catalog_agents (
+  name          TEXT PRIMARY KEY,
+  trigger       TEXT,
+  prompt        TEXT,
+  slack_webhook TEXT,
+  created_at    TIMESTAMPTZ,
+  updated_at    TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+  id          TEXT PRIMARY KEY,
+  agent       TEXT,
+  trigger     TEXT,
+  dispatch_id TEXT,
+  key_value   TEXT,
+  status      TEXT,
+  rounds      INTEGER,
+  tool_calls  INTEGER,
+  prompt_hash TEXT,
+  started_at  TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  duration_ms INTEGER,
+  finding     TEXT,
+  error       TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_agent_runs_agent ON agent_runs(agent);
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS query_log (
   id            TEXT PRIMARY KEY,
   view          TEXT,
@@ -145,6 +178,10 @@ _MIGRATIONS = [
     # rows get NULL (read as False); the upsert always writes an explicit value going forward.
     "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS paused BOOLEAN",
     "ALTER TABLE dispatch_deliveries ADD COLUMN IF NOT EXISTS error TEXT",
+    # `reviews` were renamed to NavFlow agents before release; drop the old-named tables if a dev
+    # DB still carries them (the definitions are re-created under the new names).
+    "DROP TABLE IF EXISTS catalog_reviews",
+    "DROP TABLE IF EXISTS review_runs",
     # Retired: navflow no longer auto-extracts numeric fields. Numbers you aggregate are declared
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
@@ -695,6 +732,106 @@ class Store:
             self.con.execute("DELETE FROM catalog_sources")
             self.con.execute("DELETE FROM catalog_views")
             self.con.execute("DELETE FROM catalog_triggers")
+            self.con.execute("DELETE FROM catalog_agents")
+
+    # ── NavFlow agents (a prompt attached to a trigger; enabled ⟺ subscribed) ──
+    def upsert_catalog_agent(self, name: str, trigger: str, prompt: str,
+                             slack_webhook: str | None = None) -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO catalog_agents "
+                "(name, trigger, prompt, slack_webhook, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
+                "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
+                "updated_at = excluded.updated_at",
+                [name, trigger, prompt, slack_webhook or "", ts, ts],
+            )
+
+    def list_catalog_agents(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT name, trigger, prompt, slack_webhook, updated_at "
+                "FROM catalog_agents ORDER BY name"
+            ).fetchall()
+        return [
+            {"name": r[0], "trigger": r[1], "prompt": r[2], "slack_webhook": r[3] or "",
+             "updated_at": r[4]}
+            for r in rows
+        ]
+
+    def get_catalog_agent(self, name: str) -> dict | None:
+        return next((a for a in self.list_catalog_agents() if a["name"] == name), None)
+
+    def delete_catalog_agent(self, name: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM catalog_agents WHERE name = ?", [name])
+            self.con.execute("DELETE FROM agent_runs WHERE agent = ?", [name])
+
+    # ── agent runs (the operational record; the finding is an event, not this) ──
+    def start_agent_run(self, run_id: str, agent: str, trigger: str, dispatch_id: str,
+                        key: str, prompt_hash: str) -> None:
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO agent_runs (id, agent, trigger, dispatch_id, key_value, status, "
+                "rounds, tool_calls, prompt_hash, started_at) "
+                "VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?)",
+                [run_id, agent, trigger, dispatch_id, key, prompt_hash, now_utc()],
+            )
+
+    def finish_agent_run(self, run_id: str, status: str, rounds: int = 0, tool_calls: int = 0,
+                         finding: str | None = None, error: str | None = None) -> None:
+        with self._lock:
+            self.con.execute(
+                "UPDATE agent_runs SET status = ?, rounds = ?, tool_calls = ?, finding = ?, "
+                "error = ?, finished_at = ?, "
+                "duration_ms = CAST(date_diff('millisecond', started_at, ?) AS INTEGER) "
+                "WHERE id = ?",
+                [status, rounds, tool_calls, finding, error, now_utc(), now_utc(), run_id],
+            )
+
+    def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
+        sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
+               "started_at, duration_ms, finding, error FROM agent_runs ")
+        params: list = []
+        if agent:
+            sql += "WHERE agent = ? "
+            params.append(agent)
+        sql += "ORDER BY started_at DESC LIMIT ?"
+        params.append(int(limit))
+        with self._lock:
+            rows = self.con.execute(sql, params).fetchall()
+        return [
+            {"id": r[0], "agent": r[1], "trigger": r[2], "dispatch_id": r[3], "key": r[4],
+             "status": r[5], "rounds": r[6], "tool_calls": r[7], "started_at": r[8],
+             "duration_ms": r[9], "finding": r[10], "error": r[11]}
+            for r in rows
+        ]
+
+    def agent_runs_today(self, agent: str) -> int:
+        """Runs started in the last 24h — the cost ceiling's counter."""
+        with self._lock:
+            row = self.con.execute(
+                "SELECT count(*) FROM agent_runs WHERE agent = ? "
+                "AND started_at > now() - INTERVAL 1 DAY", [agent]).fetchone()
+        return int(row[0]) if row else 0
+
+    # ── settings (instance config set from the console) ───────────────────────
+    def get_setting(self, key: str) -> str | None:
+        with self._lock:
+            row = self.con.execute("SELECT value FROM settings WHERE key = ?", [key]).fetchone()
+        return row[0] if row else None
+
+    def set_setting(self, key: str, value: str | None) -> None:
+        with self._lock:
+            if value is None:
+                self.con.execute("DELETE FROM settings WHERE key = ?", [key])
+            else:
+                self.con.execute(
+                    "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT (key) DO UPDATE SET value = excluded.value, "
+                    "updated_at = excluded.updated_at", [key, value, now_utc()])
 
     # ── activity logs (agent-facing observability) ────────────────────────────
     def log_query(self, qid: str, view: str, key: str, window: str,
@@ -721,16 +858,20 @@ class Store:
         """One firing by id, with the same failure-reason as list_dispatches. None if unknown."""
         with self._lock:
             r = self.con.execute(
-                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, "
-                "l.subscribers, l.delivered, l.payload, "
+                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, l.subscribers, "
+                "(SELECT COUNT(*) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok) AS delivered, "
+                "(SELECT COUNT(*) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok IS NULL) AS pending, "
+                "l.payload, "
                 "(SELECT arg_max(d.error, d.delivered_at) FROM dispatch_deliveries d "
-                " WHERE d.dispatch_id = l.dispatch_id AND NOT d.ok) AS error "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok = FALSE) AS error "
                 "FROM dispatch_log l WHERE l.dispatch_id = ?", [dispatch_id]).fetchone()
         if r is None:
             return None
         return {"dispatch_id": r[0], "trigger": r[1], "key": r[2], "kind": r[3],
-                "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "payload": r[7],
-                "error": r[8]}
+                "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "pending": r[7],
+                "payload": r[8], "error": r[9]}
 
     def deliveries_for(self, dispatch_id: str) -> list[dict]:
         """Per-subscriber delivery attempts for one firing — the detail behind 'delivered X of N'."""
@@ -738,7 +879,10 @@ class Store:
             rows = self.con.execute(
                 "SELECT subscription_id, url, ok, error, delivered_at FROM dispatch_deliveries "
                 "WHERE dispatch_id = ? ORDER BY delivered_at", [dispatch_id]).fetchall()
-        return [{"subscription_id": r[0], "url": r[1], "ok": bool(r[2]),
+        # ok stays None when the delivery is still pending (a NavFlow agent mid-run) — the caller
+        # distinguishes pending from failed; bool() would collapse both to False.
+        return [{"subscription_id": r[0], "url": r[1],
+                 "ok": None if r[2] is None else bool(r[2]),
                  "error": r[3], "delivered_at": r[4]} for r in rows]
 
     def log_dispatch(self, dispatch_id: str, trigger: str, key: str, kind: str,
@@ -750,20 +894,26 @@ class Store:
             )
 
     def list_dispatches(self, limit: int = 100) -> list[dict]:
-        # `error` = the most recent failed delivery's reason for this dispatch (NULL if all delivered
-        # or there were no subscribers), so a "delivered 0 of N" row can show WHY.
+        # `delivered` and `pending` are computed LIVE from deliveries, not read from the snapshot:
+        # a NavFlow agent's in-process run finishes after fire() returns, so its outcome lands late.
+        # Counting ok/NULL deliveries keeps the row honest as those runs complete.
+        # `error` = the most recent failed delivery's reason (NULL if none failed).
         with self._lock:
             rows = self.con.execute(
-                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, "
-                "l.subscribers, l.delivered, l.payload, "
+                "SELECT l.dispatch_id, l.trigger, l.key_value, l.kind, l.fired_at, l.subscribers, "
+                "(SELECT COUNT(*) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok) AS delivered, "
+                "(SELECT COUNT(*) FROM dispatch_deliveries d "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok IS NULL) AS pending, "
+                "l.payload, "
                 "(SELECT arg_max(d.error, d.delivered_at) FROM dispatch_deliveries d "
-                " WHERE d.dispatch_id = l.dispatch_id AND NOT d.ok) AS error "
+                " WHERE d.dispatch_id = l.dispatch_id AND d.ok = FALSE) AS error "
                 "FROM dispatch_log l ORDER BY l.fired_at DESC LIMIT ?", [int(limit)],
             ).fetchall()
         return [
             {"dispatch_id": r[0], "trigger": r[1], "key": r[2], "kind": r[3],
-             "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "payload": r[7],
-             "error": r[8]}
+             "fired_at": r[4], "subscribers": r[5], "delivered": r[6], "pending": r[7],
+             "payload": r[8], "error": r[9]}
             for r in rows
         ]
 
@@ -979,14 +1129,38 @@ class Store:
         with self._lock:
             self.con.execute("DELETE FROM subscriptions WHERE subscription_id = ?", [sid])
 
-    def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool,
+    def subscription_by_url(self, url: str) -> dict | None:
+        """A subscription by its exact URL — used to find a NavFlow agent's internal subscription
+        (url = navflow://agent/<name>), which is how enabled/disabled is represented."""
+        with self._lock:
+            r = self.con.execute(
+                "SELECT subscription_id, trigger, url FROM subscriptions WHERE url = ? LIMIT 1",
+                [url]).fetchone()
+        return {"subscription_id": r[0], "trigger": r[1], "url": r[2]} if r else None
+
+    def remove_subscription_by_url(self, url: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM subscriptions WHERE url = ?", [url])
+
+    def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool | None,
                      error: str | None = None) -> None:
         # Explicit column list: `error` was appended by migration, so positional VALUES no longer match.
+        # ok may be NULL — a NavFlow agent's delivery is logged pending at fire time and updated when
+        # the in-process run finishes (external POSTs log their final ok immediately).
         with self._lock:
             self.con.execute(
                 "INSERT INTO dispatch_deliveries "
                 "(dispatch_id, subscription_id, url, ok, delivered_at, error) VALUES (?, ?, ?, ?, ?, ?)",
                 [dispatch_id, subscription_id, url, ok, now_utc(), error])
+
+    def update_delivery(self, dispatch_id: str, subscription_id: str, ok: bool,
+                        error: str | None = None) -> None:
+        """Resolve a pending delivery (a NavFlow agent's in-process run finishing)."""
+        with self._lock:
+            self.con.execute(
+                "UPDATE dispatch_deliveries SET ok = ?, error = ?, delivered_at = ? "
+                "WHERE dispatch_id = ? AND subscription_id = ?",
+                [ok, error, now_utc(), dispatch_id, subscription_id])
 
     def all_subscriptions(self) -> list[dict]:
         with self._lock:
@@ -1001,13 +1175,20 @@ class Store:
         / `last_error` describe the MOST RECENT delivery, so the UI can flag an endpoint that's
         currently failing and say why (arg_max picks the value at the latest delivered_at)."""
         with self._lock:
+            # ok IS NULL is a pending NavFlow-agent run — count it as neither delivered nor failed,
+            # and exclude it from the "most recent outcome" (arg_max over resolved deliveries only),
+            # so a running agent never reads as a failure.
             rows = self.con.execute(
                 "SELECT url, SUM(CASE WHEN ok THEN 1 ELSE 0 END), "
-                "SUM(CASE WHEN ok THEN 0 ELSE 1 END), MAX(delivered_at), "
-                "arg_max(ok, delivered_at), arg_max(error, delivered_at) "
+                "SUM(CASE WHEN ok = FALSE THEN 1 ELSE 0 END), MAX(delivered_at), "
+                "SUM(CASE WHEN ok IS NULL THEN 1 ELSE 0 END), "
+                "arg_max(ok, CASE WHEN ok IS NULL THEN NULL ELSE delivered_at END), "
+                "arg_max(error, CASE WHEN ok IS NULL THEN NULL ELSE delivered_at END) "
                 "FROM dispatch_deliveries GROUP BY url").fetchall()
         return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0), "last_at": r[3],
-                       "last_ok": bool(r[4]), "last_error": r[5]} for r in rows}
+                       "pending": int(r[4] or 0),
+                       "last_ok": True if r[5] is None else bool(r[5]), "last_error": r[6]}
+                for r in rows}
 
     def recent_deliveries(self, url: str, limit: int = 20) -> list[dict]:
         """Latest deliveries to one endpoint, joined with the firing's trigger/entity."""
@@ -1016,8 +1197,8 @@ class Store:
                 "SELECT d.delivered_at, d.ok, l.trigger, l.key_value, d.dispatch_id, d.error "
                 "FROM dispatch_deliveries d LEFT JOIN dispatch_log l ON d.dispatch_id = l.dispatch_id "
                 "WHERE d.url = ? ORDER BY d.delivered_at DESC LIMIT ?", [url, limit]).fetchall()
-        return [{"at": r[0], "ok": bool(r[1]), "trigger": r[2], "key": r[3],
-                 "dispatch_id": r[4], "error": r[5]} for r in rows]
+        return [{"at": r[0], "ok": None if r[1] is None else bool(r[1]), "trigger": r[2],
+                 "key": r[3], "dispatch_id": r[4], "error": r[5]} for r in rows]
 
     # ── API keys (scoped credentials; only the SHA-256 of the secret is stored) ─
     def insert_api_key(self, kid: str, name: str, prefix: str, hash_: str, scopes: list[str]) -> None:

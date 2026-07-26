@@ -4,7 +4,7 @@
       "command": "navflow-mcp",
       "env": {
         "NAVFLOWD_URL": "${user_config.navflow_url}",
-        "NAVFLOW_AUTH_TOKEN": "${user_config.ingest_token}"
+        "NAVFLOW_AUTH_TOKEN": "${user_config.access_token}"
       }
     }
   }
