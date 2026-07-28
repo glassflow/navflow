@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "vite build && node tests/login-handoff.e2e.cjs"
   },
   "dependencies": {
     "react": "^18.3.1",
