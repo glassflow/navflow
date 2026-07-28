@@ -13,6 +13,7 @@ SEED = "/tmp/auth_catalog.yaml"
 with open(SEED, "w") as fh:
     fh.write("sources:\n  - name: evt\n    connector: webhook\n    poll: 5s\n    config: {}\n")
 DB, PORT, TOKEN = "/tmp/auth.duckdb", "8804", "sekret-123"
+LOGIN = "https://app.navflow.dev/login"   # cloud login handoff (NAVFLOW_LOGIN_URL)
 
 
 async def _wait(url):
@@ -32,7 +33,7 @@ async def main():
         if os.path.exists(p):
             os.remove(p)
     env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-           "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_AUTH_TOKEN": TOKEN}
+           "NAVFLOW_OTLP_GRPC_PORT": "off", "NAVFLOW_AUTH_TOKEN": TOKEN, "NAVFLOW_LOGIN_URL": LOGIN}
     proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     B = f"http://127.0.0.1:{PORT}"
@@ -44,6 +45,7 @@ async def main():
             h = (await cx.get(f"{B}/health")).json()
             ck("/health public + advertises auth_required", h.get("auth_required") is True, str(h))
             ck("/health does not leak source names", h.get("sources") == [], str(h.get("sources")))
+            ck("/health advertises login_url when NAVFLOW_LOGIN_URL set", h.get("login_url") == LOGIN, str(h))
             ck("console SPA shell public (GET /)", (await cx.get(f"{B}/")).status_code != 401)
             ck("static assets public (GET /assets/x)", (await cx.get(f"{B}/assets/whatever.js")).status_code != 401)
 
