@@ -45,6 +45,10 @@ CATALOG_SYNC = os.getenv("NAVFLOW_CATALOG_SYNC", "").strip().lower() in ("1", "t
 # The SPA shell and static assets stay public so the login screen can load. This is the ONE security
 # switch — there is no separate ingest token and no read-only mode; producers get scoped API keys.
 AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
+# Cloud login handoff (additive, env-gated). Set on a cloud-managed cell to the control plane's login
+# URL, e.g. https://app.navflow.dev/login; unset for self-host (behaves exactly as before). Surfaced
+# on the PUBLIC /health so a logged-out console knows where to send the browser to authenticate.
+LOGIN_URL = os.getenv("NAVFLOW_LOGIN_URL", "").strip()
 # The Anthropic key for the in-app Ask agent (and NavFlow agents) is resolved at request time via
 # resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
 # Never returned by any API — capabilities exposes only a boolean.
@@ -298,8 +302,12 @@ def make_app() -> FastAPI:
     # ── agent surface (unchanged contract; queries now logged) ───────────────
     @app.get("/health")
     async def health():
-        return {"status": "ok", "auth_required": bool(AUTH_TOKEN),
+        body = {"status": "ok", "auth_required": bool(AUTH_TOKEN),
                 "sources": [] if AUTH_TOKEN else list(runtime.catalog.sources)}
+        if LOGIN_URL:
+            # public, non-secret: where the logged-out console sends the browser to authenticate.
+            body["login_url"] = LOGIN_URL
+        return body
 
     @app.post("/query")
     async def query(req: QueryReq):

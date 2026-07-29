@@ -59,7 +59,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ status: string; auth_required: boolean }>("/health"),
+  // login_url is present only on a cloud-managed cell (daemon NAVFLOW_LOGIN_URL) — it tells the
+  // logged-out console where to send the browser to authenticate.
+  health: () => request<{ status: string; auth_required: boolean; login_url?: string }>("/health"),
+  // Swap a one-time ?code= (handed to us in the redirect back from the control plane) for the real
+  // cell key. Raw cross-origin fetch: no auth header yet, and the control plane's CORS allows POST
+  // from *.<cell domain>. Deliberately NOT the `request` helper, which would attach the (absent)
+  // token and treat a 401 as a session expiry.
+  exchange: async (loginUrl: string, code: string): Promise<string> => {
+    const res = await fetch(new URL("/exchange", loginUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) throw new Error(`exchange failed: ${res.status}`);
+    return (await res.json()).token as string;
+  },
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
   capabilities: () =>
     request<{ version?: string | null; discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),

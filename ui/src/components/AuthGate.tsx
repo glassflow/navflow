@@ -10,19 +10,44 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    // `navflow up --auth` prints a login URL (…/?token=<root>). Capture the token into storage and
-    // strip it from the address bar so it doesn't linger in history/bookmarks. A bad token here
-    // just 401s on the first protected call and bounces to the login screen.
-    const url = new URL(window.location.href);
-    const t = url.searchParams.get("token");
-    if (t) {
-      auth.set(t.trim());
-      url.searchParams.delete("token");
-      window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-    }
-    api.health()
-      .then((h) => { if (alive) setState(h.auth_required && !auth.get() ? "login" : "ok"); })
-      .catch(() => { if (alive) setState("ok"); });
+    (async () => {
+      const url = new URL(window.location.href);
+      const strip = (k: string) => {
+        url.searchParams.delete(k);
+        window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      };
+
+      // Self-host: `navflow up --auth` prints a login URL (…/?token=<root>). Capture it and strip it
+      // from the address bar so it doesn't linger in history/bookmarks. A bad token just 401s on the
+      // first protected call and bounces to the login screen.
+      const t = url.searchParams.get("token");
+      if (t) { auth.set(t.trim()); strip("token"); }
+
+      const h = await api.health().catch(() => null);
+
+      // Cloud: the control plane redirects back here with a one-time ?code=. Swap it for the real
+      // cell key at the control plane (login_url tells us where). On failure we fall through to the
+      // normal auth check below, which re-initiates login.
+      const code = url.searchParams.get("code");
+      if (code && h?.login_url) {
+        try { auth.set(await api.exchange(h.login_url, code)); } catch { /* fall through to login */ }
+        strip("code");
+      }
+
+      if (!alive) return;
+      if (h && h.auth_required && !auth.get()) {
+        // Cloud cell: bounce to the hosted login, telling it which cell to return to. Self-host:
+        // show the paste-token form.
+        if (h.login_url) {
+          window.location.assign(`${h.login_url}?return=${encodeURIComponent(window.location.host)}`);
+          return; // navigating away; leave state as "loading"
+        }
+        setState("login");
+      } else {
+        setState("ok");
+      }
+    })();
+
     const onAuth = () => setState("login");
     window.addEventListener("navflow-auth-required", onAuth);
     return () => { alive = false; window.removeEventListener("navflow-auth-required", onAuth); };
