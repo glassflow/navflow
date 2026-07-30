@@ -82,7 +82,10 @@ function Login({ onAuthed }: { onAuthed: () => void }) {
   return (
     <div className="login-wrap">
       <form className="card login" onSubmit={submit}>
-        <div className="brand">nav<em>flow</em> <small>console</small></div>
+        <div className="brand">
+          <img className="brand-mark" src="/navflow-mark.svg" alt="" />
+          navflow
+        </div>
         <p className="muted">This instance requires an access token.</p>
         <input
           type="password"

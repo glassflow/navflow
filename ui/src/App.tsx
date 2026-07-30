@@ -131,7 +131,7 @@ export default function App() {
       <nav className="sidebar">
         <div className="brand">
           <img className="brand-mark" src="/navflow-mark.svg" alt="NavFlow" />
-          <span className="brand-word">nav<em>flow</em><small>console</small></span>
+          <span className="brand-word">navflow</span>
         </div>
 
         {NAV_GROUPS.map(({ section, items }) => (
