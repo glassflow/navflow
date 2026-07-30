@@ -132,13 +132,15 @@ body {
 }
 .brand {
   font-family: var(--serif);
-  font-size: 19px;
-  margin: 0 8px 18px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  /* bottom margin sized so the first nav section header lines up with the page h1 across the divider */
+  margin: 0 8px 34px;
 }
 .sidebar .brand { display: flex; align-items: center; gap: 9px; }
-.brand-mark { width: 21px; height: auto; flex-shrink: 0; }
+.brand-mark { width: 26px; height: auto; flex-shrink: 0; }
 .brand-word { display: block; line-height: 1.05; }
-.brand em { color: var(--accent); font-style: italic; }
 .brand small { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
 .navlink {
@@ -529,7 +531,7 @@ pre.payload {
   gap: 0.85rem;
   text-align: center;
 }
-.card.login .brand { font-size: 1.3rem; }
+.card.login .brand { font-size: 1.3rem; display: flex; align-items: center; justify-content: center; gap: 9px; }
 .card.login input {
   width: 100%;
   padding: 0.55rem 0.7rem;
