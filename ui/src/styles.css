@@ -195,23 +195,10 @@ b, strong { font-weight: 600; }
 /* generic inline icon — sized by context, overridable */
 .ico { width: 16px; height: 16px; flex-shrink: 0; }
 
-/* ── shell: the rail sits on the ink ground in BOTH themes, like the cloud
-      console and the site nav. Local token overrides re-skin everything
-      inside without per-component rules. ── */
+/* ── shell: the rail follows the theme — a slightly deeper wash of the page
+      ground, separated by a hairline. Light stays light; dark rides the same
+      brown/ink scale as the rest of the app. ── */
 .sidebar {
-  --bg: var(--brown-950);
-  --panel: var(--brown-900);
-  --ink: var(--on-brown-100);
-  --ink-soft: var(--on-brown-300);
-  --ink-faint: var(--on-brown-500);
-  --line: var(--on-brown-border);
-  --hover: var(--brown-900);
-  --accent-soft: var(--sand-wash);
-  --accent-deep: var(--sand-300);
-  --slate: var(--blue-300);
-  --slate-soft: color-mix(in srgb, var(--blue-300) 14%, var(--brown-950));
-  color-scheme: dark;
-
   background: var(--bg);
   color: var(--ink);
   width: 208px;
