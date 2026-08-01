@@ -39,7 +39,7 @@ async def main():
              "NAVFLOW_MCP_PORT": MPORT, "NAVFLOWD_URL": f"http://127.0.0.1:{DPORT}"},
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import streamable_http_client
     URL = f"http://127.0.0.1:{MPORT}/mcp"
     try:
         if not await _wait(f"http://127.0.0.1:{DPORT}/health"):
@@ -49,7 +49,7 @@ async def main():
 
         # no token -> refused
         try:
-            async with streamablehttp_client(URL) as (r, w, _):
+            async with streamable_http_client(URL) as (r, w, _):
                 async with ClientSession(r, w) as s:
                     await s.initialize()
             ck("MCP without token refused", False, "initialize succeeded")
@@ -58,7 +58,7 @@ async def main():
 
         # with token -> works, and tools proxy to navflowd (which also requires the token)
         hdr = {"Authorization": f"Bearer {TOKEN}"}
-        async with streamablehttp_client(URL, headers=hdr) as (r, w, _):
+        async with streamable_http_client(URL, headers=hdr) as (r, w, _):
             async with ClientSession(r, w) as s:
                 await s.initialize()
                 ck("MCP with token: initialized", True)
