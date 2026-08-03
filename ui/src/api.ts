@@ -61,7 +61,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   // login_url is present only on a cloud-managed cell (daemon NAVFLOW_LOGIN_URL) — it tells the
   // logged-out console where to send the browser to authenticate.
-  health: () => request<{ status: string; auth_required: boolean; login_url?: string }>("/health"),
+  // status: "ok" | "degraded" (running, storage nearly full) | "down" (no usable database — the
+  // daemon is serving the console and 503s so the failure is visible). `detail` says why when it
+  // isn't ok; `pct_used` is on /api/usage's 0-100 scale and null when no limit is configured.
+  health: () => request<{
+    status: string; auth_required: boolean; login_url?: string;
+    detail?: string; pct_used?: number | null;
+  }>("/health"),
   // Swap a one-time ?code= (handed to us in the redirect back from the control plane) for the real
   // cell key. Raw cross-origin fetch: no auth header yet, and the control plane's CORS allows POST
   // from *.<cell domain>. Deliberately NOT the `request` helper, which would attach the (absent)

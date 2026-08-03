@@ -4,34 +4,35 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Search } from "../components/icons";
-import { TimeAgo, usePolling } from "../components/bits";
+import { EmptyState, ErrorState, TimeAgo, usePolling } from "../components/bits";
 import type { Trigger, View } from "../types";
 
 // Views and Triggers are two acts of "serve to agents": a view is a saved read; a trigger wakes
 // an agent when that read crosses a line. They are separate pages so each concept stands alone.
 
 export function ViewsPage() {
-  const { data: views, reload } = usePolling(() => api.views(), 10000);
+  const { data: views, error, reload } = usePolling(() => api.views(), 10000);
 
   return (
     <>
       <h1>Views</h1>
       <p className="subtitle">saved reads — <em>the queries you hand agents</em></p>
-      <ViewsSection views={views ?? []} onChange={reload} />
+      <ViewsSection views={views ?? []} loadError={error} onChange={reload} />
     </>
   );
 }
 
 export function TriggersPage() {
-  const { data: triggers, reload } = usePolling(() => api.triggers(), 10000);
-  const { data: views } = usePolling(() => api.views(), 10000);
+  const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
+  const { data: views, error: viewsError } = usePolling(() => api.views(), 10000);
 
   return (
     <>
       <h1>Triggers</h1>
       <p className="subtitle">conditions that <em>wake an agent</em> with a timeline</p>
+      {/* Either fetch failing is enough to make "no triggers" / "no views yet" a lie. */}
       <TriggersSection triggers={triggers ?? []} viewNames={(views ?? []).map((v) => v.name)}
-                       onChange={reload} />
+                       loadError={error ?? viewsError} onChange={reload} />
     </>
   );
 }
@@ -64,8 +65,8 @@ function AuthorBadge({ createdBy }: { createdBy?: string }) {
   );
 }
 
-function ViewsSection({ views, onChange }:
-  { views: View[]; onChange: () => void }) {
+function ViewsSection({ views, loadError, onChange }:
+  { views: View[]; loadError?: string; onChange: () => void }) {
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
@@ -91,8 +92,11 @@ function ViewsSection({ views, onChange }:
         <Link className="btn primary" to="/views/new">Add view</Link>
       </div>
       {error && <div className="alert error">{error}</div>}
+      {loadError && <ErrorState error={loadError} what="views" onRetry={onChange} />}
 
-      {!views.length && <div className="empty">no views — agents have nothing to query yet</div>}
+      {!views.length && !loadError && (
+        <EmptyState>no views — agents have nothing to query yet</EmptyState>
+      )}
       {!!views.length && (
         <>
           <FilterBar q={q} setQ={setQ} placeholder="Filter by name, key, source…" shown={shown.length} total={views.length} />
@@ -147,8 +151,8 @@ function ViewsSection({ views, onChange }:
 
 // ── triggers ─────────────────────────────────────────────────────────────────
 
-function TriggersSection({ triggers, viewNames, onChange }:
-  { triggers: Trigger[]; viewNames: string[]; onChange: () => void }) {
+function TriggersSection({ triggers, viewNames, loadError, onChange }:
+  { triggers: Trigger[]; viewNames: string[]; loadError?: string; onChange: () => void }) {
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
@@ -184,15 +188,18 @@ function TriggersSection({ triggers, viewNames, onChange }:
         </Link>
       </div>
       {error && <div className="alert error">{error}</div>}
+      {loadError && <ErrorState error={loadError} what="triggers" onRetry={onChange} />}
 
-      {!viewNames.length && (
+      {!viewNames.length && !loadError && (
         <div className="alert">
           A trigger is a condition evaluated over a <strong>view</strong>, and this instance has no
           views yet — <Link to="/views/new">create a view</Link> first (pick the sources and the
           entity key it correlates by), then come back and add a trigger on it.
         </div>
       )}
-      {!triggers.length && !!viewNames.length && <div className="empty">no triggers — nothing wakes agents yet</div>}
+      {!triggers.length && !!viewNames.length && !loadError && (
+        <EmptyState>no triggers — nothing wakes agents yet</EmptyState>
+      )}
       {!!triggers.length && (
         <>
           <FilterBar q={q} setQ={setQ} placeholder="Filter by name, view, condition…" shown={shown.length} total={triggers.length} />
