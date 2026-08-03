@@ -1259,10 +1259,16 @@ def make_app() -> FastAPI:
                     "name": name, "endpoint": masked, "kind": kind,
                     "subscriptions": [], "triggers": [], "created_by": set(),
                     "first_seen": sub["created_at"],
-                    "delivered_ok": st.get("ok", 0), "delivered_fail": st.get("fail", 0),
+                    # windowed counts are what the roster shows (an all-time total next to a
+                    # "last woken" of weeks ago reads as busy); totals ride along for context.
+                    "delivered_ok_24h": st.get("ok", 0), "delivered_fail_24h": st.get("fail", 0),
+                    "delivered_ok_total": st.get("ok_total", 0),
+                    "delivered_fail_total": st.get("fail_total", 0),
                     "pending": st.get("pending", 0), "last_woken": st.get("last_at"),
-                    # currently failing: the most recent delivery to this endpoint did not succeed.
-                    "unhealthy": st.get("fail", 0) > 0 and not st.get("last_ok", True),
+                    # currently failing: the most recent delivery to this endpoint did not succeed —
+                    # deliberately over ALL deliveries, so a failing endpoint that has gone quiet
+                    # doesn't quietly go healthy when it falls out of the window.
+                    "unhealthy": st.get("fail_total", 0) > 0 and not st.get("last_ok", True),
                     "last_error": None if st.get("last_ok", True) else st.get("last_error"),
                     "recent": [{"at": d["at"], "ok": d["ok"], "trigger": d["trigger"],
                                 "key": d["key"], "error": d["error"], "dispatch_id": d["dispatch_id"]}

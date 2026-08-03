@@ -151,6 +151,12 @@ class AgentRunner:
         # (agent, key) currently running. Dispatch is at-least-once, so a retried delivery would
         # otherwise run the same investigation twice and pay for it twice.
         self._inflight: set[tuple[str, str]] = set()
+        # Runs live in this process, so nothing can still be running from a previous one: any row
+        # left `running` is an orphan from a daemon that was killed mid-run. Left alone it stays
+        # running forever and keeps counting toward the daily cap.
+        reaped = store.reap_stale_agent_runs()
+        if reaped:
+            print(f"navflowd: reaped {reaped} interrupted agent run(s)")
 
     # ── entry point (called by the dispatcher, once per internal subscription) ─
     def deliver(self, agent_name: str, subscription_id: str, trigger_name: str, key: str,
@@ -201,8 +207,10 @@ class AgentRunner:
             msg = "no Anthropic key: set ANTHROPIC_API_KEY or add one in the console"
             self.store.finish_agent_run(run_id, "failed", error=msg)
             return "failed", msg
-        if self.store.agent_runs_today(agent["name"]) > DAILY_RUN_CAP:
-            msg = f"daily cap of {DAILY_RUN_CAP} runs reached for this agent"
+        # Count the runs BEFORE this one (its row is already inserted), so the cap fires at exactly
+        # DAILY_RUN_CAP runs rather than one over it.
+        if self.store.agent_runs_today(agent["name"], exclude_run_id=run_id) >= DAILY_RUN_CAP:
+            msg = f"cap of {DAILY_RUN_CAP} runs in the last 24h reached for this agent"
             self.store.finish_agent_run(run_id, "capped", error=msg)
             return "capped", msg
 

@@ -15,6 +15,7 @@ from datetime import datetime
 import duckdb
 
 from .envelope import Envelope, now_utc
+from .views import parse_window
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -809,13 +810,43 @@ class Store:
             for r in rows
         ]
 
-    def agent_runs_today(self, agent: str) -> int:
-        """Runs started in the last 24h — the cost ceiling's counter."""
+    def agent_runs_today(self, agent: str, exclude_run_id: str | None = None) -> int:
+        """Runs started in the last 24h — the cost ceiling's counter. `exclude_run_id` leaves out the
+        run being checked: the row is inserted before the cap is evaluated, so the cap must count the
+        runs that came BEFORE this one or it lets one extra through."""
+        sql = ("SELECT count(*) FROM agent_runs WHERE agent = ? "
+               "AND started_at > now() - INTERVAL 1 DAY")
+        params: list = [agent]
+        if exclude_run_id:
+            sql += " AND id <> ?"
+            params.append(exclude_run_id)
         with self._lock:
-            row = self.con.execute(
-                "SELECT count(*) FROM agent_runs WHERE agent = ? "
-                "AND started_at > now() - INTERVAL 1 DAY", [agent]).fetchone()
+            row = self.con.execute(sql, params).fetchone()
         return int(row[0]) if row else 0
+
+    def reap_stale_agent_runs(self, older_than: str | None = None) -> int:
+        """Close out orphaned `running` rows, returning how many were reaped.
+
+        A run lives in the daemon process (`AgentRunner._tasks`), so if the daemon is killed
+        mid-run its row stays `status='running'` forever — reading as in-flight on the runs list and
+        still counting toward the daily cap. Called at startup, where nothing can legitimately be in
+        flight yet, so the default reaps every `running` row; pass a window ("1h") to only reap rows
+        older than it."""
+        cutoff = None if older_than is None else now_utc() - parse_window(older_than)
+        where = "status = 'running'" + ("" if cutoff is None else " AND started_at < ?")
+        args: list = [] if cutoff is None else [cutoff]
+        with self._lock:
+            row = self.con.execute(f"SELECT count(*) FROM agent_runs WHERE {where}",
+                                   args).fetchone()
+            n = int(row[0]) if row else 0
+            if n:
+                ts = now_utc()
+                self.con.execute(
+                    "UPDATE agent_runs SET status = 'failed', error = ?, finished_at = ?, "
+                    "duration_ms = CAST(date_diff('millisecond', started_at, ?) AS INTEGER) "
+                    f"WHERE {where}",
+                    ["interrupted: navflowd stopped while this run was in flight", ts, ts] + args)
+        return n
 
     # ── settings (instance config set from the console) ───────────────────────
     def get_setting(self, key: str) -> str | None:
@@ -1170,24 +1201,35 @@ class Store:
         return [{"subscription_id": r[0], "trigger": r[1], "url": r[2],
                  "created_at": r[3], "created_by": r[4]} for r in rows]
 
-    def delivery_stats(self) -> dict:
-        """{url: {ok, fail, last_at, last_ok, last_error}} across all recorded deliveries. `last_ok`
-        / `last_error` describe the MOST RECENT delivery, so the UI can flag an endpoint that's
-        currently failing and say why (arg_max picks the value at the latest delivered_at)."""
+    def delivery_stats(self, window: str = "24h") -> dict:
+        """{url: {ok, fail, ok_total, fail_total, last_at, last_ok, last_error}} per endpoint.
+
+        `ok`/`fail` are counted over `window` only — an all-time total presented next to a "last
+        woken" of weeks ago reads as "this agent is busy" when it has been idle for a month. The
+        all-time totals come back alongside them (same single pass) so nothing is lost.
+
+        `last_at` / `last_ok` / `last_error` describe the MOST RECENT delivery *ever*, not the most
+        recent one in the window: an endpoint that is currently failing must keep saying so even
+        when it has been quiet for longer than the window (arg_max picks the value at the latest
+        delivered_at)."""
+        since = now_utc() - parse_window(window)
         with self._lock:
             # ok IS NULL is a pending NavFlow-agent run — count it as neither delivered nor failed,
             # and exclude it from the "most recent outcome" (arg_max over resolved deliveries only),
             # so a running agent never reads as a failure.
             rows = self.con.execute(
-                "SELECT url, SUM(CASE WHEN ok THEN 1 ELSE 0 END), "
+                "SELECT url, SUM(CASE WHEN ok AND delivered_at > ? THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN ok = FALSE AND delivered_at > ? THEN 1 ELSE 0 END), "
+                "SUM(CASE WHEN ok THEN 1 ELSE 0 END), "
                 "SUM(CASE WHEN ok = FALSE THEN 1 ELSE 0 END), MAX(delivered_at), "
                 "SUM(CASE WHEN ok IS NULL THEN 1 ELSE 0 END), "
                 "arg_max(ok, CASE WHEN ok IS NULL THEN NULL ELSE delivered_at END), "
                 "arg_max(error, CASE WHEN ok IS NULL THEN NULL ELSE delivered_at END) "
-                "FROM dispatch_deliveries GROUP BY url").fetchall()
-        return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0), "last_at": r[3],
-                       "pending": int(r[4] or 0),
-                       "last_ok": True if r[5] is None else bool(r[5]), "last_error": r[6]}
+                "FROM dispatch_deliveries GROUP BY url", [since, since]).fetchall()
+        return {r[0]: {"ok": int(r[1] or 0), "fail": int(r[2] or 0),
+                       "ok_total": int(r[3] or 0), "fail_total": int(r[4] or 0),
+                       "last_at": r[5], "pending": int(r[6] or 0),
+                       "last_ok": True if r[7] is None else bool(r[7]), "last_error": r[8]}
                 for r in rows}
 
     def recent_deliveries(self, url: str, limit: int = 20) -> list[dict]:
