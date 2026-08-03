@@ -30,18 +30,45 @@ export function usePolling<T>(fn: () => Promise<T>, intervalMs = 5000): {
 
   useEffect(() => {
     let live = true;
-    const load = () => {
-      if (document.hidden) return;
+    // The FIRST load always runs, even in a hidden tab: skipping it leaves data undefined, which
+    // every page renders as its empty state — a background tab would claim you have no views.
+    // Only the polling refreshes pause while hidden.
+    const load = (force = false) => {
+      if (document.hidden && !force) return;
       fnRef.current()
         .then((d) => { if (live) { setData(d); setError(undefined); } })
         .catch((e) => { if (live) setError(String(e.message ?? e)); });
     };
-    load();
-    const id = setInterval(load, intervalMs);
+    load(true);
+    const id = setInterval(() => load(), intervalMs);
     return () => { live = false; clearInterval(id); };
   }, [intervalMs, tick]);
 
   return { data, error, reload: () => setTick((t) => t + 1) };
+}
+
+/** A failed load, said out loud. The rule: a fetch that failed is NEVER rendered as an empty
+ *  state — "no views" and "the daemon couldn't answer" are different facts, and telling the user
+ *  the first when the second is true sends them off to fix nothing. Pair with usePolling's
+ *  `error` (which keeps the last good `data`, so this sits above stale rows). */
+export function ErrorState({ error, what, onRetry }: {
+  error: string;
+  what?: string;          // what failed to load, e.g. "views" — omit for the generic wording
+  onRetry?: () => void;   // usually usePolling's reload
+}) {
+  return (
+    <div className="alert error">
+      <strong>{what ? `Couldn’t load ${what}` : "Couldn’t load this page"}</strong> — {error}
+      {onRetry && (
+        <button className="btn" style={{ marginLeft: 10 }} onClick={onRetry}>Retry</button>
+      )}
+    </div>
+  );
+}
+
+/** "There is genuinely nothing here" — only ever rendered when the load SUCCEEDED. */
+export function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="empty">{children}</div>;
 }
 
 /** Input with styled suggestions — replaces native <datalist> (which can't be themed).

@@ -314,21 +314,52 @@ def _bound_duckdb_memory(con, path: str) -> None:
         print(f"navflowd: could not bound DuckDB memory ({e})")
 
 
+class StoreUnavailable(RuntimeError):
+    """The database could not be opened or initialized — locked by another daemon, permissions,
+    a full disk, a corrupt file. Raised instead of the raw DuckDB error so navflowd can start in
+    degraded mode (serve the console and explain itself) rather than exit with a traceback."""
+
+    def __init__(self, reason: str, path: str = ""):
+        super().__init__(reason)
+        self.reason = reason
+        self.path = path
+
+
 class Store:
     def __init__(self, path: str = "navflow.duckdb"):
         # All access is from navflowd's event loop thread; the lock is belt-and-suspenders since
         # FastAPI may run sync work in a threadpool.
         self._lock = threading.Lock()
         self.path = path          # kept so usage() can size the db file and its WAL
-        self.con = duckdb.connect(path)
-        _bound_duckdb_memory(self.con, path)
-        for stmt in _SCHEMA.strip().split(";"):
-            if stmt.strip():
+        # Opening the DB is the one startup step that routinely fails for reasons outside the
+        # process (another daemon holds the lock, the file is unreadable, the volume is full).
+        # Fail as StoreUnavailable so the caller can degrade; the original error is kept as the
+        # cause so the traceback still reaches the process log.
+        try:
+            self.con = duckdb.connect(path)
+        except Exception as e:
+            raise StoreUnavailable(f"cannot open the database at {path}: {e}", path) from e
+        try:
+            _bound_duckdb_memory(self.con, path)
+            for stmt in _SCHEMA.strip().split(";"):
+                if stmt.strip():
+                    self.con.execute(stmt)
+            for stmt in _MIGRATIONS:
                 self.con.execute(stmt)
-        for stmt in _MIGRATIONS:
-            self.con.execute(stmt)
-        self._init_source_stats()
-        self._init_entity_counts()
+            self._init_source_stats()
+            self._init_entity_counts()
+        except Exception as e:
+            raise StoreUnavailable(f"cannot initialize the database at {path}: {e}", path) from e
+
+    def ping(self) -> None:
+        """Cheapest possible liveness probe for /health — proves the connection still answers.
+        Raises whatever DuckDB raises when the store has gone away underneath us."""
+        with self._lock:
+            self.con.execute("SELECT 1").fetchone()
+
+    def disk_bytes(self) -> int:
+        """db + WAL bytes, from stat() only — no query, so /health can call it on every probe."""
+        return _file_size(self.path) + _file_size(self.path + ".wal")
 
     def _init_source_stats(self) -> None:
         """`source_stats` is a maintained per-source counter (event count + last ingest) so the

@@ -532,6 +532,16 @@ button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-
 .alert.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-border); }
 .alert.info { background: var(--th-bg); color: var(--ink-soft); border: 1px solid var(--line); }
 
+/* Instance-wide banner (daemon unreachable / degraded). Fixed, because #root is the
+   sidebar+content flex row and an in-flow banner would become a third column. */
+.daemon-banner {
+  /* above the sticky topbar (20), below the ⌘K overlay (100) */
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; margin: 0;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px; border-left: none; border-right: none; border-bottom: none;
+}
+.daemon-banner .btn { margin-left: auto; flex: none; }
+
 pre.payload {
   font-family: var(--mono);
   font-size: 12px;

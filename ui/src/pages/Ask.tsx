@@ -3,7 +3,7 @@ import { useState } from "react";
 import AskChat from "../components/AskChat";
 import OrganizePanel from "../components/OrganizePanel";
 import { api } from "../api";
-import { usePolling } from "../components/bits";
+import { ErrorState, usePolling } from "../components/bits";
 
 // One assistant, two doors: Chat (free-form explore/debug; also summonable with ⌘K) and
 // Organize (a goal-directed run that proposes labels/views as apply-or-skip cards). Same
@@ -39,7 +39,7 @@ export default function Ask() {
 // Start gate: state the goal (prefilled with the generic sweep), then the agent runs and
 // proposes. An explicit click, never on page load — a run spends model tokens.
 function OrganizeTab() {
-  const { data: sources } = usePolling(() => api.sources(), 15000);
+  const { data: sources, error, reload } = usePolling(() => api.sources(), 15000);
   const [intent, setIntent] = useState(DEFAULT_INTENT);
   const [started, setStarted] = useState<string>();   // the intent the run started with
 
@@ -51,6 +51,9 @@ function OrganizeTab() {
 
   return (
     <div className="panel" style={{ maxWidth: 680 }}>
+      {/* A failed /api/sources reads as "0 sources, 0 events" — say so, or the disabled Start
+          button below blames the user's data for a backend failure. */}
+      {error && <ErrorState error={error} what="your sources" onRetry={reload} />}
       <p className="help" style={{ whiteSpace: "normal", marginTop: 0 }}>
         The agent inspects your sources&rsquo; field profiles and sample events, then proposes
         labels &amp; keys per source and views across sources — as cards you apply or skip.
@@ -76,7 +79,7 @@ function OrganizeTab() {
               onClick={() => setStarted(intent.trim())}>
         ✨ Start
       </button>
-      {!total && <p className="help" style={{ marginTop: 8 }}>needs at least one source with data</p>}
+      {!total && !error && <p className="help" style={{ marginTop: 8 }}>needs at least one source with data</p>}
     </div>
   );
 }

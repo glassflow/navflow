@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,7 +36,7 @@ from .builtin_agents import (PRESETS as AGENT_PRESETS, AgentRunner,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
-from .store import Store
+from .store import Store, StoreUnavailable
 from .views import resolve_query_full, resolve_read
 
 CATALOG_PATH = os.getenv("NAVFLOW_CATALOG", "catalog.yaml")
@@ -113,6 +114,58 @@ def _ui_dist() -> Path:
 
 
 UI_DIST = _ui_dist()
+
+# /health reports `degraded` at or above this share of NAVFLOW_MAX_DB_SIZE. On the 0-100 scale of
+# /api/usage's pct_used, so 90 means 90% — not 0.9. Unknown (no limit configured) is never degraded.
+DEGRADED_PCT = float(os.getenv("NAVFLOW_DEGRADED_PCT", "90"))
+
+
+def _serve_ui(path: str):
+    """The built console SPA: a real file if it exists, else index.html (client-side routing)."""
+    if not UI_DIST.exists():
+        return JSONResponse(
+            {"detail": "console not built — run `npm install && npm run build` in ui/"},
+            status_code=404)
+    f = (UI_DIST / path).resolve()
+    if path and f.is_file() and f.is_relative_to(UI_DIST.resolve()):
+        return FileResponse(f)
+    return FileResponse(UI_DIST / "index.html")
+
+
+def _degraded_app(reason: str) -> FastAPI:
+    """The app we serve when the store could not be opened. It exists so the failure reaches a
+    human instead of ERR_CONNECTION_REFUSED: the console still loads and every data route answers
+    503 with the reason, so the UI can name the problem. No runtime, no connectors, no ingest —
+    nothing that would need the store. Restart once the DB is reachable again."""
+    app = FastAPI(title="navflowd (degraded)")
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
+                       allow_headers=["*"])
+
+    @app.get("/health", include_in_schema=False)
+    async def health():
+        # HTTP 200 with status "down": a probe that can read the body learns WHAT is wrong, and the
+        # console (which only ever reaches this daemon) can render it. Keys AuthGate depends on stay.
+        body = {"status": "down", "detail": reason, "auth_required": bool(AUTH_TOKEN),
+                "sources": [], "pct_used": None}
+        if LOGIN_URL:
+            body["login_url"] = LOGIN_URL
+        return body
+
+    async def unavailable():
+        return JSONResponse({"detail": f"database unavailable — {reason}", "status": "down"},
+                            status_code=503)
+
+    # Everything that needs the store answers 503 (not a bare 500, and not the SPA's index.html).
+    for _p in ("/api/{rest:path}", "/query", "/read", "/remember", "/catalog", "/catalog/{rest:path}",
+               "/ingest/{rest:path}", "/v1/logs", "/v1/traces", "/v1/metrics"):
+        app.add_api_route(_p, unavailable, include_in_schema=False,
+                          methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"])
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def ui(path: str):
+        return _serve_ui(path)
+
+    return app
 
 
 class QueryReq(BaseModel):
@@ -200,7 +253,16 @@ class SlackTokenIn(BaseModel):
 
 
 def make_app() -> FastAPI:
-    store = Store(DB_PATH)
+    try:
+        store = Store(DB_PATH)
+    except StoreUnavailable as e:
+        # Losing the DB must not cost us the ability to SAY that we lost the DB. Log the full
+        # traceback (degraded mode explains the failure to the user, it does not hide it from the
+        # operator) and serve the console + 503s instead of exiting before uvicorn ever binds.
+        traceback.print_exc()
+        print(f"navflowd: DEGRADED — {e.reason}. Serving the console and 503s; fix the database "
+              f"and restart.", flush=True)
+        return _degraded_app(e.reason)
 
     # seed the DB catalog from YAML on first boot — or on every boot when CATALOG_SYNC is set, so
     # the file stays the source of truth (the admin interface for a read-only demo: edit + restart).
@@ -332,8 +394,27 @@ def make_app() -> FastAPI:
     # ── agent surface (unchanged contract; queries now logged) ───────────────
     @app.get("/health")
     async def health():
-        body = {"status": "ok", "auth_required": bool(AUTH_TOKEN),
-                "sources": [] if AUTH_TOKEN else list(runtime.catalog.sources)}
+        """Liveness that actually touches the store, so a wedged DuckDB can't read as healthy to a
+        k8s probe or the control plane's uptime check. `ok` / `degraded` (running, but nearly out of
+        the configured storage) / `down` (the store stopped answering — restart needed). Always
+        HTTP 200: the status and `detail` say what is wrong, which a bare 503 could not.
+        `pct_used` is on /api/usage's 0-100 scale and is null when no limit is configured — unknown,
+        never 0. The probe is a SELECT 1 plus a stat() of the db file; no table is scanned."""
+        status, detail, pct = "ok", None, None
+        try:
+            store.ping()
+        except Exception as e:
+            status, detail = "down", f"database unavailable: {e}"
+        if status == "ok" and MAX_DB_SIZE:
+            pct = round(100 * store.disk_bytes() / MAX_DB_SIZE, 2)
+            if pct >= DEGRADED_PCT:
+                status = "degraded"
+                detail = f"storage {pct}% full ({MAX_DB_SIZE} byte limit)"
+        body = {"status": status, "auth_required": bool(AUTH_TOKEN),
+                "sources": [] if AUTH_TOKEN else list(runtime.catalog.sources),
+                "pct_used": pct}
+        if detail:
+            body["detail"] = detail
         if LOGIN_URL:
             # public, non-secret: where the logged-out console sends the browser to authenticate.
             body["login_url"] = LOGIN_URL
@@ -1425,13 +1506,6 @@ def make_app() -> FastAPI:
     # ── console UI (built SPA; catch-all registered last so API routes win) ──
     @app.get("/{path:path}", include_in_schema=False)
     async def ui(path: str):
-        if not UI_DIST.exists():
-            return JSONResponse(
-                {"detail": "console not built — run `npm install && npm run build` in ui/"},
-                status_code=404)
-        f = (UI_DIST / path).resolve()
-        if path and f.is_file() and f.is_relative_to(UI_DIST.resolve()):
-            return FileResponse(f)
-        return FileResponse(UI_DIST / "index.html")
+        return _serve_ui(path)
 
     return app

@@ -5,8 +5,21 @@ import { api, auth } from "../api";
 // Gates the console when the instance requires a token (NAVFLOW_AUTH_TOKEN). The SPA shell is served
 // publicly, so we ask /health whether auth is required; any 401 from an API call (token missing or
 // expired) flips us back to the login screen via the "navflow-auth-required" event.
+// A daemon that is up but broken (no database) still answers /health — it just doesn't say "ok".
+// A daemon that is down doesn't answer at all. Neither may leave the console blank, so the gate
+// always resolves: on timeout or failure we render the app and say what we know.
+const HEALTH_TIMEOUT_MS = 6000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+  ]);
+}
+
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<"loading" | "ok" | "login">("loading");
+  const [banner, setBanner] = useState<string>();
 
   useEffect(() => {
     let alive = true;
@@ -23,7 +36,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       const t = url.searchParams.get("token");
       if (t) { auth.set(t.trim()); strip("token"); }
 
-      const h = await api.health().catch(() => null);
+      const h = await withTimeout(api.health(), HEALTH_TIMEOUT_MS).catch(() => null);
 
       // Cloud: the control plane redirects back here with a one-time ?code=. Swap it for the real
       // cell key at the control plane (login_url tells us where). On failure we fall through to the
@@ -35,6 +48,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       }
 
       if (!alive) return;
+
+      if (!h) {
+        setBanner("Can’t reach the NavFlow daemon — it may be starting, stopped, or blocked "
+                  + "between this browser and the server. Pages will keep retrying.");
+      } else if (h.status && h.status !== "ok") {
+        setBanner(h.detail
+          ? `NavFlow is ${h.status}: ${h.detail}`
+          : `NavFlow reports status “${h.status}”.`);
+      }
+
       if (h && h.auth_required && !auth.get()) {
         // Cloud cell: bounce to the hosted login, telling it which cell to return to. Self-host:
         // show the paste-token form.
@@ -53,9 +76,27 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return () => { alive = false; window.removeEventListener("navflow-auth-required", onAuth); };
   }, []);
 
-  if (state === "loading") return null;
+  if (state === "loading") {
+    return (
+      <div className="login-wrap">
+        <p className="dim">Connecting to NavFlow…</p>
+      </div>
+    );
+  }
   if (state === "login") return <Login onAuthed={() => setState("ok")} />;
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {/* Fixed, not in flow: #root is the sidebar/content flex row, and a banner must not
+          become a third column. */}
+      {banner && (
+        <div className="daemon-banner alert error" role="status">
+          {banner}
+          <button className="btn" onClick={() => window.location.reload()}>Reload</button>
+        </div>
+      )}
+    </>
+  );
 }
 
 function Login({ onAuthed }: { onAuthed: () => void }) {
