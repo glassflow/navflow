@@ -141,8 +141,10 @@ export interface AgentInfo {
   triggers: string[];
   created_by: string[];
   first_seen: string | null;
-  delivered_ok: number;
-  delivered_fail: number;
+  delivered_ok_24h: number;     // deliveries in the last 24h — what the roster columns show
+  delivered_fail_24h: number;
+  delivered_ok_total: number;   // all-time, shown as secondary text so the number isn't lost
+  delivered_fail_total: number;
   pending?: number;             // in-flight NavFlow-agent runs
   last_woken: string | null;
   unhealthy?: boolean;          // the most recent delivery to this endpoint failed

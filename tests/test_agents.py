@@ -159,6 +159,14 @@ async def main():
             names = [dv["agent"] for dv in detail.get("deliveries", [])]
             ck("firing detail lists the NavFlow agent as a delivery", "first-look" in names, str(names))
 
+            # ── the roster counts are windowed, with the all-time total kept ──
+            me = next(a for a in (await cx.get(f"{B}/api/agents")).json()["agents"]
+                      if a["name"] == "first-look")
+            ck("roster counts deliveries in the last 24h", me.get("delivered_ok_24h", 0) >= 1, str(me))
+            ck("roster keeps the all-time total (every delivery here is fresh)",
+               me.get("delivered_ok_total") == me.get("delivered_ok_24h"), str(me))
+            ck("roster drops the unwindowed 'delivered_ok'", "delivered_ok" not in me, str(me))
+
             # ── the finding is an ordinary event on the entity's timeline ────
             rd = (await cx.post(f"{B}/read", json={"selector": {"service": "checkout"},
                                                    "window": "15m"})).json()
@@ -201,6 +209,42 @@ async def main():
         proc.send_signal(signal.SIGTERM)
         try: proc.wait(timeout=5)
         except Exception: proc.kill()
+
+    # ── a run orphaned by a killed daemon is reaped on the next boot ─────────
+    # Runs live in the daemon process, so a `running` row that outlives it is an orphan: it would
+    # otherwise stay running forever AND keep counting toward the daily cap.
+    try:
+        from navflow.store import Store
+        st = Store(DB)
+        st.upsert_catalog_agent("ghost", "incident", "Take a first look.")
+        st.start_agent_run("run_orphan", "ghost", "incident", "d_orphan", "checkout", "h")
+        ck("orphan counts toward the cap while it is running", st.agent_runs_today("ghost") == 1)
+        st.con.close()
+
+        proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+                                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            if not await _wait(f"{B}/health"):
+                ck("daemon back up", False)
+            else:
+                async with httpx.AsyncClient(timeout=20) as cx:
+                    rs = (await cx.get(f"{B}/api/agents/builtin/ghost/runs")).json()
+                    ck("no stuck 'running' run after a restart",
+                       all(r["status"] != "running" for r in rs), str(rs))
+                    ck("the orphan says it was interrupted",
+                       bool(rs) and "interrupted" in (rs[0].get("error") or ""), str(rs))
+        finally:
+            proc.send_signal(signal.SIGTERM)
+            try: proc.wait(timeout=5)
+            except Exception: proc.kill()
+
+        st = Store(DB)
+        # It still counts as an attempt (it ran, and spent tokens, before the daemon died) — what
+        # it no longer does is sit there as 'running' forever.
+        rs = st.list_agent_runs("ghost")
+        ck("the orphan is closed out as failed", [r["status"] for r in rs] == ["failed"], str(rs))
+        st.con.close()
+    finally:
         stub.shutdown()
     print(f"\n{P} passed, {F} failed")
 

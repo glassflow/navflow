@@ -89,7 +89,7 @@ export default function TriggerDetail() {
       </div>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
-          <thead><tr><th>agent</th><th>kind</th><th>endpoint</th><th className="num">delivered</th><th className="num">failed</th><th>status</th></tr></thead>
+          <thead><tr><th>agent</th><th>kind</th><th>endpoint</th><th className="num">delivered (24h)</th><th className="num">failed (24h)</th><th>status</th></tr></thead>
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
@@ -100,14 +100,21 @@ export default function TriggerDetail() {
                   ? <span className="badge">NavFlow</span>
                   : <span className="badge push">connected</span>}</td>
                 <td className="mono">{a.endpoint}</td>
-                <td className="num">{a.delivered_ok}</td>
-                <td className="num" style={a.delivered_fail ? { color: "var(--err)" } : undefined}>{a.delivered_fail}</td>
+                <td className="num" title={`${a.delivered_ok_total} delivered all time`}>
+                  {a.delivered_ok_24h}
+                  {a.delivered_ok_total !== a.delivered_ok_24h && <span className="dim"> / {a.delivered_ok_total}</span>}
+                </td>
+                <td className="num" style={a.delivered_fail_24h ? { color: "var(--err)" } : undefined}
+                    title={`${a.delivered_fail_total} failed all time`}>
+                  {a.delivered_fail_24h}
+                  {a.delivered_fail_total !== a.delivered_fail_24h && <span className="dim"> / {a.delivered_fail_total}</span>}
+                </td>
                 <td>
                   {a.pending
                     ? <span className="badge starting">running</span>
                     : a.unhealthy
                     ? <span className="badge error" title={a.last_error ?? "last delivery failed"}>failing{a.last_error ? `: ${a.last_error}` : ""}</span>
-                    : a.delivered_ok > 0 ? <span className="badge ok">ok</span> : <span className="dim">—</span>}
+                    : a.delivered_ok_total > 0 ? <span className="badge ok">ok</span> : <span className="dim">—</span>}
                 </td>
               </tr>
             ))}
