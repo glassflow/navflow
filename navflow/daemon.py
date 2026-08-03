@@ -1338,6 +1338,8 @@ def make_app() -> FastAPI:
         """What this instance is using: db + WAL bytes, the volume they sit on, and event counts.
         `max_bytes` is what the operator says this instance may grow to (NAVFLOW_MAX_DB_SIZE — a
         hosted cell gets its PVC size); unset -> null, and nothing is enforced here either way.
+        `pct_used` is (db + wal) over max_bytes on a 0-100 scale, NOT a 0-1 fraction — so a
+        "warn at 80%" consumer compares against 80, not 0.8. Null whenever max_bytes is null.
         Cheap by construction: file stats plus the maintained per-source counters, no table scan,
         so the cost does not grow with the event count."""
         u = store.usage()
