@@ -535,7 +535,8 @@ button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-
 /* Instance-wide banner (daemon unreachable / degraded). Fixed, because #root is the
    sidebar+content flex row and an in-flow banner would become a third column. */
 .daemon-banner {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 200; margin: 0;
+  /* above the sticky topbar (20), below the ⌘K overlay (100) */
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90; margin: 0;
   display: flex; align-items: center; gap: 12px;
   padding: 12px 20px; border-left: none; border-right: none; border-bottom: none;
 }
