@@ -10,7 +10,8 @@ import type { ApiKey } from "../types";
 //   · Access     — is this instance open, or does it require a login? (navflow up --auth)
 //   · API keys   — scoped, revocable, show-once credentials the operator mints for machines
 //   · Anthropic  — the model key NavFlow agents (and Ask) run on
-//   · Slack      — the bot token behind slack:// trigger subscriptions
+//   · Slack      — the bot token behind slack:// trigger subscriptions (outbound), and the
+//                  signing secret that authenticates the /navflow slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
 export default function Security() {
   return (
@@ -21,6 +22,7 @@ export default function Security() {
       <ApiKeysPanel />
       <AnthropicKeyPanel />
       <SlackTokenPanel />
+      <SlackSigningSecretPanel />
     </>
   );
 }
@@ -192,6 +194,81 @@ function SlackTokenPanel() {
               <button className="danger" disabled={busy} onClick={async () => {
                 setBusy(true);
                 try { await api.clearSlackToken(); await load(); }
+                catch (e) { setErr(String((e as Error).message ?? e)); }
+                setBusy(false);
+              }}>Clear stored</button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// The other half of Slack: the signing secret that authenticates requests coming IN. Same
+// write-only contract again, and the same panel shape — but this one is the security boundary for
+// the only route that is public to the auth middleware, so the copy says what happens without it.
+function SlackSigningSecretPanel() {
+  const [st, setSt] = useState<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>();
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const [msg, setMsg] = useState<string>();
+
+  const load = () =>
+    api.slackSigningSecretStatus().then(setSt).catch((e) => setErr(String((e as Error).message ?? e)));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true); setErr(undefined); setMsg(undefined);
+    try {
+      const r = await api.setSlackSigningSecret(secret.trim());
+      setSecret("");
+      setMsg(r.note ?? "✓ saved");
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Slack signing secret</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        Lets your team ask NavFlow from Slack: point the Slack app's <code>/navflow</code> slash
+        command at <code>/api/slack/events</code> on this instance and run{" "}
+        <code>/navflow ask what happened to checkout-svc?</code> in any channel. Paste the app's{" "}
+        <strong>Signing Secret</strong> (Basic Information) here, or set{" "}
+        <code>NAVFLOW_SLACK_SIGNING_SECRET</code>. Every inbound request is verified against it and
+        replays older than 5 minutes are refused; with no secret configured the endpoint answers
+        503 rather than trusting anything. The secret is never returned by the API.
+      </p>
+
+      {err && <div className="alert error">{err}</div>}
+      {msg && <p className="help">{msg}</p>}
+
+      {!st ? <div className="muted">loading…</div> : (
+        <>
+          <p style={{ margin: "0 0 10px" }}>
+            {st.configured
+              ? <><span className="badge ok">configured</span>{" "}
+                  <span className="help">from <span className="mono">{st.source}</span></span></>
+              : <><span className="badge">not configured</span>{" "}
+                  <span className="help">inbound Slack requests are refused until one is set</span></>}
+          </p>
+          {st.env_overrides && st.stored && (
+            <div className="alert">
+              A signing secret is set in the environment and takes precedence — the one stored here
+              is not in use. Remove the environment variable, or clear the stored secret.
+            </div>
+          )}
+          <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
+            <input type="password" className="mono" style={{ flex: 1 }} placeholder="signing secret"
+                   value={secret} onChange={(e) => setSecret(e.target.value)} />
+            <button className="primary" disabled={busy || !secret.trim()} onClick={save}>Save</button>
+            {st.stored && (
+              <button className="danger" disabled={busy} onClick={async () => {
+                setBusy(true);
+                try { await api.clearSlackSigningSecret(); await load(); }
                 catch (e) { setErr(String((e as Error).message ?? e)); }
                 setBusy(false);
               }}>Clear stored</button>
