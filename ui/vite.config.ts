@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
 // dev: `npm run dev` proxies to a running navflowd; prod: `npm run build` emits ui/dist,
@@ -6,7 +7,7 @@ import { defineConfig } from "vite";
 const NAVFLOWD = "http://127.0.0.1:8787";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     proxy: Object.fromEntries(
       ["/api", "/query", "/read", "/catalog", "/health", "/ingest", "/subscribe", "/unsubscribe"].map(
