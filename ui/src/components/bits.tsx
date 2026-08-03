@@ -71,6 +71,19 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
+/** Bytes as a human size, binary units ("2.4 GiB"). Null/undefined is *unknown*, not zero — the
+ *  metering API returns null for numbers it genuinely cannot know (no configured limit, a stat()
+ *  that failed), and rendering those as "0 B" would be a lie. */
+export function formatBytes(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n < 1024) return `${Math.round(n)} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB", "PiB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
 /** Input with styled suggestions — replaces native <datalist> (which can't be themed).
  *  Free text stays allowed; suggestions filter as you type. */
 export function Combo({ value, onChange, options, placeholder, style, className, hints, hintClass }: {

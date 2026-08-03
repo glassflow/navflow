@@ -4,7 +4,7 @@ import type {
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchDetail, DispatchLogEntry, Entity, EnvScan,
   AgentPreset, AgentRun, BuiltinAgent,
   LabelFacet, QueryLogEntry,
-  Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult,
+  Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
 } from "./types";
 
@@ -198,6 +198,10 @@ export const api = {
   dispatch: (id: string) => request<DispatchDetail>(`/api/activity/dispatches/${id}`),
   subscriptions: () => request<Subscription[]>("/api/subscriptions"),
   mcpTools: () => request<{ name: string; description: string }[]>("/api/mcp/tools"),
+
+  // What this instance is using on disk. `max_bytes`/`pct_used` are null unless the operator set
+  // NAVFLOW_MAX_DB_SIZE — see the Usage type before rendering any of it.
+  usage: () => request<Usage>("/api/usage"),
 
   catalog: () => request<CatalogList>("/catalog"),
   describe: (handle: string) => request<CatalogDescribe>(`/catalog/${handle}`),

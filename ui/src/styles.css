@@ -531,6 +531,13 @@ button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-
 .alert.error { background: var(--err-soft); color: var(--err); border: 1px solid var(--danger-border); }
 .alert.ok { background: var(--ok-soft); color: var(--ok); border: 1px solid var(--ok-border); }
 .alert.info { background: var(--th-bg); color: var(--ink-soft); border: 1px solid var(--line); }
+/* "heading for trouble, not in it yet" — storage nearly full, a paused source */
+.alert.warn { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+
+/* Storage meter — only ever rendered when there IS a limit to be a percentage of. */
+.usage-bar { height: 6px; background: var(--wash-2); border-radius: 0; overflow: hidden; }
+.usage-bar > span { display: block; height: 100%; background: var(--accent); }
+.usage-bar > span.hot { background: var(--warn); }
 
 /* Instance-wide banner (daemon unreachable / degraded). Fixed, because #root is the
    sidebar+content flex row and an in-flow banner would become a third column. */
