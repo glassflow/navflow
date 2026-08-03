@@ -282,6 +282,14 @@ def _cgroup_mem_bytes() -> int | None:
     return None
 
 
+def _file_size(path: str) -> int:
+    """Bytes on disk, 0 if the file isn't there (an in-memory db, or a WAL that's checkpointed)."""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
 def _bound_duckdb_memory(con, path: str) -> None:
     """Bound DuckDB to the CONTAINER, not the host. Without a memory_limit DuckDB sizes itself to
     the node's RAM, so one heavy scan over a grown dataset blows past the cgroup limit and the
@@ -310,6 +318,7 @@ class Store:
         # All access is from navflowd's event loop thread; the lock is belt-and-suspenders since
         # FastAPI may run sync work in a threadpool.
         self._lock = threading.Lock()
+        self.path = path          # kept so usage() can size the db file and its WAL
         self.con = duckdb.connect(path)
         _bound_duckdb_memory(self.con, path)
         for stmt in _SCHEMA.strip().split(";"):
@@ -928,6 +937,28 @@ class Store:
                 "SELECT source, events, last_ingest FROM source_stats ORDER BY source"
             ).fetchall()
         return [{"source": r[0], "events": r[1], "last_ingest": r[2]} for r in rows]
+
+    def usage(self) -> dict:
+        """What this instance is costing on disk, for the metering endpoint. Every number here is
+        O(1)-ish: file sizes come from stat(), per-source event counts from the maintained
+        `source_stats` counter (never a scan of events), and the two row counts are unfiltered
+        COUNT(*)s, which DuckDB answers from table metadata. Per-source bytes are None — DuckDB
+        stores every source in one events table and does not attribute storage per value."""
+        db_bytes = _file_size(self.path)
+        wal_bytes = _file_size(self.path + ".wal")
+        with self._lock:
+            sources = self.con.execute(
+                "SELECT source, events FROM source_stats ORDER BY source").fetchall()
+            runs = self.con.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0]
+            deliveries = self.con.execute("SELECT COUNT(*) FROM dispatch_deliveries").fetchone()[0]
+        return {
+            "db_bytes": db_bytes,
+            "wal_bytes": wal_bytes,
+            "events": sum(int(r[1] or 0) for r in sources),
+            "sources": [{"name": r[0], "events": int(r[1] or 0), "bytes": None} for r in sources],
+            "agent_runs": int(runs),
+            "dispatch_deliveries": int(deliveries),
+        }
 
     def recent_events(self, source: str | None = None, limit: int = 50) -> list[dict]:
         where = "WHERE source = ?" if source else ""

@@ -11,7 +11,9 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import secrets
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -71,6 +73,26 @@ def _public(method: str, path: str) -> bool:
         return True
     return method in ("GET", "HEAD") and not (
         path.startswith("/api/") or path.startswith("/catalog") or path == "/query")
+
+
+_SIZE_UNITS = {"": 1, "k": 10**3, "m": 10**6, "g": 10**9, "t": 10**12,
+               "ki": 1 << 10, "mi": 1 << 20, "gi": 1 << 30, "ti": 1 << 40}
+
+
+def _parse_size(v: str | None) -> int | None:
+    """NAVFLOW_MAX_DB_SIZE -> bytes. Accepts a plain integer or a Kubernetes-style quantity
+    ('10Gi', '500Mi', '2G') so a Helm chart can pass the PVC size through verbatim. Unset,
+    empty or unparseable -> None, i.e. no denominator and exactly today's behaviour."""
+    if not v or not (v := v.strip()):
+        return None
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([KMGTkmgt]i?|)[Bb]?", v)
+    if not m:
+        return None
+    n = int(float(m.group(1)) * _SIZE_UNITS[m.group(2).lower()])
+    return n if n > 0 else None
+
+
+MAX_DB_SIZE = _parse_size(os.getenv("NAVFLOW_MAX_DB_SIZE"))
 
 
 def _ui_dist() -> Path:
@@ -1309,6 +1331,27 @@ def make_app() -> FastAPI:
             _err(ValueError(f"invalid YAML: {e}"))
         runtime.reload_catalog()
         return {"ok": True, **counts}
+
+    # ── metering ──────────────────────────────────────────────────────────────
+    @app.get("/api/usage")
+    async def usage():
+        """What this instance is using: db + WAL bytes, the volume they sit on, and event counts.
+        `max_bytes` is what the operator says this instance may grow to (NAVFLOW_MAX_DB_SIZE — a
+        hosted cell gets its PVC size); unset -> null, and nothing is enforced here either way.
+        `pct_used` is (db + wal) over max_bytes on a 0-100 scale, NOT a 0-1 fraction — so a
+        "warn at 80%" consumer compares against 80, not 0.8. Null whenever max_bytes is null.
+        Cheap by construction: file stats plus the maintained per-source counters, no table scan,
+        so the cost does not grow with the event count."""
+        u = store.usage()
+        try:
+            du = shutil.disk_usage(os.path.dirname(os.path.abspath(DB_PATH)) or ".")
+            disk_total, disk_free = du.total, du.free
+        except OSError:
+            disk_total = disk_free = None
+        used = u["db_bytes"] + u["wal_bytes"]
+        return {**u, "disk_total": disk_total, "disk_free": disk_free,
+                "max_bytes": MAX_DB_SIZE,
+                "pct_used": round(100 * used / MAX_DB_SIZE, 2) if MAX_DB_SIZE else None}
 
     # ── console UI (built SPA; catch-all registered last so API routes win) ──
     @app.get("/{path:path}", include_in_schema=False)
