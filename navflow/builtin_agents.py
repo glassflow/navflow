@@ -28,6 +28,7 @@ import uuid
 import httpx
 
 from .config import FINDINGS_SOURCE, agent_url
+from .slack import deep_link as _slack_deep_link
 from .views import resolve_query_full, resolve_read
 
 MODEL = os.getenv("NAVFLOW_AGENT_MODEL", "claude-sonnet-4-6")
@@ -338,10 +339,14 @@ class AgentRunner:
         a link to 127.0.0.1 is worse than no link — so the message must stand alone. The text is the
         stored finding verbatim; a summary here would become a second, divergent record.
 
-        A deep link is appended only when the instance knows it is reachable (NAVFLOW_PUBLIC_URL).
+        A deep link is appended only when the instance knows it is reachable (NAVFLOW_PUBLIC_URL) —
+        the same rule the slack:// dispatch sink applies, hence the shared helper.
+
+        This is the ORIGINAL per-agent incoming-webhook path and stays as it is. The way forward is
+        a `slack://channel/<id>` subscription (`navflow/slack.py`), which is per-trigger, retried
+        and logged in the delivery ledger; existing agents are not migrated.
         """
-        base = os.getenv("NAVFLOW_PUBLIC_URL", "").strip().rstrip("/")
-        link = f"\n\n<{base}/explore?key={key}|Open {key} in NavFlow>" if base else ""
+        link = _slack_deep_link(key)
         text = f"*{agent_name}* · `{trigger_name}` fired for *{key}*\n\n{finding}{link}"
         try:
             async with httpx.AsyncClient(timeout=15) as cx:

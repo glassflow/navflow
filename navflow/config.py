@@ -91,6 +91,44 @@ def agent_name_from_url(url: str) -> str | None:
     return url[len(AGENT_URL_PREFIX):] if url.startswith(AGENT_URL_PREFIX) else None
 
 
+# Slack is the third sink, wired the same way: a subscription whose URL names a channel instead of
+# an endpoint. The dispatcher posts it via chat.postMessage with the instance's bot token, so the
+# channel is addressable without the operator holding a per-channel incoming-webhook URL.
+SLACK_URL_PREFIX = "slack://channel/"
+
+# Channel IDs are C/G/D + uppercase alphanumerics. A human-typed `#general` is accepted too —
+# chat.postMessage still resolves names — but is normalized to the bare name.
+_SLACK_ID = re.compile(r"^[CGD][A-Z0-9]{6,}$")
+_SLACK_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,79}$")
+
+
+def slack_url(channel: str) -> str:
+    return SLACK_URL_PREFIX + channel.lstrip("#")
+
+
+def slack_channel_from_url(url: str) -> str | None:
+    """The channel a `slack://channel/<id>` subscription addresses, else None. Returns None for a
+    malformed channel as well: `fire` must fall through to the webhook path only for URLs that are
+    genuinely not Slack, so validation happens at subscribe time (see `validate_slack_channel`)."""
+    if not url.startswith(SLACK_URL_PREFIX):
+        return None
+    chan = url[len(SLACK_URL_PREFIX):].strip().lstrip("#")
+    return chan or None
+
+
+def validate_slack_channel(channel: str) -> str:
+    """Normalize and check a channel, raising ValueError with a usable message. Called on the
+    subscribe path — a subscription that can never deliver is worse than a 400."""
+    chan = (channel or "").strip().lstrip("#")
+    if not chan:
+        raise ValueError("slack:// subscription needs a channel, e.g. slack://channel/C0123456789")
+    if _SLACK_ID.match(chan) or _SLACK_NAME.match(chan):
+        return chan
+    raise ValueError(
+        f"{channel!r} is not a Slack channel — use the channel ID (C0123456789, from the channel's "
+        "'Copy link') or its lowercase name")
+
+
 @dataclass
 class Catalog:
     sources: dict   # name -> SourceCfg

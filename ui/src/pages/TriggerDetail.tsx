@@ -19,8 +19,10 @@ export default function TriggerDetail() {
   const { data: agents } = usePolling(() => api.agents(), 10000);
   const { data: dispatches } = usePolling(() => api.dispatches(100), 10000);
   const [url, setUrl] = useState("");
+  const [channel, setChannel] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
+  const { data: caps } = usePolling(() => api.capabilities(), 60000);
 
   if (error) return <div className="alert error">{error}</div>;
   if (!triggers) return <div className="dim">loading…</div>;
@@ -98,6 +100,8 @@ export default function TriggerDetail() {
                   : <Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
                 <td>{a.kind === "navflow"
                   ? <span className="badge">NavFlow</span>
+                  : a.kind === "slack"
+                  ? <span className="badge">Slack</span>
                   : <span className="badge push">connected</span>}</td>
                 <td className="mono">{a.endpoint}</td>
                 <td className="num" title={`${a.delivered_ok_total} delivered all time`}>
@@ -142,6 +146,33 @@ export default function TriggerDetail() {
           setBusy(false);
         }}>Subscribe</button>
       </div>
+
+      {/* A Slack channel is the same thing as the webhook above — one more subscription row —
+          so it lives here rather than in a Slack-shaped corner of the app. */}
+      <p className="help" style={{ margin: "10px 0 4px" }}>
+        or post every firing to a <strong>Slack channel</strong> — retried and logged like any
+        other delivery:
+      </p>
+      <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
+        <input type="text" className="mono" style={{ flex: 1 }}
+               placeholder="C0123456789 — the channel ID, from Slack's “Copy link”"
+               value={channel} onChange={(e) => setChannel(e.target.value)} />
+        <button className="primary" disabled={!channel.trim() || busy} onClick={async () => {
+          setBusy(true); setMsg(undefined);
+          try {
+            const r = await api.subscribe(name, `slack://channel/${channel.trim().replace(/^#/, "")}`);
+            setMsg(`✓ subscribed (${r.subscription_id})`);
+            setChannel("");
+          } catch (e) { setMsg(`⚠️ ${String((e as Error).message ?? e)}`); }
+          setBusy(false);
+        }}>Subscribe channel</button>
+      </div>
+      {caps && caps.slack_configured === false && (
+        <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
+          no Slack bot token is configured yet — add one under{" "}
+          <Link to="/security">Security</Link>, and invite the bot to the channel.
+        </p>
+      )}
       {msg && <p className="help">{msg}</p>}
 
       <h2>Recent firings</h2>

@@ -85,6 +85,11 @@ Other clients, stdio transport, and auth are covered in
   fires: it reads the correlated timeline and writes a **finding** back onto the entity's timeline
   (so the next agent to read that entity starts ahead). Read-only — it concludes, it doesn't act.
   → [NavFlow agents](https://www.navflow.ai/docs/navflow-agents)
+- **Slack**: subscribe a channel to any trigger with `slack://channel/C0123456789` and every firing
+  is posted there as Block Kit — retried, logged in the delivery ledger, and visible in the console
+  like any other subscriber. One bot token per instance (`NAVFLOW_SLACK_BOT_TOKEN`, or set it under
+  **Security**); the token is never returned by the API. This is the way forward for Slack: an
+  agent's older per-agent `slack_webhook` still works, but it is not retried or logged.
 - **Console**: Sources (health + setup), **Explore** (pick an entity, read its timeline, human or
   agent view), Views & Triggers, **Agents** (create NavFlow agents + connect external ones), and
   **Ask** (an in-console assistant over your data, summonable with ⌘K).

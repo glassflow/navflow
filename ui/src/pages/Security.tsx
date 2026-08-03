@@ -6,10 +6,11 @@ import { Close } from "../components/icons";
 import { TimeAgo } from "../components/bits";
 import type { ApiKey } from "../types";
 
-// Three distinct credential concepts, one box each:
+// Four distinct credential concepts, one box each:
 //   · Access     — is this instance open, or does it require a login? (navflow up --auth)
 //   · API keys   — scoped, revocable, show-once credentials the operator mints for machines
 //   · Anthropic  — the model key NavFlow agents (and Ask) run on
+//   · Slack      — the bot token behind slack:// trigger subscriptions
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
 export default function Security() {
   return (
@@ -19,6 +20,7 @@ export default function Security() {
       <AccessPanel />
       <ApiKeysPanel />
       <AnthropicKeyPanel />
+      <SlackTokenPanel />
     </>
   );
 }
@@ -116,6 +118,80 @@ function AnthropicKeyPanel() {
               <button className="danger" disabled={busy} onClick={async () => {
                 setBusy(true);
                 try { await api.clearAnthropicKey(); await load(); }
+                catch (e) { setErr(String((e as Error).message ?? e)); }
+                setBusy(false);
+              }}>Clear stored</button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// One bot token per instance, behind every `slack://channel/<id>` trigger subscription. Same
+// contract as the Anthropic key — env wins, the value is never returned — so this panel is a
+// deliberate near-copy rather than a variation the reader has to diff in their head.
+function SlackTokenPanel() {
+  const [st, setSt] = useState<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>();
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const [msg, setMsg] = useState<string>();
+
+  const load = () =>
+    api.slackTokenStatus().then(setSt).catch((e) => setErr(String((e as Error).message ?? e)));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true); setErr(undefined); setMsg(undefined);
+    try {
+      const r = await api.setSlackToken(token.trim());
+      setToken("");
+      setMsg(r.note ?? "✓ saved");
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Slack bot token</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        Lets a trigger post to a channel: subscribe{" "}
+        <code>slack://channel/C0123456789</code> on any trigger and every firing is delivered,
+        retried and logged like a webhook. Create a Slack app with the <code>chat:write</code>{" "}
+        scope, invite it to the channel, and paste its <strong>Bot User OAuth Token</strong> here —
+        or set <code>NAVFLOW_SLACK_BOT_TOKEN</code> in the daemon's environment. It is never
+        returned by the API and never included in a catalog export.
+      </p>
+
+      {err && <div className="alert error">{err}</div>}
+      {msg && <p className="help">{msg}</p>}
+
+      {!st ? <div className="muted">loading…</div> : (
+        <>
+          <p style={{ margin: "0 0 10px" }}>
+            {st.configured
+              ? <><span className="badge ok">configured</span>{" "}
+                  <span className="help">from <span className="mono">{st.source}</span></span></>
+              : <><span className="badge">not configured</span>{" "}
+                  <span className="help">channels cannot be subscribed until one is set</span></>}
+          </p>
+          {st.env_overrides && st.stored && (
+            <div className="alert">
+              A token is set in the environment and takes precedence — the one stored here is not in
+              use. Remove the environment variable, or clear the stored token to avoid confusion.
+            </div>
+          )}
+          <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
+            <input type="password" className="mono" style={{ flex: 1 }} placeholder="xoxb-…"
+                   value={token} onChange={(e) => setToken(e.target.value)} />
+            <button className="primary" disabled={busy || !token.trim()} onClick={save}>Save</button>
+            {st.stored && (
+              <button className="danger" disabled={busy} onClick={async () => {
+                setBusy(true);
+                try { await api.clearSlackToken(); await load(); }
                 catch (e) { setErr(String((e as Error).message ?? e)); }
                 setBusy(false);
               }}>Clear stored</button>

@@ -3,11 +3,12 @@
 The dispatch body carries the rendered view payload, so the agent boots already holding the
 correlated timeline (zero reads to begin). At-least-once; subscribers dedupe on `dispatch_id`.
 
-Two kinds of subscriber, ONE mechanism: an external agent's webhook (POST) and a NavFlow agent
-(run in-process). Both are ordinary subscription rows — a NavFlow agent's URL uses the
-navflow://agent/ scheme — so both are logged as deliveries and appear identically in the roster,
-a trigger's woken-agents list, and recent firings. The in-process runs are dispatched without
-awaiting: an investigation takes minutes and must not delay a webhook delivery on the same trigger.
+Three kinds of subscriber, ONE mechanism: an external agent's webhook (POST), a NavFlow agent
+(run in-process), and a Slack channel. All three are ordinary subscription rows — a NavFlow
+agent's URL uses the navflow://agent/ scheme, a channel's uses slack://channel/ — so all three are
+logged as deliveries and appear identically in the roster, a trigger's woken-agents list, and
+recent firings. The in-process runs are dispatched without awaiting: an investigation takes
+minutes and must not delay a webhook delivery on the same trigger.
 """
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ import uuid
 
 import httpx
 
-from .config import agent_name_from_url
+from . import slack
+from .config import agent_name_from_url, slack_channel_from_url
 from .envelope import now_utc
 
 
@@ -49,7 +51,12 @@ class Dispatcher:
                 if self.agents is not None:
                     self.agents.deliver(agent_name, sid, trigger.name, key, payload, dispatch_id)
                 continue
-            ok, error = await self._post(url, body)
+            channel = slack_channel_from_url(url)
+            if channel is not None:
+                ok, error = await self._slack_post(channel, trigger.name, key, payload,
+                                                   body["fired_at"])
+            else:
+                ok, error = await self._post(url, body)
             self.store.log_delivery(dispatch_id, sid, url, ok, error)   # per-agent delivery history
             if ok:
                 delivered += 1
@@ -76,6 +83,55 @@ class Dispatcher:
                 except Exception as e:            # transport failure — unreachable / timeout / DNS
                     error = (type(e).__name__ + (f": {e}" if str(e).strip() else ""))[:200]
                 if attempt < attempts - 1:        # no point sleeping after the final attempt
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 30)
+        return False, error
+
+    async def _slack_post(self, channel: str, trigger: str, key: str, payload: str,
+                          fired_at: str | None = None,
+                          attempts: int = 5) -> tuple[bool, str | None]:
+        """Deliver one firing to a Slack channel. Same contract as `_post` — (ok, error), same
+        five attempts and the same capped exponential backoff — so a Slack subscription's delivery
+        row reads identically to a webhook's.
+
+        The difference is where the verdict comes from: `chat.postMessage` answers HTTP 200 with
+        `{"ok": false, "error": ...}`, so the retry decision is made by `slack.classify` on the
+        body rather than by the status code. A revoked token or a channel the bot isn't in fails on
+        the FIRST attempt with that reason in the ledger, instead of five timeouts and no reason.
+        """
+        token, _origin = slack.resolve_token(self.store)
+        if not token:
+            # Not retryable and not transient: nothing about waiting 30s makes a token appear.
+            return False, "slack: no bot token configured (set NAVFLOW_SLACK_BOT_TOKEN or add one under Security)"
+        msg = {"channel": channel, **slack.build_message(trigger, key, payload, fired_at)}
+        headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
+        delay = 1.0
+        error = None
+        async with httpx.AsyncClient(timeout=10) as cx:
+            for attempt in range(attempts):
+                try:
+                    r = await cx.post(f"{slack.API_BASE}/chat.postMessage",
+                                      json=msg, headers=headers)
+                    try:
+                        data = r.json()
+                    except Exception:
+                        data = None
+                    ok, error, retry = slack.classify(r.status_code, data)
+                    if ok:
+                        return True, None
+                    if not retry:
+                        return False, error
+                    # Slack tells us how long to wait when it rate-limits; obeying it is the
+                    # difference between backing off once and being throttled for the whole window.
+                    if after := r.headers.get("retry-after"):
+                        try:
+                            delay = max(delay, min(float(after), 60.0))
+                        except ValueError:
+                            pass
+                except Exception as e:            # transport failure — unreachable / timeout / DNS
+                    error = ("slack: " + type(e).__name__
+                             + (f": {e}" if str(e).strip() else ""))[:200]
+                if attempt < attempts - 1:
                     await asyncio.sleep(delay)
                     delay = min(delay * 2, 30)
         return False, error
