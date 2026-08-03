@@ -172,6 +172,18 @@ export const api = {
     request<{ ok: boolean; configured: boolean }>("/api/settings/slack-bot-token",
       { method: "DELETE" }),
 
+  // The signing secret that authenticates inbound Slack (`/navflow ask …`). Write-only like the
+  // others; without it POST /api/slack/events answers 503 rather than trusting the request.
+  slackSigningSecretStatus: () =>
+    request<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>(
+      "/api/settings/slack-signing-secret"),
+  setSlackSigningSecret: (secret: string) =>
+    request<{ ok: boolean; source: string; note?: string }>("/api/settings/slack-signing-secret",
+      { method: "PUT", body: JSON.stringify({ secret }) }),
+  clearSlackSigningSecret: () =>
+    request<{ ok: boolean; configured: boolean }>("/api/settings/slack-signing-secret",
+      { method: "DELETE" }),
+
   agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),
   unsubscribe: (subscription_id: string) =>
     request<{ ok: boolean }>("/unsubscribe",

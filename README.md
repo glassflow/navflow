@@ -90,6 +90,11 @@ Other clients, stdio transport, and auth are covered in
   like any other subscriber. One bot token per instance (`NAVFLOW_SLACK_BOT_TOKEN`, or set it under
   **Security**); the token is never returned by the API. This is the way forward for Slack: an
   agent's older per-agent `slack_webhook` still works, but it is not retried or logged.
+  Ask back from the same channel with the **`/navflow ask <question>`** slash command — point the
+  Slack app's command at `https://<your-navflow>/api/slack/events` and set the app's signing secret
+  (`NAVFLOW_SLACK_SIGNING_SECRET`, or under **Security**). Every inbound request is verified by
+  HMAC-SHA256 over the raw body within a 5-minute replay window; with no signing secret configured
+  the endpoint answers 503 rather than trusting anything.
 - **Console**: Sources (health + setup), **Explore** (pick an entity, read its timeline, human or
   agent view), Views & Triggers, **Agents** (create NavFlow agents + connect external ones), and
   **Ask** (an in-console assistant over your data, summonable with ⌘K).

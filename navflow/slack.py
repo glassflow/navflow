@@ -1,4 +1,9 @@
-"""Slack as a dispatch sink — resolve the bot token, format the message, post it.
+"""Slack — the bot token, the outbound message, and the `/navflow` slash command's replies.
+
+Outbound (the dispatch sink): resolve the bot token, format a firing as Block Kit, post it.
+Inbound (the slash command): parse `/navflow ask …`, bound its cost, and format the answer that
+goes back to Slack's `response_url`. Signature verification lives next door in `slack_verify.py`
+— it is the security boundary and is kept separately reviewable.
 
 This is the *generic* half of NavFlow's Slack support: a bot token that an operator configures
 (env or console) and one `chat.postMessage` call. Nothing here knows about OAuth or hosted
@@ -16,6 +21,9 @@ as a timeout rather than as "invalid_auth".
 from __future__ import annotations
 
 import os
+import re
+import time
+from collections import deque
 
 API_BASE = os.getenv("NAVFLOW_SLACK_API_BASE", "https://slack.com/api").rstrip("/")
 SETTING_KEY = "slack_bot_token"
@@ -122,3 +130,120 @@ def _error_detail(err: str, data: dict) -> str:
     if not hint and err == "missing_scope" and data.get("needed"):
         hint = f"needs scope {data['needed']}"
     return f" ({hint})" if hint else ""
+
+
+# ── inbound: the /navflow slash command ─────────────────────────────────────
+# Everything below serves `POST /api/slack/events`. It is deliberately pure — parsing, cost
+# bounding and message shaping — so the endpoint itself is only plumbing: verify, ACK, answer.
+
+USAGE = ("usage: `/navflow ask <question>` — e.g. "
+         "`/navflow ask what happened to checkout-svc in the last hour?`")
+
+# Cost ceiling, the same shape as `builtin_agents.DAILY_RUN_CAP`: a per-day count with an env
+# override, so one enthusiastic channel cannot run up an unbounded model bill. Counted per
+# (team, user) rather than per workspace — one person's loop must not lock out their colleagues.
+DAILY_ASK_CAP = int(os.getenv("NAVFLOW_SLACK_DAILY_CAP", "50"))
+
+
+class AskCap:
+    """A rolling 24h cap per (team, user).
+
+    Held in memory rather than in a table: unlike an agent run there is nothing to show in the
+    console for an ask, and a restart resetting the counter is an acceptable cost bound — the
+    ceiling exists to stop a runaway loop, not to bill anyone. Same knob shape as DAILY_RUN_CAP.
+    """
+
+    def __init__(self, cap: int = DAILY_ASK_CAP, window: float = 86400.0):
+        self.cap, self.window, self._seen = cap, window, {}
+
+    def take(self, team: str, user: str, now: float | None = None) -> bool:
+        """Record one ask; False when this user is already at the cap (nothing is recorded then)."""
+        now = time.time() if now is None else now
+        q = self._seen.setdefault((team or "-", user or "-"), deque())
+        while q and now - q[0] > self.window:
+            q.popleft()
+        if len(q) >= self.cap:
+            return False
+        q.append(now)
+        return True
+
+
+def parse_command(text: str) -> tuple[str, str | None]:
+    """`(question, error)` for the `text` of a `/navflow` slash command.
+
+    `/navflow ask <question>` is the documented form. A bare `/navflow <question>` is accepted as
+    the same thing — forgetting the subcommand is the overwhelmingly likely mistake, and answering
+    it beats a lecture. Empty, or `help`, gets the usage line; nothing gets a stack trace.
+    """
+    text = (text or "").strip()
+    if not text or text.lower() in ("help", "-h", "--help", "?"):
+        return "", USAGE
+    head, _, rest = text.partition(" ")
+    if head.lower() == "ask":
+        rest = rest.strip()
+        return (rest, None) if rest else ("", f"ask what? {USAGE}")
+    return text, None
+
+
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+_MD_HEAD = re.compile(r"^#{1,6}\s*(.+)$", re.M)
+
+
+def to_mrkdwn(text: str) -> str:
+    """Markdown (what the model writes) → Slack mrkdwn (what Slack renders).
+
+    Only the three differences that actually show up as noise in a channel: `**bold**` is literal
+    asterisks in Slack, `[a](b)` is literal brackets, and `## heading` is a literal hash.
+    """
+    text = _MD_LINK.sub(r"<\2|\1>", text or "")
+    text = _MD_BOLD.sub(r"*\1*", text)
+    return _MD_HEAD.sub(r"*\1*", text)
+
+
+def _sections(text: str) -> list[dict]:
+    """Split a long answer across section blocks — one section caps at 3000 characters, and an
+    over-long block makes Slack reject the whole message (`invalid_blocks`) rather than truncate."""
+    out, buf = [], to_mrkdwn(text).strip()
+    while buf:
+        chunk, buf = buf[:_MAX_SECTION], buf[_MAX_SECTION:]
+        if buf:                       # prefer a line boundary so we don't cut mid-sentence
+            cut = chunk.rfind("\n")
+            if cut > _MAX_SECTION // 2:
+                chunk, buf = chunk[:cut], chunk[cut + 1:] + buf
+        out.append({"type": "section", "text": {"type": "mrkdwn", "text": chunk}})
+    return out or [{"type": "section", "text": {"type": "mrkdwn", "text": "_(no answer)_"}}]
+
+
+def build_answer(question: str, answer: str, thread_ts: str | None = None,
+                 in_channel: bool = True) -> dict:
+    """The `response_url` body carrying an answer back to Slack.
+
+    `replace_original` clears the "thinking…" ACK so a channel is left with the answer alone, and
+    `text` is always set for the notification and for clients that can't render blocks.
+    """
+    blocks = [{"type": "context", "elements": [
+        {"type": "mrkdwn", "text": f":mag: *{to_mrkdwn(question)[:180]}*"}]}]
+    blocks += _sections(answer)
+    body = {"response_type": "in_channel" if in_channel else "ephemeral",
+            "replace_original": True,
+            "text": _truncate(answer.strip() or "(no answer)", 500),
+            "blocks": blocks}
+    if thread_ts:
+        # Invoked inside a thread: the answer belongs in that thread, not adrift in the channel.
+        body["thread_ts"] = thread_ts
+    return body
+
+
+def build_error(message: str, thread_ts: str | None = None) -> dict:
+    """A failure the user can act on, ephemeral so a broken setup isn't broadcast to the channel.
+
+    Every failure mode goes through here. A slash command that answers with silence is
+    indistinguishable from an app that is down, which is the worst outcome of all.
+    """
+    body = {"response_type": "ephemeral", "replace_original": True,
+            "text": message,
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": message}}]}
+    if thread_ts:
+        body["thread_ts"] = thread_ts
+    return body
