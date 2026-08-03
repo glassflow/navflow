@@ -136,7 +136,8 @@ export interface DiscoverProposal {
 export interface AgentInfo {
   name: string;
   endpoint: string;   // masked — the last path segment may carry a secret
-  kind: "navflow" | "connected";   // a NavFlow agent (in-process) or an external webhook
+  // a NavFlow agent (in-process), an external webhook, or a Slack channel (slack://channel/<id>)
+  kind: "navflow" | "connected" | "slack";
   subscriptions: { subscription_id: string; trigger: string; created_at: string | null }[];
   triggers: string[];
   created_by: string[];

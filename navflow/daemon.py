@@ -24,9 +24,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
-from .config import (CatalogError, agent_url, export_db_to_yaml, import_yaml_to_db,
-                     validate_agent_dict, validate_source_dict, validate_trigger_dict,
-                     validate_view_dict, _source_from_dict)
+from .config import (SLACK_URL_PREFIX, CatalogError, agent_url, export_db_to_yaml,
+                     import_yaml_to_db, slack_channel_from_url, slack_url,
+                     validate_agent_dict, validate_slack_channel, validate_source_dict,
+                     validate_trigger_dict, validate_view_dict, _source_from_dict)
 from .connectors import (SPECS, normalize_config, redact_config, restore_secrets,
                          source_type_for)
 from .dispatch import Dispatcher
@@ -34,6 +35,7 @@ from .envelope import now_utc
 from .builtin_agents import (PRESETS as AGENT_PRESETS, AgentRunner,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
+from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
 from .store import Store, StoreUnavailable
 from .views import resolve_query_full, resolve_read
 
@@ -55,6 +57,8 @@ LOGIN_URL = os.getenv("NAVFLOW_LOGIN_URL", "").strip()
 # The Anthropic key for the in-app Ask agent (and NavFlow agents) is resolved at request time via
 # resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
 # Never returned by any API — capabilities exposes only a boolean.
+# The Slack bot token behind the slack:// dispatch sink follows exactly the same rule via
+# resolve_slack_token(store): env NAVFLOW_SLACK_BOT_TOKEN, else the console-stored value.
 
 
 def _is_ingest(path: str) -> bool:
@@ -242,6 +246,10 @@ class ImportReq(BaseModel):
 
 class AnthropicKeyIn(BaseModel):
     key: str    # blank-to-keep is not offered here: the only edits are "set a new one" or DELETE
+
+
+class SlackTokenIn(BaseModel):
+    token: str  # same contract as AnthropicKeyIn: set a new one, or DELETE to clear
 
 
 def make_app() -> FastAPI:
@@ -444,11 +452,23 @@ def make_app() -> FastAPI:
     async def subscribe(req: SubReq, request: Request):
         if req.trigger not in {t.name for t in runtime.catalog.triggers}:
             _err(KeyError(f"unknown trigger {req.trigger!r}"), 404)
+        url = req.url.strip()
+        if url.startswith(SLACK_URL_PREFIX):
+            # A Slack subscription is checked at creation, not at the first firing: an unroutable
+            # channel or a missing token would otherwise surface hours later as a failed delivery
+            # nobody is watching.
+            try:
+                url = slack_url(validate_slack_channel(url[len(SLACK_URL_PREFIX):]))
+            except ValueError as e:
+                _err(e)
+            if not resolve_slack_token(store)[0]:
+                _err(ValueError("no Slack bot token configured — set NAVFLOW_SLACK_BOT_TOKEN or "
+                                "add one under Security before subscribing a channel"))
         sid = "sub_" + uuid.uuid4().hex[:8]
         # record the creating credential: revoking a key removes its subscriptions (a revoked
         # agent must stop receiving trigger dispatches)
         ident = getattr(request.state, "credential", None)
-        store.add_subscription(sid, req.trigger, req.url, created_by=ident["id"] if ident else None)
+        store.add_subscription(sid, req.trigger, url, created_by=ident["id"] if ident else None)
         return {"subscription_id": sid}
 
     @app.post("/unsubscribe")
@@ -775,6 +795,9 @@ def make_app() -> FastAPI:
             # or the console-stored key) — so once a key is set anywhere, the Ask chat stops
             # prompting for a browser-pasted one.
             "agent_key_configured": bool(resolve_anthropic_key(store)[0]),
+            # gates the "subscribe a Slack channel" affordance on a trigger — offering it with no
+            # bot token configured only leads to a 400.
+            "slack_configured": bool(resolve_slack_token(store)[0]),
         }
 
     @app.post("/api/labels/preview")
@@ -1290,6 +1313,39 @@ def make_app() -> FastAPI:
         key, origin = resolve_anthropic_key(store)
         return {"ok": True, "configured": bool(key), "source": origin}
 
+    # ── the Slack bot token: same contract as the Anthropic key ──────────────
+    # One token per instance, behind every slack:// subscription. It is a credential, so it is
+    # write-only over the API exactly like the model key: the console can learn THAT one resolves
+    # and where from, never what it is.
+    @app.get("/api/settings/slack-bot-token")
+    async def get_slack_token():
+        token, origin = resolve_slack_token(store)
+        return {"configured": bool(token), "source": origin,
+                "stored": bool(store.get_setting(SLACK_TOKEN_SETTING)),
+                "env_overrides": origin.startswith("env:")}
+
+    @app.put("/api/settings/slack-bot-token")
+    async def set_slack_token(body: SlackTokenIn):
+        token = body.token.strip()
+        if not token:
+            _err(ValueError("token is required (use DELETE to remove the stored token)"))
+        if not token.startswith("xox"):
+            # Caught here rather than on the first failed delivery: a pasted webhook URL or signing
+            # secret would otherwise sit in the settings table looking configured.
+            _err(ValueError("that does not look like a Slack bot token — it should start with "
+                            "'xoxb-' (OAuth & Permissions → Bot User OAuth Token)"))
+        store.set_setting(SLACK_TOKEN_SETTING, token)
+        _, origin = resolve_slack_token(store)
+        return {"ok": True, "source": origin,
+                **({"note": "an environment token takes precedence and is still in use"}
+                   if origin.startswith("env:") else {})}
+
+    @app.delete("/api/settings/slack-bot-token")
+    async def clear_slack_token():
+        store.set_setting(SLACK_TOKEN_SETTING, None)
+        token, origin = resolve_slack_token(store)
+        return {"ok": True, "configured": bool(token), "source": origin}
+
     # ── management API: activity (what agents saw / what woke them) ──────────
     @app.get("/api/activity/queries")
     async def activity_queries(limit: int = 100):
@@ -1322,13 +1378,18 @@ def make_app() -> FastAPI:
 
     def _agent_identity(url: str) -> tuple[str, str]:
         """(name, masked display URL) for a subscriber endpoint. A NavFlow agent's URL carries its
-        real name and no secret, so it's shown verbatim. An external hook URL is the identity but
-        carries a secret in the path, so it's anonymized (deterministic name) and the last path
-        segment masked."""
+        real name and no secret, so it's shown verbatim; a Slack channel likewise. An external hook
+        URL is the identity but carries a secret in the path, so it's anonymized (deterministic
+        name) and the last path segment masked."""
         from .config import agent_name_from_url
         internal = agent_name_from_url(url.rstrip("/"))
         if internal is not None:
             return internal, "in-process (NavFlow agent)"
+        channel = slack_channel_from_url(url.rstrip("/"))
+        if channel is not None:
+            # The channel IS the identity and holds no secret (the token does), so it's shown as
+            # written — a raw slack://channel/C0123456 URL in the roster reads like a bug.
+            return f"#{channel}", "Slack channel"
         norm = url.rstrip("/")
         h = int(hashlib.sha256(norm.encode()).hexdigest(), 16)
         name = f"{_AGENT_ADJ[h % len(_AGENT_ADJ)]}-{_AGENT_NOUN[(h // 16) % len(_AGENT_NOUN)]}"
@@ -1356,7 +1417,9 @@ def make_app() -> FastAPI:
             if a is None:
                 from .config import agent_name_from_url
                 name, masked = _agent_identity(norm)
-                kind = "navflow" if agent_name_from_url(norm) is not None else "connected"
+                kind = ("navflow" if agent_name_from_url(norm) is not None
+                        else "slack" if slack_channel_from_url(norm) is not None
+                        else "connected")
                 st = stats.get(sub["url"], stats.get(norm, {}))
                 a = agents[norm] = {
                     "name": name, "endpoint": masked, "kind": kind,
