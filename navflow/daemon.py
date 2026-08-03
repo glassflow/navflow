@@ -18,7 +18,9 @@ import traceback
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import parse_qs
 
+import httpx
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
@@ -35,6 +37,8 @@ from .envelope import now_utc
 from .builtin_agents import (PRESETS as AGENT_PRESETS, AgentRunner,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
+from . import slack as slack_mod
+from . import slack_verify
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
 from .store import Store, StoreUnavailable
 from .views import resolve_query_full, resolve_read
@@ -69,12 +73,23 @@ def _bearer(auth: str | None) -> str:
     return auth[7:].strip() if auth and auth.lower().startswith("bearer ") else ""
 
 
+SLACK_EVENTS_PATH = "/api/slack/events"
+
+
 def _public(method: str, path: str) -> bool:
-    """Reachable without the auth token: CORS preflight, the health probe, ingest (own token), and
-    the console SPA shell + static assets (any GET that isn't an API/data route)."""
+    """Reachable without the auth token: CORS preflight, the health probe, ingest (own token), the
+    Slack inbound endpoint (own signature), and the console SPA shell + static assets (any GET that
+    isn't an API/data route)."""
     if method == "OPTIONS" or path == "/health":
         return True
     if _is_ingest(path):
+        return True
+    if method == "POST" and path == SLACK_EVENTS_PATH:
+        # Slack calls this from its own infrastructure and cannot carry our bearer token, so it has
+        # to be public to THIS middleware — but it is not unauthenticated. It is gated by an
+        # HMAC-SHA256 signature over the raw body plus a 5-minute replay window (slack_verify.py),
+        # and returns 503 rather than serving anything when no signing secret is configured.
+        # Exactly one method on exactly one path: no prefix match, so nothing else rides in on it.
         return True
     return method in ("GET", "HEAD") and not (
         path.startswith("/api/") or path.startswith("/catalog") or path == "/query")
@@ -118,6 +133,11 @@ UI_DIST = _ui_dist()
 # /health reports `degraded` at or above this share of NAVFLOW_MAX_DB_SIZE. On the 0-100 scale of
 # /api/usage's pct_used, so 90 means 90% — not 0.9. Unknown (no limit configured) is never degraded.
 DEGRADED_PCT = float(os.getenv("NAVFLOW_DEGRADED_PCT", "90"))
+
+# How long a `/navflow ask` may think before Slack gets an apology instead of an answer. The user
+# is staring at a "…" in a channel, so this is deliberately much shorter than the agent's own
+# round budget would allow.
+SLACK_ASK_TIMEOUT = float(os.getenv("NAVFLOW_SLACK_ASK_TIMEOUT", "120"))
 
 
 def _serve_ui(path: str):
@@ -250,6 +270,10 @@ class AnthropicKeyIn(BaseModel):
 
 class SlackTokenIn(BaseModel):
     token: str  # same contract as AnthropicKeyIn: set a new one, or DELETE to clear
+
+
+class SlackSigningSecretIn(BaseModel):
+    secret: str  # the signing secret behind POST /api/slack/events; same write-only contract
 
 
 def make_app() -> FastAPI:
@@ -1345,6 +1369,165 @@ def make_app() -> FastAPI:
         store.set_setting(SLACK_TOKEN_SETTING, None)
         token, origin = resolve_slack_token(store)
         return {"ok": True, "configured": bool(token), "source": origin}
+
+    # ── the Slack signing secret: the credential that makes inbound Slack safe ──
+    # Same write-only contract as the bot token. Without it POST /api/slack/events answers 503:
+    # there is no configuration in which accepting an unverified inbound request is correct.
+    @app.get("/api/settings/slack-signing-secret")
+    async def get_slack_signing_secret():
+        secret, origin = slack_verify.resolve_secret(store)
+        return {"configured": bool(secret), "source": origin,
+                "stored": bool(store.get_setting(slack_verify.SETTING_KEY)),
+                "env_overrides": origin.startswith("env:")}
+
+    @app.put("/api/settings/slack-signing-secret")
+    async def set_slack_signing_secret(body: SlackSigningSecretIn):
+        secret = body.secret.strip()
+        if not secret:
+            _err(ValueError("secret is required (use DELETE to remove the stored secret)"))
+        if secret.startswith("xox"):
+            # A bot token pasted into the wrong box would look configured and fail every signature.
+            _err(ValueError("that is a bot token, not the signing secret — take the Signing Secret "
+                            "from the Slack app's Basic Information page"))
+        store.set_setting(slack_verify.SETTING_KEY, secret)
+        _, origin = slack_verify.resolve_secret(store)
+        return {"ok": True, "source": origin,
+                **({"note": "an environment secret takes precedence and is still in use"}
+                   if origin.startswith("env:") else {})}
+
+    @app.delete("/api/settings/slack-signing-secret")
+    async def clear_slack_signing_secret():
+        store.set_setting(slack_verify.SETTING_KEY, None)
+        secret, origin = slack_verify.resolve_secret(store)
+        return {"ok": True, "configured": bool(secret), "source": origin}
+
+    # ── inbound Slack: the /navflow slash command ───────────────────────────
+    # The only route in this daemon that is public to the auth middleware AND accepts a body from
+    # the internet, so it carries its own authentication: an HMAC over the raw bytes.
+    _ask_cap = slack_mod.AskCap()
+    _ask_tasks: set = set()      # keeps background tasks referenced; asyncio only holds weak refs
+
+    async def _slack_respond(response_url: str, body: dict) -> None:
+        """Deliver one message to Slack's `response_url`. Best-effort with a couple of retries: the
+        user is waiting, and there is nowhere else to put the answer if this fails."""
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=10) as cx:
+                    r = await cx.post(response_url, json=body)
+                if r.status_code < 400:
+                    return
+                if r.status_code < 500:
+                    print(f"navflowd: slack response_url rejected the answer: "
+                          f"HTTP {r.status_code} {r.text[:200]}", flush=True)
+                    return
+            except Exception as e:
+                print(f"navflowd: slack response_url failed: {type(e).__name__}: {e}", flush=True)
+            if attempt < 2:
+                await asyncio.sleep(1.0 * (attempt + 1))
+
+    async def _slack_answer(question: str, response_url: str, thread_ts: str | None) -> None:
+        """Run the Ask agent for one slash command and post the result. Never raises: this runs
+        detached from the request, so an exception here would otherwise be pure silence in Slack."""
+        from .agent import run_agent
+        text, error = "", None
+        try:
+            key = resolve_anthropic_key(store)[0]
+            self_headers = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
+            async def _run():
+                nonlocal text, error
+                async for chunk in run_agent(key, [{"role": "user", "content": question}],
+                                             "explore", None, self_headers):
+                    for line in chunk.splitlines():
+                        if not line.startswith("data: "):
+                            continue
+                        ev = json.loads(line[6:])
+                        if ev.get("type") == "text":
+                            text += ev.get("text") or ""
+                        elif ev.get("type") == "error":
+                            error = ev.get("detail") or "the assistant failed"
+            await asyncio.wait_for(_run(), timeout=SLACK_ASK_TIMEOUT)
+        except asyncio.TimeoutError:
+            error = f"that took longer than {SLACK_ASK_TIMEOUT}s — try a narrower question"
+        except Exception as e:   # noqa: BLE001 — every failure has to reach the user as words
+            error = f"{type(e).__name__}: {e}"
+        if text.strip():
+            # Partial output plus an error still beats an error alone; say both.
+            body = slack_mod.build_answer(question, text + (f"\n\n_{error}_" if error else ""),
+                                          thread_ts)
+        else:
+            body = slack_mod.build_error(
+                f":warning: {error or 'the assistant returned nothing to say'}", thread_ts)
+        await _slack_respond(response_url, body)
+
+    @app.post(SLACK_EVENTS_PATH, include_in_schema=False)
+    async def slack_events(request: Request):
+        """Slack's inbound endpoint: the URL-verification handshake and `/navflow ask …`.
+
+        Two contracts shape this whole handler:
+
+        · **The signature covers the RAW body.** Read `await request.body()` and parse afterwards —
+          letting FastAPI decode and re-serialise changes the bytes and every HMAC fails.
+        · **Slack allows 3 seconds to ACK.** A model call cannot make that, so anything that has to
+          think ACKs immediately and posts the answer to `response_url` from a background task.
+          Anything we already know (usage, no key, over the cap) is answered in the ACK itself.
+        """
+        raw = await request.body()
+        secret, _origin = slack_verify.resolve_secret(store)
+        if not secret:
+            # Never "accept and hope". Refusing to serve is the only safe failure here.
+            return JSONResponse({"detail": "Slack is not configured on this instance: set "
+                                           f"{slack_verify.ENV_VAR} (or add the signing secret "
+                                           "under Security) and try again"}, status_code=503)
+        if (why := slack_verify.check(request.headers, raw, secret)) is not None:
+            # The reason goes to the operator's log, not to the caller: telling a forger which part
+            # of their forgery failed is free help.
+            print(f"navflowd: rejected an inbound Slack request ({why})", flush=True)
+            return JSONResponse({"detail": "invalid Slack signature"}, status_code=401)
+
+        ctype = request.headers.get("content-type", "")
+        if "json" in ctype:
+            try:
+                body = json.loads(raw or b"{}")
+            except ValueError:
+                return JSONResponse({"detail": "malformed JSON"}, status_code=400)
+            if body.get("type") == "url_verification":
+                # Without this the Slack app can never be pointed at this daemon at all.
+                return {"challenge": body.get("challenge", "")}
+            # Event subscriptions are out of scope (slash command only) — ACK so Slack doesn't
+            # retry, and say nothing.
+            return {"ok": True}
+
+        form = {k: v[0] for k, v in parse_qs(raw.decode("utf-8", "replace")).items()}
+        response_url = (form.get("response_url") or "").strip()
+        thread_ts = (form.get("thread_ts") or "").strip() or None
+        question, problem = slack_mod.parse_command(form.get("text", ""))
+        if problem:
+            return slack_mod.build_error(problem, thread_ts)
+        if not response_url:
+            return slack_mod.build_error(
+                ":warning: that request carried no response_url — NavFlow has nowhere to reply",
+                thread_ts)
+        if not resolve_anthropic_key(store)[0]:
+            return slack_mod.build_error(
+                ":warning: no Anthropic API key is configured on this NavFlow instance — set "
+                "`ANTHROPIC_API_KEY` or add one under Security in the console", thread_ts)
+        if not runtime.catalog.sources:
+            return slack_mod.build_error(
+                ":warning: this NavFlow instance has no sources configured yet, so there is "
+                "nothing to ask about", thread_ts)
+        if not _ask_cap.take(form.get("team_id", ""), form.get("user_id", "")):
+            return slack_mod.build_error(
+                f":warning: you've hit the cap of {_ask_cap.cap} NavFlow questions in 24h "
+                "(NAVFLOW_SLACK_DAILY_CAP)", thread_ts)
+
+        task = asyncio.create_task(_slack_answer(question, response_url, thread_ts))
+        _ask_tasks.add(task)
+        task.add_done_callback(_ask_tasks.discard)
+        # The ACK Slack shows while we think; the answer replaces it via response_url.
+        ack = {"response_type": "ephemeral", "text": ":hourglass_flowing_sand: asking NavFlow…"}
+        if thread_ts:
+            ack["thread_ts"] = thread_ts
+        return ack
 
     # ── management API: activity (what agents saw / what woke them) ──────────
     @app.get("/api/activity/queries")
