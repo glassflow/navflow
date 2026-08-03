@@ -15,7 +15,7 @@ import json
 import os
 
 import httpx
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 NAVFLOWD = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
 # Bearer credentials. Over HTTP transports each caller presents its own token (the root auth token
@@ -34,9 +34,12 @@ def _cx(timeout: float = 10):
 # stdio (default) is what a local agent spawns. For remote agents (the demo / a server), run with
 # NAVFLOW_MCP_TRANSPORT=streamable-http (or sse) and the server listens on MCP_HOST:MCP_PORT — at
 # /mcp (streamable-http) or /sse (sse), proxying tool calls to navflowd as usual.
-mcp = FastMCP("navflow",
-              host=os.getenv("NAVFLOW_MCP_HOST", "127.0.0.1"),
-              port=int(os.getenv("NAVFLOW_MCP_PORT", "8788")))
+# mcp 2.0 moved host/port off the constructor, and Settings no longer carries
+# them, so they are read here and used directly where the server is started.
+MCP_HOST = os.getenv("NAVFLOW_MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.getenv("NAVFLOW_MCP_PORT", "8788"))
+
+mcp = MCPServer("navflow")
 
 
 def writable():
@@ -293,7 +296,7 @@ def main():
     if AUTH_TOKEN:
         app = _BearerGate(app)
     import uvicorn
-    uvicorn.run(app, host=mcp.settings.host, port=mcp.settings.port)
+    uvicorn.run(app, host=MCP_HOST, port=MCP_PORT)
 
 
 if __name__ == "__main__":

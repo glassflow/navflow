@@ -48,9 +48,9 @@ async def main():
             ck("mcp server up", False); return
 
         from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
+        from mcp.client.streamable_http import streamable_http_client
 
-        async with streamablehttp_client(f"http://127.0.0.1:{MPORT}/mcp") as (read, write, _):
+        async with streamable_http_client(f"http://127.0.0.1:{MPORT}/mcp") as (read, write, _):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 ck("MCP client connected over HTTP + initialized", True)
