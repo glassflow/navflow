@@ -77,7 +77,8 @@ export const api = {
   },
   connectors: () => request<Record<string, ConnectorSpec>>("/api/connectors"),
   capabilities: () =>
-    request<{ version?: string | null; discover_docker: boolean; agent_key_configured?: boolean }>("/api/capabilities"),
+    request<{ version?: string | null; discover_docker: boolean; agent_key_configured?: boolean;
+              slack_configured?: boolean }>("/api/capabilities"),
   keys: () => request<{ keys: ApiKey[]; enforced: boolean; scopes: string[] }>("/api/keys"),
   createKey: (name: string, scopes: string[]) =>
     request<{ id: string; name: string; scopes: string[]; secret: string }>(
@@ -151,6 +152,18 @@ export const api = {
       { method: "PUT", body: JSON.stringify({ key }) }),
   clearAnthropicKey: () =>
     request<{ ok: boolean; configured: boolean }>("/api/settings/anthropic-key",
+      { method: "DELETE" }),
+
+  // The Slack bot token behind slack:// subscriptions. Same contract as the Anthropic key: the
+  // value never leaves the server, only whether one resolves and where from.
+  slackTokenStatus: () =>
+    request<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>(
+      "/api/settings/slack-bot-token"),
+  setSlackToken: (token: string) =>
+    request<{ ok: boolean; source: string; note?: string }>("/api/settings/slack-bot-token",
+      { method: "PUT", body: JSON.stringify({ token }) }),
+  clearSlackToken: () =>
+    request<{ ok: boolean; configured: boolean }>("/api/settings/slack-bot-token",
       { method: "DELETE" }),
 
   agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),

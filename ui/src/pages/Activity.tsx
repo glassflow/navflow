@@ -362,11 +362,17 @@ export function AgentsRoster({ only }: { only?: "connected" | "navflow" }) {
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <div className="dim">loading…</div>;
-  const agents = only ? data.agents.filter((a) => a.kind === only) : data.agents;
+  // "connected" means everything that isn't a NavFlow agent — an external webhook or a Slack
+  // channel. Both are things the operator wired to a trigger from outside; splitting them into a
+  // third table would say less than the badge on the row does.
+  const agents = only
+    ? data.agents.filter((a) => (only === "connected" ? a.kind !== "navflow" : a.kind === only))
+    : data.agents;
   if (!agents.length) {
     return (
       <div className="empty">
-        no external agents connected — connect one from a <Link to="/triggers">trigger's</Link> page
+        no external agents connected — connect one, or a Slack channel, from a{" "}
+        <Link to="/triggers">trigger's</Link> page
       </div>
     );
   }
@@ -381,6 +387,7 @@ export function AgentsRoster({ only }: { only?: "connected" | "navflow" }) {
               <tr key={a.name} className="clickable" onClick={() => setOpen(open === a.name ? undefined : a.name)}>
                 <td>
                   <strong>{a.name}</strong>
+                  {a.kind === "slack" && <span className="badge" style={{ marginLeft: 8 }} title="a Slack channel subscribed to this trigger">Slack</span>}
                   {a.unhealthy && <span className="badge error" style={{ marginLeft: 8 }} title={a.last_error ?? "last delivery failed"}>failing</span>}
                 </td>
                 <td className="mono">{a.endpoint}</td>
