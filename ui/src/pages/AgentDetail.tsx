@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import AgentForm from "../components/AgentForm";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
 // Everything about one NavFlow agent: its prompt, wiring, and — the part that doesn't belong on the
@@ -29,7 +29,7 @@ export default function AgentDetail() {
   const [err, setErr] = useState<string>();
 
   const { data, error, reload } = usePolling(() => api.builtinAgents(), 10000);
-  const { data: runs } = usePolling(() => api.builtinAgentRuns(name, 20), 10000);
+  const { data: runs, error: runsError } = usePolling(() => api.builtinAgentRuns(name, 20), 10000);
   const { data: triggers } = usePolling(() => api.triggers(), 30000);
 
   if (error) return <div className="alert error">{error}</div>;
@@ -117,7 +117,8 @@ export default function AgentDetail() {
           </div>
 
           <h2>Runs &amp; findings</h2>
-          {!runs?.length && <p className="help">none yet — this agent runs when <span className="mono">{agent.trigger}</span> fires</p>}
+          {runsError && <ErrorState error={runsError} what="this agent’s runs" />}
+          {!runsError && !runs?.length && <p className="help">none yet — this agent runs when <span className="mono">{agent.trigger}</span> fires</p>}
           {runs?.map((r, i) => {
             const header = (
               <>

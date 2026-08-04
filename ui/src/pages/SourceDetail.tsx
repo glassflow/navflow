@@ -5,7 +5,7 @@ import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import IngestSetup from "../components/IngestSetup";
 import SourceForm from "../components/SourceForm";
-import { StatusBadge, TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, StatusBadge, TimeAgo, usePolling } from "../components/bits";
 import type { ConnectorSpec, Source } from "../types";
 
 export default function SourceDetail() {
@@ -27,7 +27,7 @@ export default function SourceDetail() {
   };
 
   const { data: source, error, reload } = usePolling(() => api.source(name));
-  const { data: events } = usePolling(() => api.sourceEvents(name, 30));
+  const { data: events, error: eventsError } = usePolling(() => api.sourceEvents(name, 30));
 
   useEffect(() => { api.connectors().then(setSpecs); }, []);
 
@@ -105,7 +105,8 @@ export default function SourceDetail() {
 
       {tab === "events" && (
         <>
-          {!events?.length && <div className="empty">nothing ingested from this source yet</div>}
+          {eventsError && <ErrorState error={eventsError} what="recent events" />}
+          {!eventsError && !events?.length && <div className="empty">nothing ingested from this source yet</div>}
           {!!events?.length && (
             <table>
               <thead><tr><th>ingested</th><th>key</th><th>type</th><th>text</th></tr></thead>

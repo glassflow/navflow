@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
-import { TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 
 // The home of one trigger: condition, the agents it wakes (wire more here), recent firings.
 // Read-only by default; Edit swaps in the editor in place (?edit=1 opens it directly).
@@ -16,8 +16,10 @@ export default function TriggerDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr] = useState<string>();
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
-  const { data: agents } = usePolling(() => api.agents(), 10000);
-  const { data: dispatches } = usePolling(() => api.dispatches(100), 10000);
+  // Both errors are kept, not dropped: `agents` decides what the DELETE dialog tells you is at
+  // stake, and a failed load would otherwise silently read as "nothing depends on this".
+  const { data: agents, error: agentsError } = usePolling(() => api.agents(), 10000);
+  const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
   const [url, setUrl] = useState("");
   const [channel, setChannel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -176,7 +178,8 @@ export default function TriggerDetail() {
       {msg && <p className="help">{msg}</p>}
 
       <h2>Recent firings</h2>
-      {firings.length === 0 && <p className="help">none yet</p>}
+      {dispatchesError && <ErrorState error={dispatchesError} what="recent firings" />}
+      {!dispatchesError && firings.length === 0 && <p className="help">none yet</p>}
       {firings.length > 0 && (
         <table>
           <thead><tr><th>fired</th><th>entity</th><th className="num">subscribers</th><th className="num">delivered</th><th>error</th></tr></thead>
@@ -200,9 +203,13 @@ export default function TriggerDetail() {
       {confirmDel && (
         <ConfirmDialog
           title={`Delete trigger ${trigger.name}?`}
-          message={wired.length
-            ? `${wired.length} agent(s) are woken by this trigger and will stop receiving it. This can't be undone.`
-            : "This stops the condition from being evaluated. This can't be undone."}
+          message={agentsError
+            // Never reassure from a failed load. "No agents use this" and "we couldn't find out"
+            // are different facts, and only one of them is safe to delete on.
+            ? `Couldn’t check which agents this trigger wakes (${agentsError}) — deleting may break more than is shown here. This can’t be undone.`
+            : wired.length
+              ? `${wired.length} agent(s) are woken by this trigger and will stop receiving it. This can't be undone.`
+              : "This stops the condition from being evaluated. This can't be undone."}
           confirmLabel="Delete"
           danger
           onCancel={() => setConfirmDel(false)}

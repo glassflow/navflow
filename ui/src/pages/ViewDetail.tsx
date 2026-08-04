@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ViewEditor from "../components/ViewEditor";
-import { TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 
 // The home of one view: read-only by default (definition, usage, watching triggers), with
 // in-place editing via the Edit button (?edit=1 opens it directly, e.g. from the list).
@@ -16,7 +16,9 @@ export default function ViewDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   const [delErr, setDelErr] = useState<string>();
   const { data: views, error, reload } = usePolling(() => api.views(), 10000);
-  const { data: triggers } = usePolling(() => api.triggers(), 10000);
+  // Error kept: this drives what the DELETE dialog says is at stake, and a failed load must not
+  // read as "no triggers watch this view".
+  const { data: triggers, error: triggersError } = usePolling(() => api.triggers(), 10000);
   const { data: sources } = usePolling(() => api.sources(), 15000);
 
   if (error) return <div className="alert error">{error}</div>;
@@ -86,7 +88,8 @@ export default function ViewDetail() {
       )}
 
       <h2>Triggers watching this view</h2>
-      {watchers.length === 0 && (
+      {triggersError && <ErrorState error={triggersError} what="the triggers watching this view" />}
+      {!triggersError && watchers.length === 0 && (
         <p className="help" style={{ whiteSpace: "normal" }}>
           none — <Link to={`/triggers/new?view=${encodeURIComponent(view.name)}`}>create one</Link> to
           wake agents when a condition trips on this timeline
@@ -112,9 +115,12 @@ export default function ViewDetail() {
       {confirmDel && (
         <ConfirmDialog
           title={`Delete view ${view.name}?`}
-          message={watchers.length
-            ? `${watchers.length} trigger(s) watch this view and will stop working. Agents querying it will start failing.`
-            : "Agents querying this view will start failing. This can't be undone."}
+          message={triggersError
+            // A failed load must never produce the calmer of the two messages — see TriggerDetail.
+            ? `Couldn’t check which triggers watch this view (${triggersError}) — deleting may break more than is shown here. This can’t be undone.`
+            : watchers.length
+              ? `${watchers.length} trigger(s) watch this view and will stop working. Agents querying it will start failing.`
+              : "Agents querying this view will start failing. This can't be undone."}
           confirmLabel="Delete"
           danger
           onCancel={() => setConfirmDel(false)}
