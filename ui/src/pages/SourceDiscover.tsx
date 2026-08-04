@@ -50,7 +50,7 @@ export default function SourceDiscover() {
   // are now listed). If any failed, stay put so the user can fix and retry.
   useEffect(() => {
     if (!allOk) return;
-    const t = setTimeout(() => nav("/"), 1400);
+    const t = setTimeout(() => nav("/sources"), 1400);
     return () => clearTimeout(t);
   }, [allOk, nav]);
 
@@ -123,7 +123,7 @@ export default function SourceDiscover() {
                     <span className="help">
                       created {created} of {Object.keys(results).length}
                       {failed ? `, ${failed} failed — fix and retry` : ""} ·{" "}
-                      <a href="#" onClick={(e) => { e.preventDefault(); nav("/"); }}>view sources</a>
+                      <a href="#" onClick={(e) => { e.preventDefault(); nav("/sources"); }}>view sources</a>
                     </span>
                   )}
                 </>

@@ -134,7 +134,7 @@ export default function SourceDetail() {
           onConfirm={async () => {
             setConfirmDel(false);
             setActionError(undefined);
-            try { await api.deleteSource(name, purge); nav("/"); }
+            try { await api.deleteSource(name, purge); nav("/sources"); }
             catch (e) { setActionError(String((e as Error).message ?? e)); }
           }}
         >

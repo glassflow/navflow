@@ -19,6 +19,17 @@ function S(props: SVGProps<SVGSVGElement>) {
 
 type P = SVGProps<SVGSVGElement>;
 
+// Overview: four panes, i.e. the instance at a glance — not a house. The nav's other icons all
+// name what the page shows rather than where it sits, and "home" is a location.
+export const Grid = (p: P) => (
+  <S {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </S>
+);
+
 export const Database = (p: P) => (
   <S {...p}>
     <ellipse cx="12" cy="5" rx="9" ry="3" />

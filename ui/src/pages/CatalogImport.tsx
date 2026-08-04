@@ -26,7 +26,7 @@ export default function CatalogImport() {
     <>
       <div className="pagehead">
         <div>
-          <p className="subtitle" style={{ marginBottom: 4 }}><Link to="/">Sources</Link> ›</p>
+          <p className="subtitle" style={{ marginBottom: 4 }}><Link to="/sources">Sources</Link> ›</p>
           <h1>Import catalog</h1>
           <p className="subtitle">paste a catalog YAML — sources, views and triggers</p>
         </div>
