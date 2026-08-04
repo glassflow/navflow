@@ -853,9 +853,17 @@ class Store:
     def agent_runs_today(self, agent: str, exclude_run_id: str | None = None) -> int:
         """Runs started in the last 24h — the cost ceiling's counter. `exclude_run_id` leaves out the
         run being checked: the row is inserted before the cap is evaluated, so the cap must count the
-        runs that came BEFORE this one or it lets one extra through."""
+        runs that came BEFORE this one or it lets one extra through.
+
+        `capped` rows are NOT counted. A capped run returns before any model call, so it costs
+        nothing, and counting it makes the cap self-sustaining: past the ceiling every further
+        trigger fire writes another capped row, which holds the count at the ceiling, so the agent
+        stays disabled for 24h after the last *attempt* instead of after the 50th real run. A
+        trigger in a hot loop — the exact case this cap exists for — would silence its agent
+        indefinitely. `failed` rows ARE counted: some of them failed after spending tokens, and
+        this is a cost ceiling, so the conservative direction is to count them."""
         sql = ("SELECT count(*) FROM agent_runs WHERE agent = ? "
-               "AND started_at > now() - INTERVAL 1 DAY")
+               "AND started_at > now() - INTERVAL 1 DAY AND status <> 'capped'")
         params: list = [agent]
         if exclude_run_id:
             sql += " AND id <> ?"

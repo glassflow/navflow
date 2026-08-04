@@ -20,3 +20,6 @@ dist/
 
 # local staging creds — never commit
 .prometheus
+
+# Claude Code local config + agent worktrees — machine-local, never publish
+.claude/

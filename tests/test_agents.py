@@ -246,6 +246,33 @@ async def main():
         st.con.close()
     finally:
         stub.shutdown()
+
+    # ── a capped run must not count toward the cap that produced it ──────────
+    # Past the ceiling, every further trigger fire writes another `capped` row. If those counted,
+    # the count would never fall back below the ceiling while the trigger keeps firing, so the
+    # agent would stay disabled for 24h after the last ATTEMPT rather than after its last real
+    # run — a trigger in a hot loop (the case the cap exists for) would silence its agent for
+    # good. A capped run returns before any model call, so it costs nothing to begin with.
+    st = Store(DB)
+    st.upsert_catalog_agent("hot-loop", "incident", "Take a first look.")
+    st.start_agent_run("run_real", "hot-loop", "incident", "d_real", "checkout", "h")
+    st.finish_agent_run("run_real", "ok")
+    ck("a completed run counts toward the cap", st.agent_runs_today("hot-loop") == 1)
+
+    for i in range(5):
+        st.start_agent_run(f"run_capped_{i}", "hot-loop", "incident", "d_cap", "checkout", "h")
+        st.finish_agent_run(f"run_capped_{i}", "capped", error="cap reached")
+    ck("capped runs do not count toward the cap",
+       st.agent_runs_today("hot-loop") == 1, str(st.agent_runs_today("hot-loop")))
+
+    # Deliberately still counted: some failures happen after the model call, so they cost real
+    # tokens, and a cost ceiling should err towards counting.
+    st.start_agent_run("run_failed", "hot-loop", "incident", "d_fail", "checkout", "h")
+    st.finish_agent_run("run_failed", "failed", error="boom")
+    ck("failed runs still count", st.agent_runs_today("hot-loop") == 2,
+       str(st.agent_runs_today("hot-loop")))
+    st.con.close()
+
     print(f"\n{P} passed, {F} failed")
 
 asyncio.run(main())
