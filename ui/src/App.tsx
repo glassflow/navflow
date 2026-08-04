@@ -4,7 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { api, auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
-  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Lock, Moon,
+  Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Grid, Lock, Moon,
   SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
@@ -22,9 +22,14 @@ type NavItem = {
 };
 
 // The nav is the product story, in three acts: data in → the timeline → serve to agents.
+// Overview sits above the story rather than inside it — it is where you land and where you check
+// the instance's numbers, not one of the acts.
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
+  { section: "", items: [
+    { to: "/", end: true, label: "Overview", icon: Grid },
+  ] },
   { section: "Data in", items: [
-    { to: "/", end: true, label: "Sources", icon: Database },
+    { to: "/sources", label: "Sources", icon: Database },
     { to: "/ask", label: "Ask", icon: Chat, kbd: "⌘K" },
   ] },
   { section: "The timeline", items: [
@@ -40,6 +45,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
 ];
 
 const SECTION_LABEL: Record<string, string> = {
+  sources: "Sources",
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",
@@ -54,13 +60,14 @@ const SECTION_LABEL: Record<string, string> = {
 
 type Crumb = { label: string; to?: string; mono?: boolean };
 
-/** Derive breadcrumbs from the current path. Sources is the root section, so its
- *  second-level pages (/sources/:name, /new, /discover) link back to the list. */
+/** Derive breadcrumbs from the current path. `/` is Overview; every section is a sibling of it,
+ *  so second-level pages link back to their own list (/sources/:name → Sources) rather than to
+ *  the root the way they did when Sources *was* the root. */
 function useCrumbs(): Crumb[] {
   const { pathname } = useLocation();
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
 
-  if (parts.length === 0) return [{ label: "Sources" }];
+  if (parts.length === 0) return [{ label: "Overview" }];
 
   if (parts[0] === "sources") {
     if (parts.length === 1) return [{ label: "Sources" }];
@@ -70,7 +77,7 @@ function useCrumbs(): Crumb[] {
       : sub === "new" ? { label: "Add source" }
       : sub === "claude-code" ? { label: "Claude Code" }
       : { label: sub, mono: true };
-    return [{ label: "Sources", to: "/" }, last];
+    return [{ label: "Sources", to: "/sources" }, last];
   }
 
   if (parts[0] === "agents" && parts.length > 1) {
@@ -136,7 +143,8 @@ export default function App() {
 
         {NAV_GROUPS.map(({ section, items }) => (
           <div className="nav-group" key={section}>
-            <div className="nav-section">{section}</div>
+            {/* Overview has no section heading — it sits above the three acts, not in one. */}
+            {section && <div className="nav-section">{section}</div>}
             {items.map(({ to, end, label, icon: Icon, badge, locked, kbd }) => (
               <NavLink key={to} to={to} end={end} className={link}>
                 <Icon className="ico" />

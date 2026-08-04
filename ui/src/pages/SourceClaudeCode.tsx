@@ -104,7 +104,7 @@ export default function SourceClaudeCode() {
         <p className="help" style={{ marginTop: 0 }}>
           Sessions stream <strong>from install onward</strong> (existing sessions aren&rsquo;t
           backfilled). Once you run a session, the <span className="mono">claude_code</span> source
-          shows up under <Link to="/">Sources</Link>.
+          shows up under <Link to="/sources">Sources</Link>.
         </p>
       </div>
     </>

@@ -22,6 +22,7 @@ import TriggerNew from "./pages/TriggerNew";
 import SourceDiscover from "./pages/SourceDiscover";
 import SourceNew from "./pages/SourceNew";
 import Security from "./pages/Security";
+import Home from "./pages/Home";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import "./styles.css";
@@ -31,7 +32,10 @@ const router = createBrowserRouter([
     path: "/",
     element: <App />,
     children: [
-      { index: true, element: <Sources /> },
+      // `/` is Overview, not the source list. The cloud login handoff (NAVFLOW_LOGIN_URL) lands
+      // here, so a customer arrives at the instance at a glance rather than at a table.
+      { index: true, element: <Home /> },
+      { path: "sources", element: <Sources /> },
       { path: "sources/discover", element: <SourceDiscover /> },
       { path: "sources/claude-code", element: <SourceClaudeCode /> },
       { path: "sources/new", element: <SourceNew /> },
@@ -54,12 +58,13 @@ const router = createBrowserRouter([
       { path: "agents/:name", element: <AgentDetail /> },
       { path: "ask", element: <Ask /> },
       { path: "security", element: <Security /> },
-      { path: "settings", element: <Navigate to="/" replace /> },
+      { path: "settings", element: <Navigate to="/sources" replace /> },
       // legacy paths → new homes (bookmarks, the old Entities/Activity/Catalog nav). Catalog
       // dissolved: source schema/freshness now lives on the source detail; the agent's-eye read
       // is Explore's Agent-view toggle.
       { path: "entities", element: <Navigate to="/explore" replace /> },
-      { path: "catalog", element: <Navigate to="/" replace /> },
+      // These two meant "the source list" when `/` was the source list — they still do.
+      { path: "catalog", element: <Navigate to="/sources" replace /> },
     ],
   },
 ]);
