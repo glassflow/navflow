@@ -4,9 +4,9 @@ import { api } from "../api";
 import { Combo } from "./bits";
 import type { AgentPreset, BuiltinAgent } from "../types";
 
-// Create/edit a NavFlow agent. One editable substance field — the prompt — seeded by a preset.
-// Model/tools/budgets are NavFlow's decisions and never surfaced: a second knob turns a data-plane
-// feature into an agent builder (docs/design/navflow-agents.md). The trigger is chosen at creation
+// Create/edit a Tares agent. One editable substance field — the prompt — seeded by a preset.
+// Model/tools/budgets are Tares's decisions and never surfaced: a second knob turns a data-plane
+// feature into an agent builder (docs/design/tares-agents.md). The trigger is chosen at creation
 // and fixed thereafter (move an agent by deleting and recreating), so it's read-only when editing.
 export default function AgentForm({ initial, presetTrigger, triggers, presets, onSaved, onCancel }: {
   initial?: BuiltinAgent;              // absent = create

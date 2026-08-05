@@ -187,7 +187,7 @@ function KeySetup({ value, onChange, onSave }:
     <div className="panel" style={{ maxWidth: 560 }}>
       <h2 style={{ marginTop: 0 }}>Add your Anthropic API key</h2>
       <p className="help" style={{ whiteSpace: "normal" }}>
-        The assistant runs on your NavFlow daemon using your key. The key is sent to this instance
+        The assistant runs on your Tares daemon using your key. The key is sent to this instance
         with each request and used transiently — it is <strong>not stored on the server</strong>;
         it's kept in this browser. Get one at{" "}
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.

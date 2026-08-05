@@ -1,5 +1,9 @@
-# Build the NavFlow image in CI and publish it to GHCR, so servers pull a prebuilt image
-# (the compose files reference ghcr.io/<owner>/navflow) instead of building on the box.
+# Build the Tares image in CI and publish it to GHCR, so servers pull a prebuilt image
+# instead of building on the box.
+#
+# The image name is PINNED to <owner>/tares rather than derived from ${{ github.repository }}:
+# the repo is still called navflow, and the image should carry the product name, not the
+# repository's. It also means a later repo rename does not silently change the image name.
 name: Publish image
 
 on:
@@ -29,7 +33,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}   # ghcr.io/<owner>/navflow
+          images: ghcr.io/${{ github.repository_owner }}/tares
           tags: |
             type=semver,pattern={{version}}            # v0.0.2 -> 0.0.2 (the pinnable tag)
             type=semver,pattern={{major}}.{{minor}}    #        -> 0.0
@@ -72,7 +76,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}-demo-api-server
+          images: ghcr.io/${{ github.repository_owner }}/tares-demo-api-server
           tags: |
             type=raw,value=latest
             type=sha,format=short

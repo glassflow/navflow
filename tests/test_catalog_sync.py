@@ -1,4 +1,4 @@
-"""NAVFLOW_CATALOG_SYNC — the YAML catalog is the source of truth. Default is import-once (first
+"""TARES_CATALOG_SYNC — the YAML catalog is the source of truth. Default is import-once (first
 boot only); with sync set, every boot re-imports, so editing the file + restarting manages sources.
 """
 import asyncio, os, signal, subprocess, sys
@@ -23,11 +23,11 @@ def write_catalog(*names):
 
 
 async def boot_and_count(sync):
-    env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": CAT, "NAVFLOW_PORT": PORT,
-           "NAVFLOW_OTLP_GRPC_PORT": "off"}
+    env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": CAT, "TARES_PORT": PORT,
+           "TARES_OTLP_GRPC_PORT": "off"}
     if sync:
-        env["NAVFLOW_CATALOG_SYNC"] = "1"
-    proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+        env["TARES_CATALOG_SYNC"] = "1"
+    proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         for _ in range(80):

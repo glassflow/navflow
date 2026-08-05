@@ -21,7 +21,7 @@ export default function Ask() {
     <>
       <h1>Ask</h1>
       <p className="subtitle">
-        an assistant over your NavFlow data — <em>chat to explore and debug, or have it organize
+        an assistant over your Tares data — <em>chat to explore and debug, or have it organize
         your labels &amp; views</em>
       </p>
 

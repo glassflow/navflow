@@ -1,9 +1,9 @@
 import asyncio, os, time
-os.environ["NAVFLOW_DB"]="/tmp/otlp.duckdb"; os.environ["NAVFLOW_CATALOG"]="/tmp/none.yaml"
+os.environ["TARES_DB"]="/tmp/otlp.duckdb"; os.environ["TARES_CATALOG"]="/tmp/none.yaml"
 for p in ("/tmp/otlp.duckdb","/tmp/otlp.duckdb.wal"):
     if os.path.exists(p): os.remove(p)
 import httpx
-from navflow.daemon import make_app
+from tares.daemon import make_app
 P=F=0
 def ck(l,c,d=""):
     global P,F; P+=1 if c else 0; F+=0 if c else 1

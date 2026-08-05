@@ -20,7 +20,7 @@ export function ConnectPage() {
     <>
       <h1>Connect</h1>
       <p className="subtitle">
-        hook an agent up to this NavFlow — <em>it pulls (MCP), gets pushed (webhook), or calls
+        hook an agent up to this Tares — <em>it pulls (MCP), gets pushed (webhook), or calls
         plain REST</em>
       </p>
 
@@ -40,7 +40,7 @@ const ACTIVITY_LABELS: Record<ActivityTab, string> = {
   dispatches: "Trigger dispatches", queries: "Reads",
 };
 
-// The connected-agent roster moved to the Agents page (which lists NavFlow agents too); Activity is
+// The connected-agent roster moved to the Agents page (which lists Tares agents too); Activity is
 // now just what's been happening — reads agents ran, and trigger dispatches.
 export default function AgentActivity() {
   const [params, setParams] = useSearchParams();
@@ -123,7 +123,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
 
     // The MCP endpoint sits in one of two places: same host/port behind a reverse proxy
     // (the compose deployment — Caddy routes /mcp to the MCP server), or on its own port
-    // when `navflow mcp` runs as a separate process locally (the documented default, :8788).
+    // when `tares mcp` runs as a separate process locally (the documented default, :8788).
     const loc = window.location;
     const sameOrigin = `${origin}/mcp`;
     const localPort = `${loc.protocol}//${loc.hostname}:8788/mcp`;
@@ -159,12 +159,12 @@ function Connect({ tab }: { tab: ConnectTab }) {
   const shownTok = authReq && !reveal && token ? "••••••••" : tok;
 
   const claudeCode = (t: string) =>
-    `claude mcp add --transport http navflow ${url}` + (authReq ? ` --header "Authorization: Bearer ${t}"` : "");
+    `claude mcp add --transport http tares ${url}` + (authReq ? ` --header "Authorization: Bearer ${t}"` : "");
   const httpJson = (t: string) => JSON.stringify({
-    mcpServers: { navflow: { type: "http", url, ...(authReq ? { headers: { Authorization: `Bearer ${t}` } } : {}) } },
+    mcpServers: { tares: { type: "http", url, ...(authReq ? { headers: { Authorization: `Bearer ${t}` } } : {}) } },
   }, null, 2);
   const stdioJson = (t: string) => JSON.stringify({
-    mcpServers: { navflow: { command: "navflow-mcp", env: { NAVFLOWD_URL: origin, ...(authReq ? { NAVFLOW_AUTH_TOKEN: t } : {}) } } },
+    mcpServers: { tares: { command: "tares-mcp", env: { NAVFLOWD_URL: origin, ...(authReq ? { TARES_AUTH_TOKEN: t } : {}) } } },
   }, null, 2);
   const subscribeCurl = (t: string) =>
     `curl -X POST ${origin}/subscribe \\\n` +
@@ -189,7 +189,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
         <div className={`mcp-status ${status}`}>
           {status === "checking" && "checking the MCP endpoint…"}
           {status === "live" && <span>MCP endpoint is live at <span className="mono">{url}</span></span>}
-          {status === "absent" && <span>No MCP endpoint found — neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">navflow mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
+          {status === "absent" && <span>No MCP endpoint found — neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">tares mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
         </div>
       )}
 
@@ -215,8 +215,8 @@ function Connect({ tab }: { tab: ConnectTab }) {
       {tab === "push" && (
         <>
           <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
-            Flip the loop: NavFlow watches, the agent sleeps. When a trigger&rsquo;s condition
-            trips, NavFlow POSTs the <strong>correlated timeline</strong> to a URL your agent
+            Flip the loop: Tares watches, the agent sleeps. When a trigger&rsquo;s condition
+            trips, Tares POSTs the <strong>correlated timeline</strong> to a URL your agent
             listens on — the investigation starts with the evidence already attached,{" "}
             <strong>zero reads</strong>. (In our SRE incident benchmark the same diagnosis took 6
             fan-out reads baseline, 1 correlated read over MCP, 0 when pushed.)
@@ -226,7 +226,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
           <p className="help" style={{ whiteSpace: "normal" }}>
             Anything that accepts a POST and starts your agent with the request body as context — a
             small FastAPI/Express route, a serverless function, a workflow-engine webhook. It must
-            be reachable <em>from this NavFlow server</em>. Every delivery is JSON shaped like:
+            be reachable <em>from this Tares server</em>. Every delivery is JSON shaped like:
           </p>
           <CodeBlock title="what your endpoint receives on each firing" code={JSON.stringify({
             dispatch_id: "9f2c81d4…",
@@ -245,7 +245,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
           {triggers && triggers.length > 0 ? (
             <>
               <p className="help" style={{ whiteSpace: "normal" }}>
-                A trigger is a condition NavFlow evaluates continuously over a view. Pick one,
+                A trigger is a condition Tares evaluates continuously over a view. Pick one,
                 replace the URL with your endpoint, and run (needs a{" "}
                 <span className="mono">read</span>-scoped <Link to="/security">API key</Link>;
                 revoking the key removes its subscriptions):
@@ -273,8 +273,8 @@ function Connect({ tab }: { tab: ConnectTab }) {
             endpoint shows up under <Link to="/activity">Agents</Link> with its delivery history
             (firings are logged even with no subscribers — useful to test a trigger before wiring
             the agent). Full walkthrough and a runnable incident-response example:{" "}
-            <a href="https://www.navflow.ai/docs/agents" target="_blank" rel="noreferrer">
-              navflow.ai/docs/agents</a>.
+            <a href="https://www.tares.ai/docs/agents" target="_blank" rel="noreferrer">
+              tares.ai/docs/agents</a>.
           </p>
 
         </>
@@ -309,7 +309,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
 
       <h3 style={{ marginBottom: 4 }}>stdio (agent on the same machine, or no /mcp endpoint)</h3>
       <p className="help" style={{ whiteSpace: "normal" }}>
-        Requires <span className="mono">pip install navflow</span> where the agent runs; it proxies to this daemon.
+        Requires <span className="mono">pip install tares</span> where the agent runs; it proxies to this daemon.
       </p>
       <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} />
         </>
@@ -352,8 +352,8 @@ function Connect({ tab }: { tab: ConnectTab }) {
   );
 }
 
-// Exported so the Agents page can show connected agents (only="connected") beneath NavFlow agents.
-export function AgentsRoster({ only }: { only?: "connected" | "navflow" }) {
+// Exported so the Agents page can show connected agents (only="connected") beneath Tares agents.
+export function AgentsRoster({ only }: { only?: "connected" | "tares" }) {
   const nav = useNavigate();
   const { data, error } = usePolling(() => api.agents(), 10000);
   const [params] = useSearchParams();
@@ -362,11 +362,11 @@ export function AgentsRoster({ only }: { only?: "connected" | "navflow" }) {
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <div className="dim">loading…</div>;
-  // "connected" means everything that isn't a NavFlow agent — an external webhook or a Slack
+  // "connected" means everything that isn't a Tares agent — an external webhook or a Slack
   // channel. Both are things the operator wired to a trigger from outside; splitting them into a
   // third table would say less than the badge on the row does.
   const agents = only
-    ? data.agents.filter((a) => (only === "connected" ? a.kind !== "navflow" : a.kind === only))
+    ? data.agents.filter((a) => (only === "connected" ? a.kind !== "tares" : a.kind === only))
     : data.agents;
   if (!agents.length) {
     return (

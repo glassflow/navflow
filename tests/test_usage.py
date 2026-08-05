@@ -1,12 +1,12 @@
 """Instance metering — GET /api/usage. Real daemon: file sizes match the db on disk, per-source
-counts agree with /api/sources, the NAVFLOW_MAX_DB_SIZE denominator drives max_bytes/pct_used
+counts agree with /api/sources, the TARES_MAX_DB_SIZE denominator drives max_bytes/pct_used
 (null when unset), the endpoint is a read scope (ingest-only keys are refused), and the response
 stays fast as the event count grows (no table scan).
 """
 import asyncio, os, subprocess, sys, time
 import httpx
 
-from navflow.daemon import _parse_size
+from tares.daemon import _parse_size
 
 P = F = 0
 def ck(l, c, d=""):
@@ -48,15 +48,15 @@ def H(tok):
 
 def _boot(**extra):
     env = {k: v for k, v in os.environ.items()
-           if k not in ("NAVFLOW_AUTH_TOKEN", "NAVFLOW_MAX_DB_SIZE")}
-    env |= {"NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-            "NAVFLOW_OTLP_GRPC_PORT": "off", **extra}
-    return subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+           if k not in ("TARES_AUTH_TOKEN", "TARES_MAX_DB_SIZE")}
+    env |= {"TARES_DB": DB, "TARES_CATALOG": SEED, "TARES_PORT": PORT,
+            "TARES_OTLP_GRPC_PORT": "off", **extra}
+    return subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def _units():
-    # NAVFLOW_MAX_DB_SIZE parsing: plain bytes and Kubernetes-style quantities (so Helm can pass
+    # TARES_MAX_DB_SIZE parsing: plain bytes and Kubernetes-style quantities (so Helm can pass
     # the PVC size through verbatim); anything unparseable degrades to "no limit".
     ck("size: plain bytes", _parse_size("1073741824") == 1 << 30)
     ck("size: 10Gi", _parse_size("10Gi") == 10 * (1 << 30))
@@ -89,8 +89,8 @@ async def main():
             ck("db_bytes > 0", u["db_bytes"] > 0, str(u["db_bytes"]))
             ck("disk_total/disk_free are real",
                u["disk_total"] > 0 and 0 < u["disk_free"] <= u["disk_total"], str(u))
-            ck("no NAVFLOW_MAX_DB_SIZE -> max_bytes null", u["max_bytes"] is None, str(u["max_bytes"]))
-            ck("no NAVFLOW_MAX_DB_SIZE -> pct_used null", u["pct_used"] is None, str(u["pct_used"]))
+            ck("no TARES_MAX_DB_SIZE -> max_bytes null", u["max_bytes"] is None, str(u["max_bytes"]))
+            ck("no TARES_MAX_DB_SIZE -> pct_used null", u["pct_used"] is None, str(u["pct_used"]))
             ck("events total", u["events"] == 25, str(u["events"]))
             ck("per-source counts", {s["name"]: s["events"] for s in u["sources"]} == {"evt": 20, "evt2": 5},
                str(u["sources"]))
@@ -116,7 +116,7 @@ async def main():
         proc.terminate(); proc.wait(timeout=10)
 
     # ── limit configured + auth on ──
-    proc = _boot(NAVFLOW_AUTH_TOKEN=AUTH, NAVFLOW_MAX_DB_SIZE="1Gi")
+    proc = _boot(TARES_AUTH_TOKEN=AUTH, TARES_MAX_DB_SIZE="1Gi")
     try:
         if not await _wait(f"{B}/health"):
             ck("daemon up (auth)", False); return
@@ -130,7 +130,7 @@ async def main():
             r = await cx.get(f"{B}/api/usage", headers=H(read_key))
             ck("read key -> 200", r.status_code == 200, r.text)
             u = r.json()
-            ck("max_bytes from NAVFLOW_MAX_DB_SIZE", u["max_bytes"] == 1 << 30, str(u["max_bytes"]))
+            ck("max_bytes from TARES_MAX_DB_SIZE", u["max_bytes"] == 1 << 30, str(u["max_bytes"]))
             expect = round(100 * (u["db_bytes"] + u["wal_bytes"]) / (1 << 30), 2)
             ck("pct_used = (db+wal)/max as a percentage", u["pct_used"] == expect and u["pct_used"] > 0,
                f"{u['pct_used']} vs {expect}")

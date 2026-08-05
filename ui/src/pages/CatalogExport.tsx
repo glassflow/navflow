@@ -48,7 +48,7 @@ export default function CatalogExport() {
     if (!yaml) return;
     const url = URL.createObjectURL(new Blob([yaml], { type: "application/yaml" }));
     const a = document.createElement("a");
-    a.href = url; a.download = "navflow-catalog.yaml"; a.click();
+    a.href = url; a.download = "tares-catalog.yaml"; a.click();
     URL.revokeObjectURL(url);
   };
 

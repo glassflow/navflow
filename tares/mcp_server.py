@@ -1,6 +1,6 @@
-"""navflow-mcp — the stdio MCP server the agent spawns. A thin proxy to navflowd's HTTP API.
+"""tares-mcp — the stdio MCP server the agent spawns. A thin proxy to taresd's HTTP API.
 
-Stateless: every tool call becomes one HTTP call to navflowd. This is the only NavFlow surface the
+Stateless: every tool call becomes one HTTP call to taresd. This is the only Tares surface the
 agent sees.
 
 Two tool groups: the READ surface (query/catalog/list_*) and the WRITE/SETUP surface
@@ -17,26 +17,26 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-NAVFLOWD = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
+NAVFLOWD = os.getenv("TARESD_URL", "http://127.0.0.1:8787")
 # Bearer credentials. Over HTTP transports each caller presents its own token (the root auth token
 # or a scoped API key) and we forward it per-request — the daemon enforces scopes per route. Over
 # stdio (a local agent spawned the proxy) there is no inbound token; the env token is used.
-AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
-_CALLER_TOKEN = contextvars.ContextVar("navflow_caller_token", default="")
+AUTH_TOKEN = os.getenv("TARES_AUTH_TOKEN", "").strip()
+_CALLER_TOKEN = contextvars.ContextVar("tares_caller_token", default="")
 
 
 def _cx(timeout: float = 10):
-    """An httpx client that carries the caller's token to navflowd (env token as stdio fallback)."""
+    """An httpx client that carries the caller's token to taresd (env token as stdio fallback)."""
     tok = _CALLER_TOKEN.get() or AUTH_TOKEN
     return httpx.AsyncClient(timeout=timeout,
                              headers={"Authorization": f"Bearer {tok}"} if tok else {})
 
 # stdio (default) is what a local agent spawns. For remote agents (the demo / a server), run with
-# NAVFLOW_MCP_TRANSPORT=streamable-http (or sse) and the server listens on MCP_HOST:MCP_PORT — at
-# /mcp (streamable-http) or /sse (sse), proxying tool calls to navflowd as usual.
-mcp = FastMCP("navflow",
-              host=os.getenv("NAVFLOW_MCP_HOST", "127.0.0.1"),
-              port=int(os.getenv("NAVFLOW_MCP_PORT", "8788")))
+# TARES_MCP_TRANSPORT=streamable-http (or sse) and the server listens on MCP_HOST:MCP_PORT — at
+# /mcp (streamable-http) or /sse (sse), proxying tool calls to taresd as usual.
+mcp = FastMCP("tares",
+              host=os.getenv("TARES_MCP_HOST", "127.0.0.1"),
+              port=int(os.getenv("TARES_MCP_PORT", "8788")))
 
 
 def writable():
@@ -91,7 +91,7 @@ async def read(selector: dict, window: str = "15m", include_payload: bool = Fals
 @writable()
 async def create_trigger(name: str, view: str, condition: dict,
                          emit: dict | None = None, cooldown: str = "5m") -> str:
-    """Create a trigger — a condition NavFlow evaluates continuously over a view; when it trips,
+    """Create a trigger — a condition Tares evaluates continuously over a view; when it trips,
     subscribed agents are woken with the correlated timeline. `condition` is
     {aggregate: any|avg|count|max|min|sum, field: numeric field to aggregate (omit for count),
     predicate: e.g. '> 1.0' / '>= 5' / '== 0', window: detection window e.g. '1m'}. `emit` is
@@ -176,7 +176,7 @@ async def update_view(name: str, sources: list[str], key_field: str = "",
 
 @writable()
 async def remember(key: str, content: str, memory_type: str = "observation") -> str:
-    """Write an observation back to NavFlow's agent-memory lane. It becomes a source like any
+    """Write an observation back to Tares's agent-memory lane. It becomes a source like any
     other: joined into correlated reads, so what you learned this incident appears in the
     timeline next time the same key acts up. memory_type: observation | aggregation | decision."""
     async with _cx(10) as cx:
@@ -231,7 +231,7 @@ async def test_source(name: str, connector: str, config: dict, poll: str = "5s")
 
 @writable()
 async def create_source(name: str, connector: str, config: dict, poll: str = "5s") -> str:
-    """Create a data source so NavFlow starts ingesting it immediately (no restart). `config` is
+    """Create a data source so Tares starts ingesting it immediately (no restart). `config` is
     the connector's config (see list_connectors / discover_source); push connectors ignore `poll`.
     Returns {ok, name} or an error detail. After creating, use list_sources to watch it ingest and
     catalog_describe("source:<name>") to see its labels."""
@@ -263,7 +263,7 @@ async def source_fields(name: str, limit: int = 500) -> str:
 
 class _BearerGate:
     """Pure-ASGI middleware: every HTTP request to the MCP server must carry *a* bearer token —
-    the root auth token or a scoped API key. The token is forwarded to navflowd per-request, which
+    the root auth token or a scoped API key. The token is forwarded to taresd per-request, which
     validates it and enforces scopes per tool call (the proxy can't check key hashes itself).
     Non-HTTP scopes (lifespan/websocket) pass through untouched."""
     def __init__(self, app):
@@ -273,7 +273,7 @@ class _BearerGate:
         if scope["type"] == "http":
             headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers") or []}
             auth = headers.get("authorization", "")
-            tok = auth[7:].strip() if auth.lower().startswith("bearer ") else headers.get("x-navflow-token", "")
+            tok = auth[7:].strip() if auth.lower().startswith("bearer ") else headers.get("x-tares-token", "")
             if not tok:
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json")]})
@@ -284,7 +284,7 @@ class _BearerGate:
 
 
 def main():
-    transport = os.getenv("NAVFLOW_MCP_TRANSPORT", "stdio")  # stdio | sse | streamable-http
+    transport = os.getenv("TARES_MCP_TRANSPORT", "stdio")  # stdio | sse | streamable-http
     if transport == "stdio":
         mcp.run(transport="stdio")
         return

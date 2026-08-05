@@ -1,11 +1,11 @@
-"""Slack — the bot token, the outbound message, and the `/navflow` slash command's replies.
+"""Slack — the bot token, the outbound message, and the `/tares` slash command's replies.
 
 Outbound (the dispatch sink): resolve the bot token, format a firing as Block Kit, post it.
-Inbound (the slash command): parse `/navflow ask …`, bound its cost, and format the answer that
+Inbound (the slash command): parse `/tares ask …`, bound its cost, and format the answer that
 goes back to Slack's `response_url`. Signature verification lives next door in `slack_verify.py`
 — it is the security boundary and is kept separately reviewable.
 
-This is the *generic* half of NavFlow's Slack support: a bot token that an operator configures
+This is the *generic* half of Tares's Slack support: a bot token that an operator configures
 (env or console) and one `chat.postMessage` call. Nothing here knows about OAuth or hosted
 installs; a self-hosted user gets the full feature by pasting a token.
 
@@ -25,9 +25,9 @@ import re
 import time
 from collections import deque
 
-API_BASE = os.getenv("NAVFLOW_SLACK_API_BASE", "https://slack.com/api").rstrip("/")
+API_BASE = os.getenv("TARES_SLACK_API_BASE", "https://slack.com/api").rstrip("/")
 SETTING_KEY = "slack_bot_token"
-ENV_VAR = "NAVFLOW_SLACK_BOT_TOKEN"
+ENV_VAR = "TARES_SLACK_BOT_TOKEN"
 
 # Failures that will still be failures on the fifth attempt. Retrying these wastes ~30s of backoff
 # and, worse, buries the real reason: the ledger must say "channel_not_found", not "timeout".
@@ -58,9 +58,9 @@ def resolve_token(store) -> tuple[str, str]:
 def deep_link(key: str) -> str:
     """The `<url|label>` suffix appended to a Slack message, or "" when this instance has no
     reachable address. A link to 127.0.0.1 is worse than no link, so it is only emitted when the
-    operator has told us the instance is reachable (NAVFLOW_PUBLIC_URL)."""
-    base = os.getenv("NAVFLOW_PUBLIC_URL", "").strip().rstrip("/")
-    return f"\n\n<{base}/explore?key={key}|Open {key} in NavFlow>" if base else ""
+    operator has told us the instance is reachable (TARES_PUBLIC_URL)."""
+    base = os.getenv("TARES_PUBLIC_URL", "").strip().rstrip("/")
+    return f"\n\n<{base}/explore?key={key}|Open {key} in Tares>" if base else ""
 
 
 def _truncate(text: str, limit: int = _MAX_SECTION) -> str:
@@ -78,7 +78,7 @@ def build_message(trigger: str, key: str, payload: str, fired_at: str | None = N
     if body:
         blocks.append({"type": "section", "text": {
             "type": "mrkdwn", "text": "```" + _truncate(body) + "```"}})
-    context = f"NavFlow · {fired_at}" if fired_at else "NavFlow"
+    context = f"Tares · {fired_at}" if fired_at else "Tares"
     if link:
         context += " ·" + link.strip()
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": context}]})
@@ -118,7 +118,7 @@ _HINTS = {
     "token_revoked": "the bot token has been revoked",
     "account_inactive": "the bot token belongs to a deactivated workspace or app",
     "channel_not_found": "no such channel, or the bot cannot see it",
-    "not_in_channel": "invite the bot to the channel first (/invite @NavFlow)",
+    "not_in_channel": "invite the bot to the channel first (/invite @Tares)",
     "is_archived": "the channel is archived",
     "missing_scope": "the bot token is missing the chat:write scope",
     "msg_too_long": "the message exceeded Slack's size limit",
@@ -132,17 +132,17 @@ def _error_detail(err: str, data: dict) -> str:
     return f" ({hint})" if hint else ""
 
 
-# ── inbound: the /navflow slash command ─────────────────────────────────────
+# ── inbound: the /tares slash command ─────────────────────────────────────
 # Everything below serves `POST /api/slack/events`. It is deliberately pure — parsing, cost
 # bounding and message shaping — so the endpoint itself is only plumbing: verify, ACK, answer.
 
-USAGE = ("usage: `/navflow ask <question>` — e.g. "
-         "`/navflow ask what happened to checkout-svc in the last hour?`")
+USAGE = ("usage: `/tares ask <question>` — e.g. "
+         "`/tares ask what happened to checkout-svc in the last hour?`")
 
 # Cost ceiling, the same shape as `builtin_agents.DAILY_RUN_CAP`: a per-day count with an env
 # override, so one enthusiastic channel cannot run up an unbounded model bill. Counted per
 # (team, user) rather than per workspace — one person's loop must not lock out their colleagues.
-DAILY_ASK_CAP = int(os.getenv("NAVFLOW_SLACK_DAILY_CAP", "50"))
+DAILY_ASK_CAP = int(os.getenv("TARES_SLACK_DAILY_CAP", "50"))
 
 
 class AskCap:
@@ -169,9 +169,9 @@ class AskCap:
 
 
 def parse_command(text: str) -> tuple[str, str | None]:
-    """`(question, error)` for the `text` of a `/navflow` slash command.
+    """`(question, error)` for the `text` of a `/tares` slash command.
 
-    `/navflow ask <question>` is the documented form. A bare `/navflow <question>` is accepted as
+    `/tares ask <question>` is the documented form. A bare `/tares <question>` is accepted as
     the same thing — forgetting the subcommand is the overwhelmingly likely mistake, and answering
     it beats a lecture. Empty, or `help`, gets the usage line; nothing gets a stack trace.
     """

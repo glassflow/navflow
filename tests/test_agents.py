@@ -1,6 +1,6 @@
 """NavFlow agents — a prompt attached to a trigger writes a finding back onto the entity's timeline.
 
-End-to-end against a stub Anthropic endpoint (NAVFLOW_ANTHROPIC_BASE): create source/view/trigger/
+End-to-end against a stub Anthropic endpoint (TARES_ANTHROPIC_BASE): create source/view/trigger/
 agent, enable it (= subscribe to the trigger), ingest until the trigger fires, and assert the agent
 runs as a unified subscriber — it appears in the roster and the firing's deliveries, the finding
 lands in the `findings` source, and the boundaries hold (disabled agents don't run, the loop guard
@@ -85,11 +85,11 @@ async def main():
     stub = HTTPServer(("127.0.0.1", int(STUB_PORT)), Stub)
     threading.Thread(target=stub.serve_forever, daemon=True).start()
 
-    env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-           "NAVFLOW_OTLP_GRPC_PORT": "off", "ANTHROPIC_API_KEY": "sk-test",
-           "NAVFLOW_ANTHROPIC_BASE": f"http://127.0.0.1:{STUB_PORT}",
-           "NAVFLOW_TRIGGER_DEBOUNCE_SECONDS": "0"}
-    proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+    env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": SEED, "TARES_PORT": PORT,
+           "TARES_OTLP_GRPC_PORT": "off", "ANTHROPIC_API_KEY": "sk-test",
+           "TARES_ANTHROPIC_BASE": f"http://127.0.0.1:{STUB_PORT}",
+           "TARES_TRIGGER_DEBOUNCE_SECONDS": "0"}
+    proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     B = f"http://127.0.0.1:{PORT}"
     try:
@@ -129,7 +129,7 @@ async def main():
             woken = (await cx.get(f"{B}/api/agents")).json()["agents"]
             me = next((a for a in woken if a["name"] == "first-look"), None)
             ck("enabled agent appears in the roster", me is not None, str(woken))
-            ck("roster tags it kind=navflow", me and me.get("kind") == "navflow", str(me))
+            ck("roster tags it kind=tares", me and me.get("kind") == "tares", str(me))
             ck("roster shows it woken by the trigger", me and "incident" in me.get("triggers", []), str(me))
 
             for i in range(3):
@@ -214,14 +214,14 @@ async def main():
     # Runs live in the daemon process, so a `running` row that outlives it is an orphan: it would
     # otherwise stay running forever AND keep counting toward the daily cap.
     try:
-        from navflow.store import Store
+        from tares.store import Store
         st = Store(DB)
         st.upsert_catalog_agent("ghost", "incident", "Take a first look.")
         st.start_agent_run("run_orphan", "ghost", "incident", "d_orphan", "checkout", "h")
         ck("orphan counts toward the cap while it is running", st.agent_runs_today("ghost") == 1)
         st.con.close()
 
-        proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+        proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             if not await _wait(f"{B}/health"):

@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 import { api, auth } from "../api";
 
-// Gates the console when the instance requires a token (NAVFLOW_AUTH_TOKEN). The SPA shell is served
+// Gates the console when the instance requires a token (TARES_AUTH_TOKEN). The SPA shell is served
 // publicly, so we ask /health whether auth is required; any 401 from an API call (token missing or
-// expired) flips us back to the login screen via the "navflow-auth-required" event.
+// expired) flips us back to the login screen via the "tares-auth-required" event.
 // A daemon that is up but broken (no database) still answers /health — it just doesn't say "ok".
 // A daemon that is down doesn't answer at all. Neither may leave the console blank, so the gate
 // always resolves: on timeout or failure we render the app and say what we know.
@@ -30,7 +30,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         window.history.replaceState({}, "", url.pathname + url.search + url.hash);
       };
 
-      // Self-host: `navflow up --auth` prints a login URL (…/?token=<root>). Capture it and strip it
+      // Self-host: `tares up --auth` prints a login URL (…/?token=<root>). Capture it and strip it
       // from the address bar so it doesn't linger in history/bookmarks. A bad token just 401s on the
       // first protected call and bounces to the login screen.
       const t = url.searchParams.get("token");
@@ -50,12 +50,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       if (!alive) return;
 
       if (!h) {
-        setBanner("Can’t reach the NavFlow daemon — it may be starting, stopped, or blocked "
+        setBanner("Can’t reach the Tares daemon — it may be starting, stopped, or blocked "
                   + "between this browser and the server. Pages will keep retrying.");
       } else if (h.status && h.status !== "ok") {
         setBanner(h.detail
-          ? `NavFlow is ${h.status}: ${h.detail}`
-          : `NavFlow reports status “${h.status}”.`);
+          ? `Tares is ${h.status}: ${h.detail}`
+          : `Tares reports status “${h.status}”.`);
       }
 
       if (h && h.auth_required && !auth.get()) {
@@ -72,14 +72,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     })();
 
     const onAuth = () => setState("login");
-    window.addEventListener("navflow-auth-required", onAuth);
-    return () => { alive = false; window.removeEventListener("navflow-auth-required", onAuth); };
+    window.addEventListener("tares-auth-required", onAuth);
+    return () => { alive = false; window.removeEventListener("tares-auth-required", onAuth); };
   }, []);
 
   if (state === "loading") {
     return (
       <div className="login-wrap">
-        <p className="dim">Connecting to NavFlow…</p>
+        <p className="dim">Connecting to Tares…</p>
       </div>
     );
   }
@@ -124,8 +124,8 @@ function Login({ onAuthed }: { onAuthed: () => void }) {
     <div className="login-wrap">
       <form className="card login" onSubmit={submit}>
         <div className="brand">
-          <img className="brand-mark" src="/navflow-mark.svg" alt="" />
-          navflow
+          <img className="brand-mark" src="/tares-mark.svg" alt="" />
+          tares
         </div>
         <p className="muted">This instance requires an access token.</p>
         <input

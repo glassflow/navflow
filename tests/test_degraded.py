@@ -23,10 +23,10 @@ PORT, PORT2 = "8811", "8812"
 
 def _boot(db, port, **extra):
     env = {k: v for k, v in os.environ.items()
-           if k not in ("NAVFLOW_AUTH_TOKEN", "NAVFLOW_MAX_DB_SIZE")}
-    env |= {"NAVFLOW_DB": db, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": port,
-            "NAVFLOW_OTLP_GRPC_PORT": "off", **extra}
-    return subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+           if k not in ("TARES_AUTH_TOKEN", "TARES_MAX_DB_SIZE")}
+    env |= {"TARES_DB": db, "TARES_CATALOG": SEED, "TARES_PORT": port,
+            "TARES_OTLP_GRPC_PORT": "off", **extra}
+    return subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -71,7 +71,7 @@ async def main():
 
     # A limit smaller than the db it measures → degraded, and pct_used reads as a percentage
     # (0-100), not a fraction: a real db is thousands of bytes over a 1000-byte cap.
-    proc = _boot(OK_DB, PORT, NAVFLOW_MAX_DB_SIZE="1000")
+    proc = _boot(OK_DB, PORT, TARES_MAX_DB_SIZE="1000")
     try:
         h = await _health(PORT)
         ck("near-full instance reports degraded", h and h["status"] == "degraded", h)
@@ -81,7 +81,7 @@ async def main():
         proc.terminate(); proc.wait(timeout=10)
 
     # ── 2. hard failure: the db file exists but cannot be opened ──
-    from navflow.store import Store
+    from tares.store import Store
     Store(BAD_DB).con.close()                # a real, valid db file…
     ck("seeded a db file to break", os.path.exists(BAD_DB))
     os.chmod(BAD_DB, 0o000)

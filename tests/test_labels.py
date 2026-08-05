@@ -10,8 +10,8 @@ import asyncio
 import os
 import sys
 
-os.environ["NAVFLOW_DB"] = "/tmp/navflow-labels-test.duckdb"
-os.environ["NAVFLOW_CATALOG"] = "/tmp/does-not-exist.yaml"
+os.environ["TARES_DB"] = "/tmp/navflow-labels-test.duckdb"
+os.environ["TARES_CATALOG"] = "/tmp/does-not-exist.yaml"
 
 import duckdb
 import httpx
@@ -38,12 +38,12 @@ def precreate_legacy_db(path):
 
 
 async def main():
-    for p in (os.environ["NAVFLOW_DB"], os.environ["NAVFLOW_DB"] + ".wal"):
+    for p in (os.environ["TARES_DB"], os.environ["TARES_DB"] + ".wal"):
         if os.path.exists(p):
             os.remove(p)
-    precreate_legacy_db(os.environ["NAVFLOW_DB"])
+    precreate_legacy_db(os.environ["TARES_DB"])
 
-    from navflow.daemon import make_app
+    from tares.daemon import make_app
     app = make_app()
 
     async with app.router.lifespan_context(app):

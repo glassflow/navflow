@@ -3,7 +3,7 @@ connector types. The Docker scan enumerates compose containers and proposes a `d
 source per service plus a `prometheus` source if it detects one running (delegating to that
 connector's own discover for the detail).
 
-Deterministic, no LLM. Local Docker only (navflowd shells out to the `docker` CLI on its host).
+Deterministic, no LLM. Local Docker only (taresd shells out to the `docker` CLI on its host).
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ async def _docker_ps() -> list[dict]:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         out, err = await asyncio.wait_for(proc.communicate(), timeout=15)
     except FileNotFoundError:
-        raise ValueError("the `docker` CLI was not found on navflowd's host")
+        raise ValueError("the `docker` CLI was not found on taresd's host")
     except Exception as e:
         raise ValueError(f"could not run `docker ps`: {e}")
     if proc.returncode != 0:

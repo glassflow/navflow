@@ -5,8 +5,8 @@ import { AgentsRoster } from "./Activity";
 import { TimeAgo, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
-// The home for every agent a trigger can wake: NavFlow agents (configured here, run in-process) and
-// connected agents (external, reached over a webhook). NavFlow agents are created and managed on
+// The home for every agent a trigger can wake: Tares agents (configured here, run in-process) and
+// connected agents (external, reached over a webhook). Tares agents are created and managed on
 // this page; connected agents are listed from the roster and connected from a trigger's page.
 
 function runBadge(r: AgentRun | null | undefined) {
@@ -29,11 +29,11 @@ export default function Agents() {
         <div>
           <h1>Agents</h1>
           <p className="subtitle">
-            everything your triggers can wake — <strong>NavFlow agents</strong> that run in-process,
+            everything your triggers can wake — <strong>Tares agents</strong> that run in-process,
             and <strong>connected agents</strong> reached over a webhook
           </p>
         </div>
-        <button className="primary" onClick={() => nav("/agents/new")}>Create NavFlow agent</button>
+        <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
       </div>
 
       {data && !data.key_configured && (
@@ -43,16 +43,16 @@ export default function Agents() {
         </div>
       )}
 
-      <h2>NavFlow agents</h2>
+      <h2>Tares agents</h2>
       {!data ? <div className="dim">loading…</div>
         : data.agents.length === 0 ? (
           <div className="panel">
             <p className="help" style={{ whiteSpace: "normal", marginTop: 0 }}>
-              No NavFlow agents yet. Create one here, or from a trigger's page — it reads the same
+              No Tares agents yet. Create one here, or from a trigger's page — it reads the same
               correlated timeline your external agents receive and writes what it found back into
-              NavFlow, so the next agent to read that entity already has the conclusion.
+              Tares, so the next agent to read that entity already has the conclusion.
             </p>
-            <button className="primary" onClick={() => nav("/agents/new")}>Create NavFlow agent</button>
+            <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
           </div>
         ) : (
           <table>

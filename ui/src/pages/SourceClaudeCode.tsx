@@ -20,9 +20,9 @@ function Copy({ text }: { text: string }) {
   );
 }
 
-const INSTALL = "/plugin marketplace add glassflow/navflow\n/plugin install navflow@navflow";
+const INSTALL = "/plugin marketplace add glassflow/tares\n/plugin install tares@tares";
 
-// Claude Code is fed by the NavFlow plugin (push), not by tailing files — so this page shows the
+// Claude Code is fed by the Tares plugin (push), not by tailing files — so this page shows the
 // install command wired to THIS instance's URL, identical for local and remote.
 export default function SourceClaudeCode() {
   const origin = window.location.origin;
@@ -39,7 +39,7 @@ export default function SourceClaudeCode() {
     <>
       <h1>Connect Claude Code</h1>
       <p className="subtitle">
-        Install the NavFlow plugin for Claude Code — it streams your sessions into the{" "}
+        Install the Tares plugin for Claude Code — it streams your sessions into the{" "}
         <span className="mono">claude_code</span> source (keyed by session, with project / branch /
         model labels; secrets redacted server-side) and adds MCP read-back. Same steps local or remote.
       </p>
@@ -70,11 +70,11 @@ export default function SourceClaudeCode() {
       </div>
 
       <div className="panel">
-        <h2 style={{ marginTop: 0 }}>2. Point it at this NavFlow</h2>
+        <h2 style={{ marginTop: 0 }}>2. Point it at this Tares</h2>
         <p className="help" style={{ marginTop: 0 }}>When the installer prompts you, enter:</p>
 
         <label className="field">
-          <span className="lbl">NavFlow URL</span>
+          <span className="lbl">Tares URL</span>
           <div className="btnrow" style={{ alignItems: "center" }}>
             <code className="payload" style={{ flex: 1, margin: 0 }}>{origin}</code>
             <Copy text={origin} />
@@ -90,7 +90,7 @@ export default function SourceClaudeCode() {
               Create an API key with the <span className="mono">read</span> +{" "}
               <span className="mono">ingest</span> scopes on the{" "}
               <Link to="/security">Security page</Link> and paste it here — it lets the plugin
-              stream sessions <em>and</em> query NavFlow over MCP, without full admin rights.
+              stream sessions <em>and</em> query Tares over MCP, without full admin rights.
             </span>
           ) : (
             <span className="help">

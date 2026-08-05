@@ -5,6 +5,56 @@ Declares the sources (what to ingest and how), the views (named query shapes), a
 """
 from __future__ import annotations
 
+def reject_legacy_db(db_path: str) -> None:
+    """Refuse to start if the database we are about to create sits next to a pre-1.0 one.
+
+    1.0 renamed the DuckDB file to tares.duckdb. DuckDB happily CREATES a missing file, so an
+    install that upgraded without moving its data would come up healthy and completely empty, with
+    navflow.duckdb sitting untouched beside it — indistinguishable from data loss, and the kind of
+    thing you only notice after the console shows nothing.
+
+    Migrating is one `mv`. Not doing it silently is the whole point.
+    """
+    import os as _os
+    if _os.path.exists(db_path):
+        return                      # the new file exists: nothing to warn about
+    legacy = _os.path.join(_os.path.dirname(db_path) or ".", "navflow.duckdb")
+    if not _os.path.exists(legacy):
+        return                      # a genuinely fresh install
+    raise SystemExit(
+        f"found a pre-1.0 database at {legacy}, and none at {db_path}.\n\n"
+        "tares 1.0 renamed the file. Starting now would create an empty database and leave your "
+        "data untouched beside it, which looks exactly like data loss.\n\n"
+        f"    mv {legacy} {db_path}\n\n"
+        "then start again."
+    )
+
+
+def reject_legacy_env(environ=None) -> None:
+    """Refuse to start if the environment still uses the pre-1.0 NAVFLOW_* variables.
+
+    1.0 renamed every variable to TARES_* with NO fallback — a compatibility shim here would be two
+    code paths nobody ever deletes. But silence is the wrong failure: a daemon started with only
+    NAVFLOW_DB set would quietly ignore it, open a DuckDB file somewhere else, and come up healthy
+    and empty. That looks like data loss and isn't.
+
+    So: fail immediately, and name the variable the operator should have set. Loud beats forgiving.
+    """
+    import os as _os
+    env = _os.environ if environ is None else environ
+    legacy = sorted(k for k in env if k.startswith("NAVFLOW_"))
+    if not legacy:
+        return
+    mapping = "\n".join(f"  {k}  ->  TARES_{k[len('NAVFLOW_'):]}" for k in legacy)
+    raise SystemExit(
+        "tares 1.0 renamed every NAVFLOW_* environment variable to TARES_*, and does NOT read the "
+        "old names.\n\nStill set in this environment:\n"
+        f"{mapping}\n\n"
+        "Rename them and start again. (The DuckDB file itself is unchanged — your data is where you "
+        "left it.)"
+    )
+
+
 import re
 import uuid
 from dataclasses import dataclass, field as dc_field
@@ -64,11 +114,11 @@ class TriggerCfg:
 
 @dataclass
 class AgentCfg:
-    """A NavFlow agent: a prompt attached to a trigger. When the trigger fires, the agent reads the
-    correlated timeline it was handed and writes ONE finding back into NavFlow. It's a real agent
-    (it reasons with an LLM), configured inside NavFlow rather than connected over a webhook; today
+    """A Tares agent: a prompt attached to a trigger. When the trigger fires, the agent reads the
+    correlated timeline it was handed and writes ONE finding back into Tares. It's a real agent
+    (it reasons with an LLM), configured inside Tares rather than connected over a webhook; today
     its tools are read-only (query/read). The prompt is the only field a user edits; model/tools/
-    budgets are NavFlow's decisions. `enabled` is derived — an agent is enabled exactly when it has
+    budgets are Tares's decisions. `enabled` is derived — an agent is enabled exactly when it has
     a subscription to its trigger, the same wiring an external agent has (docs/design/navflow-agents.md)."""
     name: str
     trigger: str
@@ -77,10 +127,10 @@ class AgentCfg:
     enabled: bool = False
 
 
-# A NavFlow agent is wired to its trigger through an ordinary subscription whose URL uses this
+# A Tares agent is wired to its trigger through an ordinary subscription whose URL uses this
 # scheme; the dispatcher runs it in-process instead of POSTing. Everything downstream (the roster,
 # a trigger's woken-agents list, recent firings) then treats it identically to an external agent.
-AGENT_URL_PREFIX = "navflow://agent/"
+AGENT_URL_PREFIX = "tares://agent/"
 
 
 def agent_url(name: str) -> str:
@@ -266,7 +316,7 @@ def import_yaml_to_db(store, text: str) -> dict:
         if bool(a.get("enabled", False)):
             if not store.subscription_by_url(url):
                 store.add_subscription("sub_" + uuid.uuid4().hex[:8], a["trigger"], url,
-                                       created_by="navflow")
+                                       created_by="tares")
         else:
             store.remove_subscription_by_url(url)
 
@@ -319,7 +369,7 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     ]
     kept_triggers = {t["name"] for t in trig_out}
 
-    # A NavFlow agent follows its trigger. Its Slack webhook URL is a credential (anyone holding it
+    # A Tares agent follows its trigger. Its Slack webhook URL is a credential (anyone holding it
     # can post to the channel), so it's omitted unless secrets are explicitly requested — same rule
     # as connector secrets above; the operator re-enters it on the target. enabled is derived from
     # the presence of the agent's internal subscription.
@@ -570,7 +620,7 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
     if hook and not hook.startswith("https://"):
         raise CatalogError(f"agent {a['name']!r}: slack_webhook must be an https URL")
 
-    # Loop guard: a NavFlow agent writes a finding into the `findings` source. If its trigger
+    # Loop guard: a Tares agent writes a finding into the `findings` source. If its trigger
     # watches a view containing that source, the finding re-fires the trigger, which runs the agent
     # again — forever. Reject at definition time; there is no valid form of this.
     if triggers is not None and views is not None:

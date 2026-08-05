@@ -3,9 +3,9 @@
 The dispatch body carries the rendered view payload, so the agent boots already holding the
 correlated timeline (zero reads to begin). At-least-once; subscribers dedupe on `dispatch_id`.
 
-Three kinds of subscriber, ONE mechanism: an external agent's webhook (POST), a NavFlow agent
-(run in-process), and a Slack channel. All three are ordinary subscription rows — a NavFlow
-agent's URL uses the navflow://agent/ scheme, a channel's uses slack://channel/ — so all three are
+Three kinds of subscriber, ONE mechanism: an external agent's webhook (POST), a Tares agent
+(run in-process), and a Slack channel. All three are ordinary subscription rows — a Tares
+agent's URL uses the tares://agent/ scheme, a channel's uses slack://channel/ — so all three are
 logged as deliveries and appear identically in the roster, a trigger's woken-agents list, and
 recent firings. The in-process runs are dispatched without awaiting: an investigation takes
 minutes and must not delay a webhook delivery on the same trigger.
@@ -25,7 +25,7 @@ from .envelope import now_utc
 class Dispatcher:
     def __init__(self, store):
         self.store = store
-        # Set by the daemon once the runtime exists — the in-process executor for NavFlow-agent
+        # Set by the daemon once the runtime exists — the in-process executor for Tares-agent
         # subscriptions. External-only deployments can leave it None.
         self.agents = None
 
@@ -45,7 +45,7 @@ class Dispatcher:
         for sid, _trig, url in subs:
             agent_name = agent_name_from_url(url)
             if agent_name is not None:
-                # NavFlow agent: run in-process. deliver() logs a pending delivery now and resolves
+                # Tares agent: run in-process. deliver() logs a pending delivery now and resolves
                 # it (ok/error) when the run finishes — so `delivered` here is the synchronous count
                 # (external only); list_dispatches computes the live total including agents.
                 if self.agents is not None:
@@ -102,7 +102,7 @@ class Dispatcher:
         token, _origin = slack.resolve_token(self.store)
         if not token:
             # Not retryable and not transient: nothing about waiting 30s makes a token appear.
-            return False, "slack: no bot token configured (set NAVFLOW_SLACK_BOT_TOKEN or add one under Security)"
+            return False, "slack: no bot token configured (set TARES_SLACK_BOT_TOKEN or add one under Security)"
         msg = {"channel": channel, **slack.build_message(trigger, key, payload, fired_at)}
         headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
         delay = 1.0

@@ -36,7 +36,7 @@ export interface ConnectorSpec {
   mode: "poll" | "push";
   discover?: boolean;
   poll?: string;   // connector-specific default poll interval (e.g. github: "2m")
-  internal?: boolean;   // provisioned by NavFlow itself (agent findings) — not offered in the UI
+  internal?: boolean;   // provisioned by Tares itself (agent findings) — not offered in the UI
   description: string;
   fields: ConnectorField[];
   provides?: { name: string; primary?: boolean; help?: string }[];   // synthesized label fields
@@ -136,8 +136,8 @@ export interface DiscoverProposal {
 export interface AgentInfo {
   name: string;
   endpoint: string;   // masked — the last path segment may carry a secret
-  // a NavFlow agent (in-process), an external webhook, or a Slack channel (slack://channel/<id>)
-  kind: "navflow" | "connected" | "slack";
+  // a Tares agent (in-process), an external webhook, or a Slack channel (slack://channel/<id>)
+  kind: "tares" | "connected" | "slack";
   subscriptions: { subscription_id: string; trigger: string; created_at: string | null }[];
   triggers: string[];
   created_by: string[];
@@ -146,7 +146,7 @@ export interface AgentInfo {
   delivered_fail_24h: number;
   delivered_ok_total: number;   // all-time, shown as secondary text so the number isn't lost
   delivered_fail_total: number;
-  pending?: number;             // in-flight NavFlow-agent runs
+  pending?: number;             // in-flight Tares-agent runs
   last_woken: string | null;
   unhealthy?: boolean;          // the most recent delivery to this endpoint failed
   last_error?: string | null;   // why, when unhealthy
@@ -223,9 +223,9 @@ export interface Trigger {
   paused?: boolean;   // paused triggers are not evaluated and never fire
 }
 
-// A NavFlow agent is a prompt attached to a trigger: when the trigger fires, the agent takes a
+// A Tares agent is a prompt attached to a trigger: when the trigger fires, the agent takes a
 // first look and writes a finding onto the entity's timeline. It's a real agent, configured inside
-// NavFlow rather than connected over a webhook. The prompt is the only field a user edits; enabled
+// Tares rather than connected over a webhook. The prompt is the only field a user edits; enabled
 // means it's subscribed to its trigger, exactly like an external agent.
 export interface BuiltinAgent {
   name: string;
@@ -313,7 +313,7 @@ export interface SourceEvent {
 // GET /api/usage — what this instance is using on disk.
 // Three things the renderer must respect:
 //  · `pct_used` is 0-100, NOT a 0-1 fraction — "warn at 80%" compares against 80.
-//  · `pct_used` and `max_bytes` are null unless the operator set NAVFLOW_MAX_DB_SIZE (the Helm
+//  · `pct_used` and `max_bytes` are null unless the operator set TARES_MAX_DB_SIZE (the Helm
 //    chart does it for hosted cells), so a self-hosted install has no denominator at all: show
 //    absolute bytes and fall back to `disk_free` for headroom. Null is unknown, never 0.
 //  · `sources[].bytes` is always null — DuckDB keeps every source in one events table and cannot

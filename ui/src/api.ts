@@ -8,7 +8,7 @@ import type {
   TimelineEventRow, Trigger, View,
 } from "./types";
 
-const TOKEN_KEY = "navflow_token";
+const TOKEN_KEY = "tares_token";
 export const auth = {
   get: () => localStorage.getItem(TOKEN_KEY) ?? "",
   set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
@@ -20,7 +20,7 @@ export function authHeader(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-const AKEY = "navflow_anthropic_key";
+const AKEY = "tares_anthropic_key";
 export const anthropicKey = {
   get: () => localStorage.getItem(AKEY) ?? "",
   set: (k: string) => localStorage.setItem(AKEY, k),
@@ -29,7 +29,7 @@ export const anthropicKey = {
 
 function unauthorized() {
   auth.clear();
-  window.dispatchEvent(new Event("navflow-auth-required"));
+  window.dispatchEvent(new Event("tares-auth-required"));
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,7 +59,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // login_url is present only on a cloud-managed cell (daemon NAVFLOW_LOGIN_URL) — it tells the
+  // login_url is present only on a cloud-managed cell (daemon TARES_LOGIN_URL) — it tells the
   // logged-out console where to send the browser to authenticate.
   // status: "ok" | "degraded" (running, storage nearly full) | "down" (no usable database — the
   // daemon is serving the console and 503s so the failure is visible). `detail` says why when it
@@ -134,7 +134,7 @@ export const api = {
   deleteTrigger: (name: string) => request(`/api/triggers/${name}`, { method: "DELETE" }),
   pauseTrigger: (name: string) => request(`/api/triggers/${name}/pause`, { method: "POST" }),
   resumeTrigger: (name: string) => request(`/api/triggers/${name}/resume`, { method: "POST" }),
-  // ── NavFlow agents: a first look when a trigger fires (managed under /builtin) ──
+  // ── Tares agents: a first look when a trigger fires (managed under /builtin) ──
   builtinAgents: () =>
     request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
               presets: AgentPreset[] }>("/api/agents/builtin"),
@@ -149,7 +149,7 @@ export const api = {
   builtinAgentRuns: (name: string, limit = 20) =>
     request<AgentRun[]>(`/api/agents/builtin/${name}/runs?limit=${limit}`),
 
-  // The Anthropic key NavFlow agents run on. Never returned — only whether one resolves and where.
+  // The Anthropic key Tares agents run on. Never returned — only whether one resolves and where.
   anthropicKeyStatus: () =>
     request<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>(
       "/api/settings/anthropic-key"),
@@ -172,7 +172,7 @@ export const api = {
     request<{ ok: boolean; configured: boolean }>("/api/settings/slack-bot-token",
       { method: "DELETE" }),
 
-  // The signing secret that authenticates inbound Slack (`/navflow ask …`). Write-only like the
+  // The signing secret that authenticates inbound Slack (`/tares ask …`). Write-only like the
   // others; without it POST /api/slack/events answers 503 rather than trusting the request.
   slackSigningSecretStatus: () =>
     request<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>(
@@ -200,7 +200,7 @@ export const api = {
   mcpTools: () => request<{ name: string; description: string }[]>("/api/mcp/tools"),
 
   // What this instance is using on disk. `max_bytes`/`pct_used` are null unless the operator set
-  // NAVFLOW_MAX_DB_SIZE — see the Usage type before rendering any of it.
+  // TARES_MAX_DB_SIZE — see the Usage type before rendering any of it.
   usage: () => request<Usage>("/api/usage"),
 
   catalog: () => request<CatalogList>("/catalog"),

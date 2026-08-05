@@ -1,8 +1,8 @@
-"""navflowd — the always-on daemon. Owns the store; runs connector loops + trigger eval; serves
+"""taresd — the always-on daemon. Owns the store; runs connector loops + trigger eval; serves
 the local HTTP API (agent surface + management API) and the built-in console UI.
 
 The catalog lives in the store (DB-backed). On first boot with an empty catalog, the YAML file at
-NAVFLOW_CATALOG is imported once; from then on YAML is an import/export format, and all source/
+TARES_CATALOG is imported once; from then on YAML is an import/export format, and all source/
 view/trigger management happens over /api (or the UI at /).
 """
 from __future__ import annotations
@@ -43,26 +43,29 @@ from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_
 from .store import Store, StoreUnavailable
 from .views import resolve_query_full, resolve_read
 
-CATALOG_PATH = os.getenv("NAVFLOW_CATALOG", "catalog.yaml")
-DB_PATH = os.getenv("NAVFLOW_DB", "navflow.duckdb")
+CATALOG_PATH = os.getenv("TARES_CATALOG", "catalog.yaml")
+# Renamed in 1.0 along with everything else. An install that upgrades without moving its file is
+# caught by config.reject_legacy_db(), which refuses to start rather than silently creating an empty
+# database next to the old one — DuckDB would happily do exactly that.
+DB_PATH = os.getenv("TARES_DB", "tares.duckdb")
 # Re-import the catalog YAML on every boot (declarative: the file is the source of truth, so an
 # operator manages a read-only demo's sources by editing the YAML and restarting).
-CATALOG_SYNC = os.getenv("NAVFLOW_CATALOG_SYNC", "").strip().lower() in ("1", "true", "yes", "on")
+CATALOG_SYNC = os.getenv("TARES_CATALOG_SYNC", "").strip().lower() in ("1", "true", "yes", "on")
 
-# Auth mode. When set (via `navflow up --auth`, which resolves + exports a root token), the whole
+# Auth mode. When set (via `tares up --auth`, which resolves + exports a root token), the whole
 # API + console + ingest require a credential; when unset the instance is open (local default).
 # The SPA shell and static assets stay public so the login screen can load. This is the ONE security
 # switch — there is no separate ingest token and no read-only mode; producers get scoped API keys.
-AUTH_TOKEN = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
+AUTH_TOKEN = os.getenv("TARES_AUTH_TOKEN", "").strip()
 # Cloud login handoff (additive, env-gated). Set on a cloud-managed cell to the control plane's login
 # URL, e.g. https://app.navflow.dev/login; unset for self-host (behaves exactly as before). Surfaced
 # on the PUBLIC /health so a logged-out console knows where to send the browser to authenticate.
-LOGIN_URL = os.getenv("NAVFLOW_LOGIN_URL", "").strip()
-# The Anthropic key for the in-app Ask agent (and NavFlow agents) is resolved at request time via
+LOGIN_URL = os.getenv("TARES_LOGIN_URL", "").strip()
+# The Anthropic key for the in-app Ask agent (and Tares agents) is resolved at request time via
 # resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
 # Never returned by any API — capabilities exposes only a boolean.
 # The Slack bot token behind the slack:// dispatch sink follows exactly the same rule via
-# resolve_slack_token(store): env NAVFLOW_SLACK_BOT_TOKEN, else the console-stored value.
+# resolve_slack_token(store): env TARES_SLACK_BOT_TOKEN, else the console-stored value.
 
 
 def _is_ingest(path: str) -> bool:
@@ -100,7 +103,7 @@ _SIZE_UNITS = {"": 1, "k": 10**3, "m": 10**6, "g": 10**9, "t": 10**12,
 
 
 def _parse_size(v: str | None) -> int | None:
-    """NAVFLOW_MAX_DB_SIZE -> bytes. Accepts a plain integer or a Kubernetes-style quantity
+    """TARES_MAX_DB_SIZE -> bytes. Accepts a plain integer or a Kubernetes-style quantity
     ('10Gi', '500Mi', '2G') so a Helm chart can pass the PVC size through verbatim. Unset,
     empty or unparseable -> None, i.e. no denominator and exactly today's behaviour."""
     if not v or not (v := v.strip()):
@@ -112,17 +115,17 @@ def _parse_size(v: str | None) -> int | None:
     return n if n > 0 else None
 
 
-MAX_DB_SIZE = _parse_size(os.getenv("NAVFLOW_MAX_DB_SIZE"))
+MAX_DB_SIZE = _parse_size(os.getenv("TARES_MAX_DB_SIZE"))
 
 
 def _ui_dist() -> Path:
     """Where the built console SPA lives. Prefer the copy shipped inside the wheel
-    (navflow/console, via hatch force-include); fall back to the source tree's ui/dist for
-    `npm run dev`-style local work. NAVFLOW_UI_DIST overrides both."""
-    if env := os.getenv("NAVFLOW_UI_DIST"):
+    (tares/console, via hatch force-include); fall back to the source tree's ui/dist for
+    `npm run dev`-style local work. TARES_UI_DIST overrides both."""
+    if env := os.getenv("TARES_UI_DIST"):
         return Path(env)
     from importlib import resources
-    packaged = resources.files("navflow") / "console"   # present in an installed wheel
+    packaged = resources.files("tares") / "console"   # present in an installed wheel
     if packaged.is_dir():
         return Path(str(packaged))
     return Path(__file__).resolve().parent.parent / "ui" / "dist"   # running from the source tree
@@ -130,14 +133,14 @@ def _ui_dist() -> Path:
 
 UI_DIST = _ui_dist()
 
-# /health reports `degraded` at or above this share of NAVFLOW_MAX_DB_SIZE. On the 0-100 scale of
+# /health reports `degraded` at or above this share of TARES_MAX_DB_SIZE. On the 0-100 scale of
 # /api/usage's pct_used, so 90 means 90% — not 0.9. Unknown (no limit configured) is never degraded.
-DEGRADED_PCT = float(os.getenv("NAVFLOW_DEGRADED_PCT", "90"))
+DEGRADED_PCT = float(os.getenv("TARES_DEGRADED_PCT", "90"))
 
-# How long a `/navflow ask` may think before Slack gets an apology instead of an answer. The user
+# How long a `/tares ask` may think before Slack gets an apology instead of an answer. The user
 # is staring at a "…" in a channel, so this is deliberately much shorter than the agent's own
 # round budget would allow.
-SLACK_ASK_TIMEOUT = float(os.getenv("NAVFLOW_SLACK_ASK_TIMEOUT", "120"))
+SLACK_ASK_TIMEOUT = float(os.getenv("TARES_SLACK_ASK_TIMEOUT", "120"))
 
 
 def _serve_ui(path: str):
@@ -157,7 +160,7 @@ def _degraded_app(reason: str) -> FastAPI:
     human instead of ERR_CONNECTION_REFUSED: the console still loads and every data route answers
     503 with the reason, so the UI can name the problem. No runtime, no connectors, no ingest —
     nothing that would need the store. Restart once the DB is reachable again."""
-    app = FastAPI(title="navflowd (degraded)")
+    app = FastAPI(title="taresd (degraded)")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 
@@ -284,7 +287,7 @@ def make_app() -> FastAPI:
         # traceback (degraded mode explains the failure to the user, it does not hide it from the
         # operator) and serve the console + 503s instead of exiting before uvicorn ever binds.
         traceback.print_exc()
-        print(f"navflowd: DEGRADED — {e.reason}. Serving the console and 503s; fix the database "
+        print(f"taresd: DEGRADED — {e.reason}. Serving the console and 503s; fix the database "
               f"and restart.", flush=True)
         return _degraded_app(e.reason)
 
@@ -293,13 +296,13 @@ def make_app() -> FastAPI:
     if Path(CATALOG_PATH).exists() and (store.catalog_empty() or CATALOG_SYNC):
         counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text())
         how = "synced" if CATALOG_SYNC else "imported"
-        print(f"navflowd: {how} {CATALOG_PATH} into catalog "
+        print(f"taresd: {how} {CATALOG_PATH} into catalog "
               f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers)")
 
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
-    # NavFlow agents are the second kind of subscriber to a firing (the first is an external agent's
-    # webhook). In-process, so `navflow up` closes the loop with nothing to deploy.
+    # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
+    # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
 
     def _otlp_source_for(header: str | None) -> str:
@@ -319,33 +322,33 @@ def make_app() -> FastAPI:
                     {"name": "service", "field": "resourceAttributes.service.name",
                      "primary": True}]}))
             runtime.reload_catalog()
-            print("navflowd: auto-provisioned OTLP source 'otlp'")
+            print("taresd: auto-provisioned OTLP source 'otlp'")
             return "otlp"
-        raise ValueError("multiple OTLP sources — set the X-NavFlow-Source header")
+        raise ValueError("multiple OTLP sources — set the X-Tares-Source header")
 
     @asynccontextmanager
     async def lifespan(_app):
         runtime.start_all()
-        print(f"navflowd: {len(runtime.catalog.sources)} source(s); "
+        print(f"taresd: {len(runtime.catalog.sources)} source(s); "
               f"console at / · agent API at /query · management API at /api")
         # optional OTLP gRPC receiver (:4317). Needs grpcio + opentelemetry-proto; off if absent.
         grpc_server = None
-        port = os.getenv("NAVFLOW_OTLP_GRPC_PORT", "4317")
+        port = os.getenv("TARES_OTLP_GRPC_PORT", "4317")
         if port and port.lower() not in ("off", "none", "0"):
             try:
                 from .otlp_grpc import serve as _serve_otlp_grpc
                 grpc_server = await _serve_otlp_grpc(int(port), _otlp_source_for, runtime.ingest_otlp)
-                print(f"navflowd: OTLP gRPC receiver on :{port}")
+                print(f"taresd: OTLP gRPC receiver on :{port}")
             except ImportError:
-                print("navflowd: OTLP gRPC off (install navflow[otlp-grpc] to enable)")
+                print("taresd: OTLP gRPC off (install tares[otlp-grpc] to enable)")
             except Exception as e:   # never let the optional receiver block startup
-                print(f"navflowd: OTLP gRPC failed to start: {e}")
+                print(f"taresd: OTLP gRPC failed to start: {e}")
         yield
         if grpc_server is not None:
             await grpc_server.stop(grace=2)
         runtime.shutdown()
 
-    app = FastAPI(title="navflowd", lifespan=lifespan)
+    app = FastAPI(title="taresd", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 
@@ -381,7 +384,7 @@ def make_app() -> FastAPI:
 
     def _resolve_credential(request) -> tuple[set, dict] | tuple[None, None]:
         """Token from the request -> (scopes, identity), or (None, None) if unknown/absent."""
-        tok = _bearer(request.headers.get("authorization")) or request.headers.get("x-navflow-token", "")
+        tok = _bearer(request.headers.get("authorization")) or request.headers.get("x-tares-token", "")
         if not tok:
             return None, None
         if AUTH_TOKEN and tok == AUTH_TOKEN:
@@ -486,7 +489,7 @@ def make_app() -> FastAPI:
             except ValueError as e:
                 _err(e)
             if not resolve_slack_token(store)[0]:
-                _err(ValueError("no Slack bot token configured — set NAVFLOW_SLACK_BOT_TOKEN or "
+                _err(ValueError("no Slack bot token configured — set TARES_SLACK_BOT_TOKEN or "
                                 "add one under Security before subscribing a channel"))
         sid = "sub_" + uuid.uuid4().hex[:8]
         # record the creating credential: revoking a key removes its subscriptions (a revoked
@@ -672,7 +675,7 @@ def make_app() -> FastAPI:
             source_name = "agent_memory"
             store.upsert_catalog_source(source_name, "agent_memory", "memory", "5s", {})
             runtime.reload_catalog()
-            print(f"navflowd: auto-provisioned memory source {source_name!r}")
+            print(f"taresd: auto-provisioned memory source {source_name!r}")
         payload = {"key": req.key, "content": req.content,
                    "memory_type": req.memory_type, "fields": req.fields}
         try:
@@ -734,7 +737,7 @@ def make_app() -> FastAPI:
             body = await request.json()
         except Exception:
             _err(ValueError("invalid JSON (OTLP/HTTP JSON expected)"))
-        source = _resolve_otlp_source(request.headers.get("x-navflow-source"))
+        source = _resolve_otlp_source(request.headers.get("x-tares-source"))
         try:
             await runtime.ingest_otlp(source, signal, body)
         except KeyError as e:
@@ -809,13 +812,13 @@ def make_app() -> FastAPI:
         import shutil
         from importlib.metadata import version as _pkg_version
         try:
-            ver = _pkg_version("navflow")   # the installed release (release.sh bumps pyproject.toml)
+            ver = _pkg_version("tares")   # the installed release (release.sh bumps pyproject.toml)
         except Exception:
             ver = None
         return {
             "version": ver,
             "discover_docker": shutil.which("docker") is not None or os.path.exists("/var/run/docker.sock"),
-            # the Ask assistant runs on the same resolved key as NavFlow agents (env ANTHROPIC_API_KEY
+            # the Ask assistant runs on the same resolved key as Tares agents (env ANTHROPIC_API_KEY
             # or the console-stored key) — so once a key is set anywhere, the Ask chat stops
             # prompting for a browser-pasted one.
             "agent_key_configured": bool(resolve_anthropic_key(store)[0]),
@@ -879,8 +882,8 @@ def make_app() -> FastAPI:
             proposal = await asyncio.wait_for(
                 REGISTRY[connector].discover(body.get("config", {}) or {}), timeout=30)
         except (TimeoutError, asyncio.TimeoutError):
-            _err(ValueError("discover timed out — is the target reachable from the NavFlow "
-                            "server? (a hosted NavFlow can only reach public endpoints)"))
+            _err(ValueError("discover timed out — is the target reachable from the Tares "
+                            "server? (a hosted Tares can only reach public endpoints)"))
         except HTTPException:
             raise
         except Exception as e:
@@ -1084,7 +1087,7 @@ def make_app() -> FastAPI:
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
         from .agent import run_agent
-        # per-request header key wins (a user override); otherwise the same key NavFlow agents use
+        # per-request header key wins (a user override); otherwise the same key Tares agents use
         # (env, or the console-stored key) — so a key set once under Agents/Security works here too.
         key = request.headers.get("x-anthropic-key", "").strip() or resolve_anthropic_key(store)[0]
         if not key:
@@ -1205,9 +1208,9 @@ def make_app() -> FastAPI:
         runtime.reload_catalog()
         return {"ok": True}
 
-    # ── management API: NavFlow agents (a prompt attached to a trigger) ──────
+    # ── management API: Tares agents (a prompt attached to a trigger) ──────
     # Definitions live under /api/agents/builtin; the roster of everything a trigger wakes (these
-    # PLUS external subscribers) is /api/agents. A NavFlow agent is "enabled" exactly when it has a
+    # PLUS external subscribers) is /api/agents. A Tares agent is "enabled" exactly when it has a
     # subscription to its trigger — the same wiring an external agent has.
     def _agent_enabled(name: str) -> bool:
         return store.subscription_by_url(agent_url(name)) is not None
@@ -1226,7 +1229,7 @@ def make_app() -> FastAPI:
 
     @app.get("/api/agents/builtin")
     async def list_builtin_agents():
-        """NavFlow agent definitions plus the state the UI needs to explain why one isn't running:
+        """Tares agent definitions plus the state the UI needs to explain why one isn't running:
         no key configured is the common case on a fresh install and looks identical to "disabled"
         without this."""
         key, origin = resolve_anthropic_key(store)
@@ -1267,7 +1270,7 @@ def make_app() -> FastAPI:
         if body.trigger != existing["trigger"] and _agent_enabled(name):
             store.remove_subscription_by_url(agent_url(name))
             store.add_subscription("sub_" + uuid.uuid4().hex[:8], body.trigger,
-                                   agent_url(name), created_by="navflow")
+                                   agent_url(name), created_by="tares")
         runtime.reload_catalog()
         return {"ok": True}
 
@@ -1292,7 +1295,7 @@ def make_app() -> FastAPI:
         # enable = subscribe to the trigger (the same wiring an external agent has). Idempotent.
         if not _agent_enabled(name):
             store.add_subscription("sub_" + uuid.uuid4().hex[:8], agent["trigger"],
-                                   agent_url(name), created_by="navflow")
+                                   agent_url(name), created_by="tares")
         return {"ok": True, "enabled": True}
 
     @app.post("/api/agents/builtin/{name}/disable")
@@ -1401,7 +1404,7 @@ def make_app() -> FastAPI:
         secret, origin = slack_verify.resolve_secret(store)
         return {"ok": True, "configured": bool(secret), "source": origin}
 
-    # ── inbound Slack: the /navflow slash command ───────────────────────────
+    # ── inbound Slack: the /tares slash command ───────────────────────────
     # The only route in this daemon that is public to the auth middleware AND accepts a body from
     # the internet, so it carries its own authentication: an HMAC over the raw bytes.
     _ask_cap = slack_mod.AskCap()
@@ -1417,11 +1420,11 @@ def make_app() -> FastAPI:
                 if r.status_code < 400:
                     return
                 if r.status_code < 500:
-                    print(f"navflowd: slack response_url rejected the answer: "
+                    print(f"taresd: slack response_url rejected the answer: "
                           f"HTTP {r.status_code} {r.text[:200]}", flush=True)
                     return
             except Exception as e:
-                print(f"navflowd: slack response_url failed: {type(e).__name__}: {e}", flush=True)
+                print(f"taresd: slack response_url failed: {type(e).__name__}: {e}", flush=True)
             if attempt < 2:
                 await asyncio.sleep(1.0 * (attempt + 1))
 
@@ -1461,7 +1464,7 @@ def make_app() -> FastAPI:
 
     @app.post(SLACK_EVENTS_PATH, include_in_schema=False)
     async def slack_events(request: Request):
-        """Slack's inbound endpoint: the URL-verification handshake and `/navflow ask …`.
+        """Slack's inbound endpoint: the URL-verification handshake and `/tares ask …`.
 
         Two contracts shape this whole handler:
 
@@ -1481,7 +1484,7 @@ def make_app() -> FastAPI:
         if (why := slack_verify.check(request.headers, raw, secret)) is not None:
             # The reason goes to the operator's log, not to the caller: telling a forger which part
             # of their forgery failed is free help.
-            print(f"navflowd: rejected an inbound Slack request ({why})", flush=True)
+            print(f"taresd: rejected an inbound Slack request ({why})", flush=True)
             return JSONResponse({"detail": "invalid Slack signature"}, status_code=401)
 
         ctype = request.headers.get("content-type", "")
@@ -1505,26 +1508,26 @@ def make_app() -> FastAPI:
             return slack_mod.build_error(problem, thread_ts)
         if not response_url:
             return slack_mod.build_error(
-                ":warning: that request carried no response_url — NavFlow has nowhere to reply",
+                ":warning: that request carried no response_url — Tares has nowhere to reply",
                 thread_ts)
         if not resolve_anthropic_key(store)[0]:
             return slack_mod.build_error(
-                ":warning: no Anthropic API key is configured on this NavFlow instance — set "
+                ":warning: no Anthropic API key is configured on this Tares instance — set "
                 "`ANTHROPIC_API_KEY` or add one under Security in the console", thread_ts)
         if not runtime.catalog.sources:
             return slack_mod.build_error(
-                ":warning: this NavFlow instance has no sources configured yet, so there is "
+                ":warning: this Tares instance has no sources configured yet, so there is "
                 "nothing to ask about", thread_ts)
         if not _ask_cap.take(form.get("team_id", ""), form.get("user_id", "")):
             return slack_mod.build_error(
-                f":warning: you've hit the cap of {_ask_cap.cap} NavFlow questions in 24h "
-                "(NAVFLOW_SLACK_DAILY_CAP)", thread_ts)
+                f":warning: you've hit the cap of {_ask_cap.cap} Tares questions in 24h "
+                "(TARES_SLACK_DAILY_CAP)", thread_ts)
 
         task = asyncio.create_task(_slack_answer(question, response_url, thread_ts))
         _ask_tasks.add(task)
         task.add_done_callback(_ask_tasks.discard)
         # The ACK Slack shows while we think; the answer replaces it via response_url.
-        ack = {"response_type": "ephemeral", "text": ":hourglass_flowing_sand: asking NavFlow…"}
+        ack = {"response_type": "ephemeral", "text": ":hourglass_flowing_sand: asking Tares…"}
         if thread_ts:
             ack["thread_ts"] = thread_ts
         return ack
@@ -1560,14 +1563,14 @@ def make_app() -> FastAPI:
                    "keel", "lantern", "mast", "pilot", "rudder", "sextant", "tide", "wake"]
 
     def _agent_identity(url: str) -> tuple[str, str]:
-        """(name, masked display URL) for a subscriber endpoint. A NavFlow agent's URL carries its
+        """(name, masked display URL) for a subscriber endpoint. A Tares agent's URL carries its
         real name and no secret, so it's shown verbatim; a Slack channel likewise. An external hook
         URL is the identity but carries a secret in the path, so it's anonymized (deterministic
         name) and the last path segment masked."""
         from .config import agent_name_from_url
         internal = agent_name_from_url(url.rstrip("/"))
         if internal is not None:
-            return internal, "in-process (NavFlow agent)"
+            return internal, "in-process (Tares agent)"
         channel = slack_channel_from_url(url.rstrip("/"))
         if channel is not None:
             # The channel IS the identity and holds no secret (the token does), so it's shown as
@@ -1589,7 +1592,7 @@ def make_app() -> FastAPI:
 
     @app.get("/api/agents")
     async def agent_roster():
-        """The roster of everything a trigger wakes: NavFlow agents (run in-process) and connected
+        """The roster of everything a trigger wakes: Tares agents (run in-process) and connected
         external agents (webhooks), one row each, tagged by `kind`. Both are subscriptions, so both
         appear here identically — wiring (triggers), delivery health, recent wakes."""
         stats = store.delivery_stats()
@@ -1600,7 +1603,7 @@ def make_app() -> FastAPI:
             if a is None:
                 from .config import agent_name_from_url
                 name, masked = _agent_identity(norm)
-                kind = ("navflow" if agent_name_from_url(norm) is not None
+                kind = ("tares" if agent_name_from_url(norm) is not None
                         else "slack" if slack_channel_from_url(norm) is not None
                         else "connected")
                 st = stats.get(sub["url"], stats.get(norm, {}))
@@ -1669,7 +1672,7 @@ def make_app() -> FastAPI:
     @app.get("/api/usage")
     async def usage():
         """What this instance is using: db + WAL bytes, the volume they sit on, and event counts.
-        `max_bytes` is what the operator says this instance may grow to (NAVFLOW_MAX_DB_SIZE — a
+        `max_bytes` is what the operator says this instance may grow to (TARES_MAX_DB_SIZE — a
         hosted cell gets its PVC size); unset -> null, and nothing is enforced here either way.
         `pct_used` is (db + wal) over max_bytes on a 0-100 scale, NOT a 0-1 fraction — so a
         "warn at 80%" consumer compares against 80, not 0.8. Null whenever max_bytes is null.

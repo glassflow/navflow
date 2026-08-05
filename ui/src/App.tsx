@@ -137,8 +137,8 @@ export default function App() {
     <>
       <nav className="sidebar">
         <div className="brand">
-          <img className="brand-mark" src="/navflow-mark.svg" alt="NavFlow" />
-          <span className="brand-word">navflow</span>
+          <img className="brand-mark" src="/tares-mark.svg" alt="Tares" />
+          <span className="brand-word">tares</span>
         </div>
 
         {NAV_GROUPS.map(({ section, items }) => (
@@ -174,7 +174,7 @@ export default function App() {
         <div className="foot">
           {version && <span>v{version}</span>}
           <a href="https://github.com/glassflow/navflow" target="_blank" rel="noreferrer"
-             title="NavFlow on GitHub" aria-label="NavFlow on GitHub">
+             title="Tares on GitHub" aria-label="Tares on GitHub">
             <GitHub />
           </a>
         </div>

@@ -9,8 +9,8 @@ import asyncio
 import os
 import sys
 
-os.environ["NAVFLOW_DB"] = "/tmp/navflow-normalize-test.duckdb"
-os.environ["NAVFLOW_CATALOG"] = "/tmp/does-not-exist.yaml"
+os.environ["TARES_DB"] = "/tmp/navflow-normalize-test.duckdb"
+os.environ["TARES_CATALOG"] = "/tmp/does-not-exist.yaml"
 
 import httpx
 import yaml
@@ -27,13 +27,13 @@ def check(label, cond, detail=""):
 
 
 async def main():
-    for p in (os.environ["NAVFLOW_DB"], os.environ["NAVFLOW_DB"] + ".wal"):
+    for p in (os.environ["TARES_DB"], os.environ["TARES_DB"] + ".wal"):
         if os.path.exists(p):
             os.remove(p)
 
-    from navflow.connectors import normalize_config, full_schema, REGISTRY
-    from navflow.config import CatalogError
-    from navflow.daemon import make_app
+    from tares.connectors import normalize_config, full_schema, REGISTRY
+    from tares.config import CatalogError
+    from tares.daemon import make_app
 
     print("== every connector is schema-backed (canonical-config migration complete) ==")
     unmigrated = [n for n in REGISTRY if full_schema(n) is None]

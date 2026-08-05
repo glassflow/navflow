@@ -23,7 +23,7 @@ export default function Home() {
 
   const onDisk = u ? u.db_bytes + u.wal_bytes : 0;
   // Both are null together, but it's the denominator that decides whether a percentage means
-  // anything — an instance with no NAVFLOW_MAX_DB_SIZE has nothing to be a percentage of.
+  // anything — an instance with no TARES_MAX_DB_SIZE has nothing to be a percentage of.
   const pct = u && u.max_bytes != null && u.pct_used != null ? u.pct_used : null;
   const erroring = sources?.filter((s) => s.health?.status === "error").length ?? 0;
 
@@ -91,10 +91,10 @@ export default function Home() {
 }
 
 // How full is my database? — asked *before* it breaks, not after. Which story you get depends on
-// whether an operator configured a cap (NAVFLOW_MAX_DB_SIZE; the Helm chart sets it for hosted
+// whether an operator configured a cap (TARES_MAX_DB_SIZE; the Helm chart sets it for hosted
 // cells, a self-hosted install usually has not):
 //   · cap set  → the percentage of it, a bar, and a warning from 80% up. The daemon only flips
-//                /health to `degraded` at NAVFLOW_DEGRADED_PCT (90 by default); the console warns
+//                /health to `degraded` at TARES_DEGRADED_PCT (90 by default); the console warns
 //                earlier, while there is still room to act.
 //   · no cap   → no percentage and no bar, because there is no denominator to measure against.
 //                Absolute size, with headroom taken from the free space on the volume instead.
@@ -125,7 +125,7 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
             <div className="alert warn">
               <strong>Storage {pct}% full</strong> — {formatBytes(onDisk)} of the{" "}
               {formatBytes(u.max_bytes)} limit for this instance. Ingest keeps working until it
-              runs out; free space or raise <code>NAVFLOW_MAX_DB_SIZE</code> before it does.
+              runs out; free space or raise <code>TARES_MAX_DB_SIZE</code> before it does.
             </div>
           )}
 
@@ -149,7 +149,7 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
                 ? <>The volume it sits on has <strong>{formatBytes(u.disk_free)}</strong> free
                    {u.disk_total != null && <> of {formatBytes(u.disk_total)}</>}.</>
                 : <>Free space on its volume could not be read.</>}{" "}
-              Set <code>NAVFLOW_MAX_DB_SIZE</code> to be warned against a budget instead.
+              Set <code>TARES_MAX_DB_SIZE</code> to be warned against a budget instead.
             </p>
           )}
         </>
