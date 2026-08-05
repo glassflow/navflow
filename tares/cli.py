@@ -34,8 +34,9 @@ def _warn_if_exposed(host: str) -> None:
 
 
 def run_daemon():
-    from .config import reject_legacy_env
+    from .config import reject_legacy_db, reject_legacy_env
     reject_legacy_env()
+    reject_legacy_db(os.environ.get("TARES_DB", "tares.duckdb"))
     import uvicorn
 
     from .daemon import make_app
@@ -92,9 +93,7 @@ def _up(args: argparse.Namespace):
     home.mkdir(parents=True, exist_ok=True)
     # point the daemon at the data home unless the user already set these explicitly.
     # (the daemon reads these env vars at import time, so set them before run_daemon imports it.)
-    # navflow.duckdb, not tares.duckdb — see the note in daemon.py. Renaming the file orphans the
-    # data of every install that already has one.
-    os.environ.setdefault("TARES_DB", str(home / "navflow.duckdb"))
+    os.environ.setdefault("TARES_DB", str(home / "tares.duckdb"))
     os.environ.setdefault("TARES_CATALOG", str(home / "catalog.yaml"))  # seed only; absent is fine
     os.environ["TARES_HOST"] = args.host
     os.environ["TARES_PORT"] = str(args.port)

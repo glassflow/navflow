@@ -44,11 +44,10 @@ from .store import Store, StoreUnavailable
 from .views import resolve_query_full, resolve_read
 
 CATALOG_PATH = os.getenv("TARES_CATALOG", "catalog.yaml")
-# The FILENAME is deliberately still navflow.duckdb, and must stay that way. It lives inside
-# whatever directory you point at, so it is invisible to users — but every existing cell's volume
-# contains a file with this name. Renaming it would make every one of them come up healthy and
-# EMPTY, with the real data orphaned beside it and no error anywhere.
-DB_PATH = os.getenv("TARES_DB", "navflow.duckdb")
+# Renamed in 1.0 along with everything else. An install that upgrades without moving its file is
+# caught by config.reject_legacy_db(), which refuses to start rather than silently creating an empty
+# database next to the old one — DuckDB would happily do exactly that.
+DB_PATH = os.getenv("TARES_DB", "tares.duckdb")
 # Re-import the catalog YAML on every boot (declarative: the file is the source of truth, so an
 # operator manages a read-only demo's sources by editing the YAML and restarting).
 CATALOG_SYNC = os.getenv("TARES_CATALOG_SYNC", "").strip().lower() in ("1", "true", "yes", "on")

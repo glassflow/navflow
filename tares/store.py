@@ -326,7 +326,7 @@ class StoreUnavailable(RuntimeError):
 
 
 class Store:
-    def __init__(self, path: str = "navflow.duckdb"):
+    def __init__(self, path: str = "tares.duckdb"):
         # All access is from taresd's event loop thread; the lock is belt-and-suspenders since
         # FastAPI may run sync work in a threadpool.
         self._lock = threading.Lock()

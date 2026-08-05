@@ -5,6 +5,31 @@ Declares the sources (what to ingest and how), the views (named query shapes), a
 """
 from __future__ import annotations
 
+def reject_legacy_db(db_path: str) -> None:
+    """Refuse to start if the database we are about to create sits next to a pre-1.0 one.
+
+    1.0 renamed the DuckDB file to tares.duckdb. DuckDB happily CREATES a missing file, so an
+    install that upgraded without moving its data would come up healthy and completely empty, with
+    navflow.duckdb sitting untouched beside it — indistinguishable from data loss, and the kind of
+    thing you only notice after the console shows nothing.
+
+    Migrating is one `mv`. Not doing it silently is the whole point.
+    """
+    import os as _os
+    if _os.path.exists(db_path):
+        return                      # the new file exists: nothing to warn about
+    legacy = _os.path.join(_os.path.dirname(db_path) or ".", "navflow.duckdb")
+    if not _os.path.exists(legacy):
+        return                      # a genuinely fresh install
+    raise SystemExit(
+        f"found a pre-1.0 database at {legacy}, and none at {db_path}.\n\n"
+        "tares 1.0 renamed the file. Starting now would create an empty database and leave your "
+        "data untouched beside it, which looks exactly like data loss.\n\n"
+        f"    mv {legacy} {db_path}\n\n"
+        "then start again."
+    )
+
+
 def reject_legacy_env(environ=None) -> None:
     """Refuse to start if the environment still uses the pre-1.0 NAVFLOW_* variables.
 

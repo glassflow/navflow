@@ -1,6 +1,6 @@
 export type Theme = "light" | "dark";
 
-const KEY = "navflow-theme";
+const KEY = "tares-theme";
 
 /** Resolve the active theme: explicit choice wins, else follow the OS. */
 export function getTheme(): Theme {
