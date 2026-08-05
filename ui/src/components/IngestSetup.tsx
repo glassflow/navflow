@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 
 // Setup hints shown next to a push source's ingest URL. The URL is the address; on a secured
-// instance (`navflow up --auth`) the producer ALSO needs an ingest API key in the Authorization
+// instance (`tares up --auth`) the producer ALSO needs an ingest API key in the Authorization
 // header. At source creation we have the freshly minted key (`authKey`) and embed it in the snippet;
 // on the detail page later we don't (it's show-once), so we show a placeholder + a pointer to it.
 // Renders nothing when the instance is open (no auth) — the URL alone accepts events.
@@ -23,8 +23,8 @@ export default function IngestSetup({ connector, url, authKey }: {
       ? `\n        http_config:\n          authorization:\n            type: Bearer\n            credentials: ${key}`
       : "";
     const yaml =
-      `# alertmanager.yml\nreceivers:\n  - name: navflow\n    webhook_configs:\n` +
-      `      - url: ${url}\n        send_resolved: true${authBlock}\nroute:\n  receiver: navflow`;
+      `# alertmanager.yml\nreceivers:\n  - name: tares\n    webhook_configs:\n` +
+      `      - url: ${url}\n        send_resolved: true${authBlock}\nroute:\n  receiver: tares`;
     return (
       <div className="ingest-setup">
         <p className="muted">
@@ -60,7 +60,7 @@ export default function IngestSetup({ connector, url, authKey }: {
       <KeyNote authKey={authKey} />
       <p className="muted" style={{ marginTop: 12 }}>
         {connector === "otlp"
-          ? <>Exporter setup — NavFlow accepts OTLP/HTTP <strong>JSON</strong> (not protobuf); use a
+          ? <>Exporter setup — Tares accepts OTLP/HTTP <strong>JSON</strong> (not protobuf); use a
               JSON-capable exporter, e.g. the OTel Collector's <span className="mono">otlphttp</span>{" "}
               exporter with <span className="mono">encoding: json</span>:</>
           : <>Test it right away:</>}

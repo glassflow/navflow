@@ -61,7 +61,7 @@ export default function SourceDiscover() {
         <button onClick={run} disabled={loading || busy}>rescan</button>
       </div>
       <p className="subtitle">
-        scan the local Docker environment and set up everything NavFlow can ingest — you just confirm
+        scan the local Docker environment and set up everything Tares can ingest — you just confirm
       </p>
 
       {loading && <div className="empty">scanning Docker…</div>}
@@ -69,7 +69,7 @@ export default function SourceDiscover() {
         <div className="alert error">
           {error}
           <div className="help" style={{ marginTop: 6 }}>
-            Auto-discover needs the Docker daemon reachable from navflowd's host. You can still{" "}
+            Auto-discover needs the Docker daemon reachable from taresd's host. You can still{" "}
             <a href="#" onClick={(e) => { e.preventDefault(); nav("/sources/new"); }}>add a source by hand</a>.
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function SourceDiscover() {
 
           <div className="panel">
             <table>
-              <thead><tr><th></th><th>source</th><th>connector</th><th>what NavFlow saw</th></tr></thead>
+              <thead><tr><th></th><th>source</th><th>connector</th><th>what Tares saw</th></tr></thead>
               <tbody>
                 {scan.proposed_sources.map((p: ProposedSource) => (
                   <tr key={p.name}>

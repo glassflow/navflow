@@ -88,7 +88,7 @@ export default function TriggerDetail() {
       <div className="pagehead" style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0 }}>Agents woken by this trigger</h2>
         <Link className="btn primary" to={`/agents/new?trigger=${encodeURIComponent(name)}`}>
-          Add a NavFlow agent
+          Add a Tares agent
         </Link>
       </div>
       {wired.length > 0 ? (
@@ -97,11 +97,11 @@ export default function TriggerDetail() {
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
-                <td>{a.kind === "navflow"
+                <td>{a.kind === "tares"
                   ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
                   : <Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
-                <td>{a.kind === "navflow"
-                  ? <span className="badge">NavFlow</span>
+                <td>{a.kind === "tares"
+                  ? <span className="badge">Tares</span>
                   : a.kind === "slack"
                   ? <span className="badge">Slack</span>
                   : <span className="badge push">connected</span>}</td>
@@ -128,7 +128,7 @@ export default function TriggerDetail() {
         </table>
       ) : (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          none yet — add a NavFlow agent above, or connect an external agent's webhook below
+          none yet — add a Tares agent above, or connect an external agent's webhook below
         </p>
       )}
       <p className="help" style={{ margin: "4px 0" }}>

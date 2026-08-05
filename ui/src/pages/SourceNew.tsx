@@ -14,7 +14,7 @@ export default function SourceNew() {
   const [connector, setConnector] = useState<string>();
   const [created, setCreated] = useState<Created>();
   // Host capabilities gate local-only connectors: docker_logs shells out to `docker logs` on the
-  // NavFlow host, so on a hosted cell (no Docker socket) it can only ever ingest nothing.
+  // Tares host, so on a hosted cell (no Docker socket) it can only ever ingest nothing.
   // Enabled until known false, matching Sources.tsx.
   const [caps, setCaps] = useState<{ discover_docker: boolean }>();
   // Auth mode. When ON, a push producer needs an ingest credential in the header, so we mint one for
@@ -42,14 +42,14 @@ export default function SourceNew() {
         <table>
           <thead><tr><th>connector</th><th>mode</th><th>what it does</th></tr></thead>
           <tbody>
-            {/* `internal` connectors are provisioned by NavFlow itself (the agent findings
+            {/* `internal` connectors are provisioned by Tares itself (the agent findings
                 source) — nothing to configure, so they're not offered here. */}
             {Object.entries(specs).filter(([, s]) => !s.internal).map(([key, s]) => (
               unavailable(key) ? (
                 <tr key={key} className="dim">
                   <td className="mono">{key}</td>
                   <td><span className="badge starting">unavailable</span></td>
-                  <td>{s.description} <em>Needs Docker on the NavFlow host — not available on this deployment.</em></td>
+                  <td>{s.description} <em>Needs Docker on the Tares host — not available on this deployment.</em></td>
                 </tr>
               ) : (
                 <tr key={key} className="clickable"
@@ -91,7 +91,7 @@ export default function SourceNew() {
           ) : authOn === false ? (
             <p className="help" style={{ marginTop: 14, whiteSpace: "normal" }}>
               This instance is open, so no key is needed — the URL alone accepts events. Run{" "}
-              <code>navflow up --auth</code> to require an ingest key per producer.
+              <code>tares up --auth</code> to require an ingest key per producer.
             </p>
           ) : null}
 

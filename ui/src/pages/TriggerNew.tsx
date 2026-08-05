@@ -10,7 +10,7 @@ export default function TriggerNew() {
     <>
       <h1>New trigger</h1>
       <p className="subtitle">
-        a condition NavFlow evaluates continuously over a view — when it trips, subscribed agents
+        a condition Tares evaluates continuously over a view — when it trips, subscribed agents
         are woken with the correlated timeline
       </p>
       <TriggerEditor presetView={params.get("view") ?? undefined}

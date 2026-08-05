@@ -60,7 +60,7 @@ export default function Sources() {
       <div className="pagehead">
         <div>
           <h1>Sources</h1>
-          <p className="subtitle">everything NavFlow ingests — <em>lossless, normalized, one project</em></p>
+          <p className="subtitle">everything Tares ingests — <em>lossless, normalized, one project</em></p>
         </div>
         <span className="btnrow">
           {caps?.discover_docker !== false && (

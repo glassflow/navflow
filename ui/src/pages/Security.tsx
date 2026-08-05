@@ -7,11 +7,11 @@ import { TimeAgo } from "../components/bits";
 import type { ApiKey } from "../types";
 
 // Four distinct credential concepts, one box each:
-//   · Access     — is this instance open, or does it require a login? (navflow up --auth)
+//   · Access     — is this instance open, or does it require a login? (tares up --auth)
 //   · API keys   — scoped, revocable, show-once credentials the operator mints for machines
-//   · Anthropic  — the model key NavFlow agents (and Ask) run on
+//   · Anthropic  — the model key Tares agents (and Ask) run on
 //   · Slack      — the bot token behind slack:// trigger subscriptions (outbound), and the
-//                  signing secret that authenticates the /navflow slash command (inbound)
+//                  signing secret that authenticates the /tares slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
 export default function Security() {
   return (
@@ -27,7 +27,7 @@ export default function Security() {
   );
 }
 
-// Auth is set at launch: `navflow up` is open; `navflow up --auth` requires a login (a root token
+// Auth is set at launch: `tares up` is open; `tares up --auth` requires a login (a root token
 // printed to the terminal). This box states which mode you're in — there's no runtime toggle, so
 // it's status, not a control.
 function AccessPanel() {
@@ -45,7 +45,7 @@ function AccessPanel() {
             <span className="badge ok">auth on</span>{" "}
             <span className="help">
               the console and API require a login. You signed in with the root token printed by{" "}
-              <code>navflow up --auth</code>. Hand machines their own scoped <strong>API keys</strong>{" "}
+              <code>tares up --auth</code>. Hand machines their own scoped <strong>API keys</strong>{" "}
               below — never the root token.
             </span>
           </p>
@@ -53,15 +53,15 @@ function AccessPanel() {
           <div className="alert">
             <span className="badge">auth off</span> — this instance is <strong>open</strong>: anyone
             who can reach it can read and write, and API keys are not enforced. Restart with{" "}
-            <code>navflow up --auth</code> to require a login.
+            <code>tares up --auth</code> to require a login.
           </div>
         )}
     </div>
   );
 }
 
-// The key NavFlow agents run on. Two ways in — the environment, or here — because plenty of local
-// users launch NavFlow from a desktop shortcut and have no shell to export into. Env always wins,
+// The key Tares agents run on. Two ways in — the environment, or here — because plenty of local
+// users launch Tares from a desktop shortcut and have no shell to export into. Env always wins,
 // so a deployment's config is never silently overridden by something typed in here months earlier.
 function AnthropicKeyPanel() {
   const [st, setSt] = useState<{ configured: boolean; source: string; stored: boolean; env_overrides: boolean }>();
@@ -89,7 +89,7 @@ function AnthropicKeyPanel() {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Anthropic key</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        What <strong>NavFlow agents</strong> run on — their first look at an entity when a trigger
+        What <strong>Tares agents</strong> run on — their first look at an entity when a trigger
         fires. Set <code>ANTHROPIC_API_KEY</code> in the daemon's environment, or store one here.
         It is never returned by the API and never included in a catalog export.
       </p>
@@ -234,9 +234,9 @@ function SlackSigningSecretPanel() {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Slack signing secret</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        Lets your team ask NavFlow from Slack: point the Slack app's <code>/navflow</code> slash
+        Lets your team ask Tares from Slack: point the Slack app's <code>/tares</code> slash
         command at <code>/api/slack/events</code> on this instance and run{" "}
-        <code>/navflow ask what happened to checkout-svc?</code> in any channel. Paste the app's{" "}
+        <code>/tares ask what happened to checkout-svc?</code> in any channel. Paste the app's{" "}
         <strong>Signing Secret</strong> (Basic Information) here, or set{" "}
         <code>TARES_SLACK_SIGNING_SECRET</code>. Every inbound request is verified against it and
         replays older than 5 minutes are refused; with no secret configured the endpoint answers

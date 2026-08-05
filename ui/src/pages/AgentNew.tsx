@@ -5,8 +5,8 @@ import { api } from "../api";
 import AgentForm from "../components/AgentForm";
 import type { AgentPreset } from "../types";
 
-// Create a NavFlow agent. Reachable from the Agents section (trigger via dropdown) or from a
-// trigger's page ("Add a NavFlow agent" → ?trigger=<name>, preselected).
+// Create a Tares agent. Reachable from the Agents section (trigger via dropdown) or from a
+// trigger's page ("Add a Tares agent" → ?trigger=<name>, preselected).
 export default function AgentNew() {
   const nav = useNavigate();
   const [params] = useSearchParams();
@@ -26,7 +26,7 @@ export default function AgentNew() {
 
   return (
     <>
-      <h1>Create NavFlow agent</h1>
+      <h1>Create Tares agent</h1>
       <p className="subtitle">
         a prompt on a trigger — it reads the correlated timeline when the trigger fires and writes a
         finding back onto the entity's timeline

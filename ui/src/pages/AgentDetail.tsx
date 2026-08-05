@@ -9,7 +9,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
-// Everything about one NavFlow agent: its prompt, wiring, and — the part that doesn't belong on the
+// Everything about one Tares agent: its prompt, wiring, and — the part that doesn't belong on the
 // trigger page — its output. Each run shows when it was woken, which firing woke it, and the finding
 // rendered as markdown. External (connected) agents are not managed here; they live in the roster.
 
@@ -39,7 +39,7 @@ export default function AgentDetail() {
   if (!agent) {
     return (
       <div className="alert error">
-        no NavFlow agent named <span className="mono">{name}</span>. Connected (external) agents are
+        no Tares agent named <span className="mono">{name}</span>. Connected (external) agents are
         listed under <Link to="/activity">Activity</Link>. See <Link to="/agents">Agents</Link>.
       </div>
     );
@@ -61,7 +61,7 @@ export default function AgentDetail() {
       <div className="pagehead">
         <div>
           <h1><span className="mono">{agent.name}</span>{" "}
-            <span className="badge">NavFlow agent</span></h1>
+            <span className="badge">Tares agent</span></h1>
           <p className="subtitle">a prompt that takes a first look when its trigger fires</p>
         </div>
         {!editing && (

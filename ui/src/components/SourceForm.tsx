@@ -20,7 +20,7 @@ const NAME_PLACEHOLDER: Record<string, string> = {
 
 // What Discover does, per connector (fallback: the prometheus introspection copy).
 const DISCOVER_HINT: Record<string, string> = {
-  docker_logs: "list the containers navflowd can see, then pick one to fill this form",
+  docker_logs: "list the containers taresd can see, then pick one to fill this form",
   github: "enter the repo above, then Discover its default branch + author labels",
   postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
   prometheus: "enter the URL (+ any auth) above, then Discover — it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
@@ -160,7 +160,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         }));
       if (!attachments.length) throw new Error("add at least one document");
       if (!name.trim()) throw new Error("name is required");
-      // declare the union of label names as real NavFlow labels, so the source's Labels panel shows
+      // declare the union of label names as real Tares labels, so the source's Labels panel shows
       // them and views can correlate on them (field maps to the payload label surfaced by label_context)
       const labelNames = [...new Set(refAttachments.flatMap(
         (a) => a.labels.map(([k]) => k.trim()).filter(Boolean)))];
@@ -556,7 +556,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
               </button>
               <span className="help" style={{ margin: 0 }}>
                 {DISCOVER_HINT[connector]
-                  ?? "fill the URL above, then let NavFlow introspect the source and propose what to ingest — no PromQL to write by hand"}
+                  ?? "fill the URL above, then let Tares introspect the source and propose what to ingest — no PromQL to write by hand"}
               </span>
             </div>
           )}
@@ -1136,7 +1136,7 @@ function ReferenceForm({ attachments, setAttachments }: {
       <span className="lbl" style={{ display: "block" }}>documents</span>
       <p className="help" style={{ marginTop: 2, marginBottom: 10 }}>
         Upload json / csv / md / txt files and tag each with the entity's labels (e.g.{" "}
-        <span className="mono">service=navflow</span>). Those labels become real NavFlow labels you
+        <span className="mono">service=tares</span>). Those labels become real Tares labels you
         can correlate on — and the doc is always attached to that entity, no time window.
       </p>
 
