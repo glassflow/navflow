@@ -1,20 +1,20 @@
-"""NavFlow agents — the data plane reading its own data.
+"""Tares agents — the data plane reading its own data.
 
-A NavFlow agent is a prompt attached to a trigger. It's a real agent (it reasons with an LLM),
-configured inside NavFlow rather than connected over a webhook. When its trigger fires it's handed
+A Tares agent is a prompt attached to a trigger. It's a real agent (it reasons with an LLM),
+configured inside Tares rather than connected over a webhook. When its trigger fires it's handed
 the same correlated timeline the dispatch carries, may read a wider window or another entity, and
-writes ONE finding back into NavFlow (plus an optional Slack post). Today it has exactly two tools,
-`query` and `read`, both routed through NavFlow's own read path — it cannot reach anything else.
+writes ONE finding back into Tares (plus an optional Slack post). Today it has exactly two tools,
+`query` and `read`, both routed through Tares's own read path — it cannot reach anything else.
 
-That closed tool set is the current boundary: a NavFlow agent reads and concludes, it does not act
+That closed tool set is the current boundary: a Tares agent reads and concludes, it does not act
 on the customer's world (restarting, deploying, ticketing) — that's the customer's own agent's job.
 The boundary is a property of this kind of agent, not the reason it's called something else.
 
-Everything except the prompt is NavFlow's decision — model, round budget, token budget, the daily
+Everything except the prompt is Tares's decision — model, round budget, token budget, the daily
 cap. Making those configurable would turn a data-plane feature into an agent builder.
 
-The dispatcher runs a NavFlow agent as a *subscriber* to its trigger (an internal subscription,
-url = navflow://agent/<name>), so it flows through the same dispatch, delivery log, roster and
+The dispatcher runs a Tares agent as a *subscriber* to its trigger (an internal subscription,
+url = tares://agent/<name>), so it flows through the same dispatch, delivery log, roster and
 recent-firings machinery as an external agent. This module is the in-process executor the dispatcher
 calls for those subscriptions; it logs the run detail (rounds, finding) alongside the delivery.
 """
@@ -31,15 +31,15 @@ from .config import FINDINGS_SOURCE, agent_url
 from .slack import deep_link as _slack_deep_link
 from .views import resolve_query_full, resolve_read
 
-MODEL = os.getenv("NAVFLOW_AGENT_MODEL", "claude-sonnet-4-6")
+MODEL = os.getenv("TARES_AGENT_MODEL", "claude-sonnet-4-6")
 # Overridable so the end-to-end test can point at a stub instead of the real API.
-API_BASE = os.getenv("NAVFLOW_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
+API_BASE = os.getenv("TARES_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
 MAX_ROUNDS = 6            # model-call rounds per run
 MAX_TOKENS = 2048         # per model call
 TOOL_TIMEOUT = 120        # per Anthropic request
 # Cost ceiling. A trigger in a hot loop can fire far more often than anyone expects; without a cap
 # the first surprise is the bill. Per-agent and per-day, counted from the run log.
-DAILY_RUN_CAP = int(os.getenv("NAVFLOW_AGENT_DAILY_CAP", "50"))
+DAILY_RUN_CAP = int(os.getenv("TARES_AGENT_DAILY_CAP", "50"))
 
 # Starting points offered in the form. A preset only seeds the prompt box — the user edits freely,
 # because we cannot know what sources they attached or what they need looked at.
@@ -132,10 +132,10 @@ def resolve_key(store) -> tuple[str, str]:
 
 
 class AgentRunner:
-    """Runs NavFlow agents in-process on the daemon's event loop, one per firing.
+    """Runs Tares agents in-process on the daemon's event loop, one per firing.
 
     In-process is right for a single-user local install (the whole point is that the loop closes on
-    `navflow up`, with nothing to deploy), and wrong for a shared instance — one run holds a slot
+    `tares up`, with nothing to deploy), and wrong for a shared instance — one run holds a slot
     for minutes and there is no isolation. A shared deployment should connect an external agent over
     a normal webhook subscription instead.
 
@@ -157,12 +157,12 @@ class AgentRunner:
         # running forever and keeps counting toward the daily cap.
         reaped = store.reap_stale_agent_runs()
         if reaped:
-            print(f"navflowd: reaped {reaped} interrupted agent run(s)")
+            print(f"taresd: reaped {reaped} interrupted agent run(s)")
 
     # ── entry point (called by the dispatcher, once per internal subscription) ─
     def deliver(self, agent_name: str, subscription_id: str, trigger_name: str, key: str,
                 payload: str, dispatch_id: str) -> None:
-        """Wake a NavFlow agent for one firing. Logs a pending delivery immediately, then runs the
+        """Wake a Tares agent for one firing. Logs a pending delivery immediately, then runs the
         agent in the background. Never raises and never blocks — a run must not break the dispatch."""
         agent = self.store.get_catalog_agent(agent_name)
         if agent is None:   # subscription outlived its definition (shouldn't happen) — nothing to run
@@ -270,7 +270,7 @@ class AgentRunner:
         return "", rounds, tool_calls   # round budget exhausted without a conclusion
 
     def _tool(self, agent_name: str, name: str, args: dict) -> str:
-        """The two reads, in-process. No HTTP hop and no credential: a NavFlow agent IS NavFlow, so
+        """The two reads, in-process. No HTTP hop and no credential: a Tares agent IS Tares, so
         it reads through the same resolver the API serves rather than authenticating to itself."""
         catalog = self.runtime.catalog
         window = str(args.get("window") or "1h")
@@ -321,7 +321,7 @@ class AgentRunner:
             # reason to carry an empty one. No `labels` config: the runner stamps them per event.
             self.store.upsert_catalog_source(FINDINGS_SOURCE, "finding", "finding", "5s", {})
             self.runtime.reload_catalog()
-            print(f"navflowd: auto-provisioned findings source {FINDINGS_SOURCE!r}")
+            print(f"taresd: auto-provisioned findings source {FINDINGS_SOURCE!r}")
 
         label = self._entity_label(trigger_name)
         await self.runtime.ingest(FINDINGS_SOURCE, {
@@ -339,11 +339,11 @@ class AgentRunner:
         a link to 127.0.0.1 is worse than no link — so the message must stand alone. The text is the
         stored finding verbatim; a summary here would become a second, divergent record.
 
-        A deep link is appended only when the instance knows it is reachable (NAVFLOW_PUBLIC_URL) —
+        A deep link is appended only when the instance knows it is reachable (TARES_PUBLIC_URL) —
         the same rule the slack:// dispatch sink applies, hence the shared helper.
 
         This is the ORIGINAL per-agent incoming-webhook path and stays as it is. The way forward is
-        a `slack://channel/<id>` subscription (`navflow/slack.py`), which is per-trigger, retried
+        a `slack://channel/<id>` subscription (`tares/slack.py`), which is per-trigger, retried
         and logged in the delivery ledger; existing agents are not migrated.
         """
         link = _slack_deep_link(key)

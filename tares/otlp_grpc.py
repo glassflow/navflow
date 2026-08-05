@@ -3,7 +3,7 @@ HTTP/JSON path. Each Export RPC's protobuf request is converted to its proto3-JS
 (`MessageToDict` — structurally identical to OTLP/HTTP JSON: camelCase keys, enum names, int64
 as strings) and handed to `runtime.ingest_otlp`. No mapping logic lives here.
 
-Optional: needs grpcio + opentelemetry-proto (`pip install navflow[otlp-grpc]`). The daemon
+Optional: needs grpcio + opentelemetry-proto (`pip install tares[otlp-grpc]`). The daemon
 starts this only if it imports.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ class _Base:
 
     async def _handle(self, signal: str, request, context):
         try:
-            source = self._resolve(_header(context, "x-navflow-source"))
+            source = self._resolve(_header(context, "x-tares-source"))
             await self._ingest(source, signal, MessageToDict(request, preserving_proto_field_name=False))
         except KeyError as e:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(e))

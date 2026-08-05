@@ -1,6 +1,6 @@
 """Slack as a first-class dispatch sink — `slack://channel/<id>` alongside webhooks and agents.
 
-End-to-end against a stub Slack API (NAVFLOW_SLACK_API_BASE): configure a bot token, subscribe a
+End-to-end against a stub Slack API (TARES_SLACK_API_BASE): configure a bot token, subscribe a
 channel to a trigger, ingest until the trigger fires, and assert the channel behaves like any other
 subscriber — it appears in the roster, its delivery lands in the ledger and is counted by
 `GET /api/agents`, and the message itself is Block Kit with a text fallback and a deep link.
@@ -84,7 +84,7 @@ async def _until(fn, tries=60):
 
 
 def _spawn(env):
-    return subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+    return subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -119,12 +119,12 @@ async def main():
     stub = HTTPServer(("127.0.0.1", int(STUB_PORT)), Stub)
     threading.Thread(target=stub.serve_forever, daemon=True).start()
 
-    base_env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-                "NAVFLOW_OTLP_GRPC_PORT": "off",
-                "NAVFLOW_SLACK_API_BASE": f"http://127.0.0.1:{STUB_PORT}",
-                "NAVFLOW_PUBLIC_URL": PUBLIC_URL,
-                "NAVFLOW_TRIGGER_DEBOUNCE_SECONDS": "0"}
-    base_env.pop("NAVFLOW_SLACK_BOT_TOKEN", None)     # phase 1 stores one through the API instead
+    base_env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": SEED, "TARES_PORT": PORT,
+                "TARES_OTLP_GRPC_PORT": "off",
+                "TARES_SLACK_API_BASE": f"http://127.0.0.1:{STUB_PORT}",
+                "TARES_PUBLIC_URL": PUBLIC_URL,
+                "TARES_TRIGGER_DEBOUNCE_SECONDS": "0"}
+    base_env.pop("TARES_SLACK_BOT_TOKEN", None)     # phase 1 stores one through the API instead
     proc = _spawn(base_env)
     try:
         if not await _wait(f"{B}/health"):
@@ -183,7 +183,7 @@ async def main():
                "incident" in str(call["body"].get("text", "")), str(call["body"].get("text")))
             ck("blocks name the trigger and the entity",
                "incident" in blocks and "checkout" in blocks, blocks[:300])
-            ck("blocks carry a deep link when NAVFLOW_PUBLIC_URL is set",
+            ck("blocks carry a deep link when TARES_PUBLIC_URL is set",
                f"{PUBLIC_URL}/explore?key=checkout" in blocks, blocks[:400])
 
             async def _counted():
@@ -229,7 +229,7 @@ async def main():
     # ── the environment beats the stored token ──────────────────────────────
     # An operator's deployment config must never be silently overridden by something typed into the
     # console months earlier — the same rule the Anthropic key follows.
-    env2 = {**base_env, "NAVFLOW_SLACK_BOT_TOKEN": ENV_TOKEN}
+    env2 = {**base_env, "TARES_SLACK_BOT_TOKEN": ENV_TOKEN}
     proc = _spawn(env2)
     try:
         if not await _wait(f"{B}/health"):
@@ -238,7 +238,7 @@ async def main():
             async with httpx.AsyncClient(timeout=20) as cx:
                 st = (await cx.get(f"{B}/api/settings/slack-bot-token")).json()
                 ck("env token wins over the stored one",
-                   st["source"] == "env:NAVFLOW_SLACK_BOT_TOKEN" and st["env_overrides"] is True, str(st))
+                   st["source"] == "env:TARES_SLACK_BOT_TOKEN" and st["env_overrides"] is True, str(st))
                 ck("the console is told a stored token exists but is unused", st["stored"] is True, str(st))
                 ck("neither token is ever returned",
                    TOKEN not in json.dumps(st) and ENV_TOKEN not in json.dumps(st), str(st))

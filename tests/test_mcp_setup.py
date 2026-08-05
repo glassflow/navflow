@@ -9,9 +9,9 @@ for _p in (DB, DB + ".wal"):
     if os.path.exists(_p):
         os.remove(_p)
 
-env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": "/tmp/none.yaml",
-       "NAVFLOW_PORT": PORT, "NAVFLOW_OTLP_GRPC_PORT": "off"}
-proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": "/tmp/none.yaml",
+       "TARES_PORT": PORT, "TARES_OTLP_GRPC_PORT": "off"}
+proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # NAVFLOWD_URL must be set before importing the MCP server (it reads it at import time)
@@ -40,7 +40,7 @@ async def wait_health():
 async def main():
     if not await wait_health():
         ck("daemon started", False, "health never came up"); return
-    import navflow.mcp_server as m
+    import tares.mcp_server as m
 
     conns = _json.loads(await m.list_connectors())
     ck("list_connectors lists webhook + otlp + github", {"webhook", "otlp", "github"} <= set(conns))

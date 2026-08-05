@@ -1,4 +1,4 @@
-"""The in-app agent — a server-side chat loop that gives Claude NavFlow's read API as tools, so a
+"""The in-app agent — a server-side chat loop that gives Claude Tares's read API as tools, so a
 user can ask about the data they're ingesting from the console (the in-app twin of the MCP agent).
 
 The Anthropic key is supplied per-request (header) and used transiently — never stored. Tools are
@@ -11,8 +11,8 @@ import os
 
 import httpx
 
-DEFAULT_MODEL = os.getenv("NAVFLOW_AGENT_MODEL", "claude-sonnet-4-6")
-_SELF = f"http://127.0.0.1:{os.getenv('NAVFLOW_PORT', '8787')}"
+DEFAULT_MODEL = os.getenv("TARES_AGENT_MODEL", "claude-sonnet-4-6")
+_SELF = f"http://127.0.0.1:{os.getenv('TARES_PORT', '8787')}"
 MAX_ROUNDS = 10
 
 # Each tool maps to a read endpoint. (method, path-template, query-params, is-json-body).
@@ -105,7 +105,7 @@ PROPOSAL_TOOLS = [
          "reasoning": {"type": "string"}},
          "required": ["name", "key_field", "sources", "reasoning"]}},
     {"name": "propose_trigger",
-     "description": "Propose a trigger — a condition NavFlow evaluates continuously over a view; "
+     "description": "Propose a trigger — a condition Tares evaluates continuously over a view; "
                     "when it trips, subscribed agents are woken with the correlated timeline. Use "
                     "when the user's goal involves alerting or autonomous debugging. The view must "
                     "exist or be proposed in this conversation; `field` must be a numeric field "
@@ -184,7 +184,7 @@ async def _execute_tool(name: str, args: dict, headers: dict) -> str:
     return text if len(text) <= 20000 else text[:20000] + "\n…(truncated)"
 
 
-_SYSTEM_BASE = """You are NavFlow's in-app data assistant. NavFlow is a data plane for AI agents: \
+_SYSTEM_BASE = """You are Tares's in-app data assistant. Tares is a data plane for AI agents: \
 connectors ingest events from sources (logs, metrics, deploys, Vercel/GitHub/Postgres/OTLP, …). \
 Every event has a key, named labels (correlation axes; one is the primary key), typed fields, and a \
 text line. Entities are label values. Views correlate sources for a key; triggers watch views.
@@ -265,7 +265,7 @@ async def run_agent(api_key: str, messages: list, mode: str = "explore",
         import anthropic
     except ImportError:
         yield _sse({"type": "error", "detail": "the agent needs the 'anthropic' package "
-                                               "(pip install navflow[agent])"})
+                                               "(pip install tares[agent])"})
         return
 
     client = anthropic.AsyncAnthropic(api_key=api_key)

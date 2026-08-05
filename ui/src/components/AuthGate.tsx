@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, auth } from "../api";
 
-// Gates the console when the instance requires a token (NAVFLOW_AUTH_TOKEN). The SPA shell is served
+// Gates the console when the instance requires a token (TARES_AUTH_TOKEN). The SPA shell is served
 // publicly, so we ask /health whether auth is required; any 401 from an API call (token missing or
 // expired) flips us back to the login screen via the "navflow-auth-required" event.
 // A daemon that is up but broken (no database) still answers /health — it just doesn't say "ok".

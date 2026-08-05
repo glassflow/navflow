@@ -61,7 +61,7 @@ def _render(rows, include_payload: bool = False) -> tuple[list, list]:
 
 
 def _wrap(view_name: str, selector: str, window: str, lines: list, empty: bool) -> str:
-    out = [f"=== {view_name} · {selector} · window={window} · ONE NavFlow read ===", "", *lines]
+    out = [f"=== {view_name} · {selector} · window={window} · ONE Tares read ===", "", *lines]
     if empty:
         out.append("(no events for this selector in the window)")
     return "\n".join(out)

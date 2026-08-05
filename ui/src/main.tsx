@@ -32,7 +32,7 @@ const router = createBrowserRouter([
     path: "/",
     element: <App />,
     children: [
-      // `/` is Overview, not the source list. The cloud login handoff (NAVFLOW_LOGIN_URL) lands
+      // `/` is Overview, not the source list. The cloud login handoff (TARES_LOGIN_URL) lands
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
       { path: "sources", element: <Sources /> },

@@ -1,6 +1,6 @@
 """DuckDB store — the collapsed Bronze+Silver. One events table; lossless via the JSON payload.
 
-navflowd is the sole owner of this connection (DuckDB is single-writer). All reads and writes go
+taresd is the sole owner of this connection (DuckDB is single-writer). All reads and writes go
 through here; the MCP server never touches the DB directly.
 """
 from __future__ import annotations
@@ -113,7 +113,7 @@ CREATE TABLE IF NOT EXISTS catalog_triggers (
   updated_at TIMESTAMPTZ,
   paused     BOOLEAN DEFAULT FALSE
 );
--- A NavFlow agent: the DEFINITION only (prompt + optional Slack). Whether it's enabled is not a
+-- A Tares agent: the DEFINITION only (prompt + optional Slack). Whether it's enabled is not a
 -- column — an agent is enabled exactly when it has a subscription to its trigger, the same wiring
 -- an external agent has. That keeps one source of truth for "will it be woken" (subscriptions).
 CREATE TABLE IF NOT EXISTS catalog_agents (
@@ -179,11 +179,11 @@ _MIGRATIONS = [
     # rows get NULL (read as False); the upsert always writes an explicit value going forward.
     "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS paused BOOLEAN",
     "ALTER TABLE dispatch_deliveries ADD COLUMN IF NOT EXISTS error TEXT",
-    # `reviews` were renamed to NavFlow agents before release; drop the old-named tables if a dev
+    # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
     "DROP TABLE IF EXISTS review_runs",
-    # Retired: navflow no longer auto-extracts numeric fields. Numbers you aggregate are declared
+    # Retired: tares no longer auto-extracts numeric fields. Numbers you aggregate are declared
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
     "ALTER TABLE events DROP COLUMN IF EXISTS fields",
@@ -199,7 +199,7 @@ _DOTTED_FIELD_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 # field (request_id, a timestamp) would otherwise make entity_counts ≈ the events table. Past the
 # cap we drop that (source, label)'s rows and mark it truncated: reads fall back to a live scan and
 # the UI can flag it as high-cardinality (not a useful entity axis anyway).
-_ENTITY_CARDINALITY_CAP = int(os.getenv("NAVFLOW_ENTITY_CARDINALITY_CAP", "10000"))
+_ENTITY_CARDINALITY_CAP = int(os.getenv("TARES_ENTITY_CARDINALITY_CAP", "10000"))
 
 
 def _accum_entity(ent: dict, source: str, label: str, value, ingest_time) -> None:
@@ -296,8 +296,8 @@ def _bound_duckdb_memory(con, path: str) -> None:
     the node's RAM, so one heavy scan over a grown dataset blows past the cgroup limit and the
     process is OOMKilled (this took the dev cell down at ~1M events). With a limit set, DuckDB
     spills intermediates to temp_directory (on the data volume) instead of dying. Override with
-    NAVFLOW_DUCKDB_MEMORY_LIMIT (e.g. "800MB"); no-op locally when there's no cgroup limit."""
-    limit = os.getenv("NAVFLOW_DUCKDB_MEMORY_LIMIT")
+    TARES_DUCKDB_MEMORY_LIMIT (e.g. "800MB"); no-op locally when there's no cgroup limit."""
+    limit = os.getenv("TARES_DUCKDB_MEMORY_LIMIT")
     if not limit:
         cg = _cgroup_mem_bytes()
         if cg:
@@ -306,17 +306,17 @@ def _bound_duckdb_memory(con, path: str) -> None:
         return
     try:
         con.execute(f"PRAGMA memory_limit='{limit}'")
-        con.execute(f"PRAGMA threads={os.getenv('NAVFLOW_DUCKDB_THREADS', '2')}")
+        con.execute(f"PRAGMA threads={os.getenv('TARES_DUCKDB_THREADS', '2')}")
         tmp = os.path.join(os.path.dirname(os.path.abspath(path)) or ".", ".duckdb_tmp")
         os.makedirs(tmp, exist_ok=True)
         con.execute(f"PRAGMA temp_directory='{tmp}'")
     except Exception as e:                 # never let tuning block startup
-        print(f"navflowd: could not bound DuckDB memory ({e})")
+        print(f"taresd: could not bound DuckDB memory ({e})")
 
 
 class StoreUnavailable(RuntimeError):
     """The database could not be opened or initialized — locked by another daemon, permissions,
-    a full disk, a corrupt file. Raised instead of the raw DuckDB error so navflowd can start in
+    a full disk, a corrupt file. Raised instead of the raw DuckDB error so taresd can start in
     degraded mode (serve the console and explain itself) rather than exit with a traceback."""
 
     def __init__(self, reason: str, path: str = ""):
@@ -327,7 +327,7 @@ class StoreUnavailable(RuntimeError):
 
 class Store:
     def __init__(self, path: str = "navflow.duckdb"):
-        # All access is from navflowd's event loop thread; the lock is belt-and-suspenders since
+        # All access is from taresd's event loop thread; the lock is belt-and-suspenders since
         # FastAPI may run sync work in a threadpool.
         self._lock = threading.Lock()
         self.path = path          # kept so usage() can size the db file and its WAL
@@ -775,7 +775,7 @@ class Store:
             self.con.execute("DELETE FROM catalog_triggers")
             self.con.execute("DELETE FROM catalog_agents")
 
-    # ── NavFlow agents (a prompt attached to a trigger; enabled ⟺ subscribed) ──
+    # ── Tares agents (a prompt attached to a trigger; enabled ⟺ subscribed) ──
     def upsert_catalog_agent(self, name: str, trigger: str, prompt: str,
                              slack_webhook: str | None = None) -> None:
         ts = now_utc()
@@ -893,7 +893,7 @@ class Store:
                     "UPDATE agent_runs SET status = 'failed', error = ?, finished_at = ?, "
                     "duration_ms = CAST(date_diff('millisecond', started_at, ?) AS INTEGER) "
                     f"WHERE {where}",
-                    ["interrupted: navflowd stopped while this run was in flight", ts, ts] + args)
+                    ["interrupted: taresd stopped while this run was in flight", ts, ts] + args)
         return n
 
     # ── settings (instance config set from the console) ───────────────────────
@@ -958,7 +958,7 @@ class Store:
             rows = self.con.execute(
                 "SELECT subscription_id, url, ok, error, delivered_at FROM dispatch_deliveries "
                 "WHERE dispatch_id = ? ORDER BY delivered_at", [dispatch_id]).fetchall()
-        # ok stays None when the delivery is still pending (a NavFlow agent mid-run) — the caller
+        # ok stays None when the delivery is still pending (a Tares agent mid-run) — the caller
         # distinguishes pending from failed; bool() would collapse both to False.
         return [{"subscription_id": r[0], "url": r[1],
                  "ok": None if r[2] is None else bool(r[2]),
@@ -974,7 +974,7 @@ class Store:
 
     def list_dispatches(self, limit: int = 100) -> list[dict]:
         # `delivered` and `pending` are computed LIVE from deliveries, not read from the snapshot:
-        # a NavFlow agent's in-process run finishes after fire() returns, so its outcome lands late.
+        # a Tares agent's in-process run finishes after fire() returns, so its outcome lands late.
         # Counting ok/NULL deliveries keeps the row honest as those runs complete.
         # `error` = the most recent failed delivery's reason (NULL if none failed).
         with self._lock:
@@ -1231,8 +1231,8 @@ class Store:
             self.con.execute("DELETE FROM subscriptions WHERE subscription_id = ?", [sid])
 
     def subscription_by_url(self, url: str) -> dict | None:
-        """A subscription by its exact URL — used to find a NavFlow agent's internal subscription
-        (url = navflow://agent/<name>), which is how enabled/disabled is represented."""
+        """A subscription by its exact URL — used to find a Tares agent's internal subscription
+        (url = tares://agent/<name>), which is how enabled/disabled is represented."""
         with self._lock:
             r = self.con.execute(
                 "SELECT subscription_id, trigger, url FROM subscriptions WHERE url = ? LIMIT 1",
@@ -1246,7 +1246,7 @@ class Store:
     def log_delivery(self, dispatch_id: str, subscription_id: str, url: str, ok: bool | None,
                      error: str | None = None) -> None:
         # Explicit column list: `error` was appended by migration, so positional VALUES no longer match.
-        # ok may be NULL — a NavFlow agent's delivery is logged pending at fire time and updated when
+        # ok may be NULL — a Tares agent's delivery is logged pending at fire time and updated when
         # the in-process run finishes (external POSTs log their final ok immediately).
         with self._lock:
             self.con.execute(
@@ -1256,7 +1256,7 @@ class Store:
 
     def update_delivery(self, dispatch_id: str, subscription_id: str, ok: bool,
                         error: str | None = None) -> None:
-        """Resolve a pending delivery (a NavFlow agent's in-process run finishing)."""
+        """Resolve a pending delivery (a Tares agent's in-process run finishing)."""
         with self._lock:
             self.con.execute(
                 "UPDATE dispatch_deliveries SET ok = ?, error = ?, delivered_at = ? "
@@ -1284,7 +1284,7 @@ class Store:
         delivered_at)."""
         since = now_utc() - parse_window(window)
         with self._lock:
-            # ok IS NULL is a pending NavFlow-agent run — count it as neither delivered nor failed,
+            # ok IS NULL is a pending Tares-agent run — count it as neither delivered nor failed,
             # and exclude it from the "most recent outcome" (arg_max over resolved deliveries only),
             # so a running agent never reads as a failure.
             rows = self.con.execute(

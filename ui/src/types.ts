@@ -313,7 +313,7 @@ export interface SourceEvent {
 // GET /api/usage — what this instance is using on disk.
 // Three things the renderer must respect:
 //  · `pct_used` is 0-100, NOT a 0-1 fraction — "warn at 80%" compares against 80.
-//  · `pct_used` and `max_bytes` are null unless the operator set NAVFLOW_MAX_DB_SIZE (the Helm
+//  · `pct_used` and `max_bytes` are null unless the operator set TARES_MAX_DB_SIZE (the Helm
 //    chart does it for hosted cells), so a self-hosted install has no denominator at all: show
 //    absolute bytes and fall back to `disk_free` for headroom. Null is unknown, never 0.
 //  · `sources[].bytes` is always null — DuckDB keeps every source in one events table and cannot

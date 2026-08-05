@@ -1,15 +1,15 @@
 """Vercel logs connector — map_payload mapping (deterministic) + ingest through /ingest/{source}."""
 import asyncio, os
 
-os.environ["NAVFLOW_DB"] = "/tmp/vercel.duckdb"
-os.environ["NAVFLOW_CATALOG"] = "/tmp/none.yaml"
+os.environ["TARES_DB"] = "/tmp/vercel.duckdb"
+os.environ["TARES_CATALOG"] = "/tmp/none.yaml"
 for _p in ("/tmp/vercel.duckdb", "/tmp/vercel.duckdb.wal"):
     if os.path.exists(_p):
         os.remove(_p)
 import httpx
-from navflow.config import _source_from_dict
-from navflow.connectors import full_schema
-from navflow.connectors.vercel import VercelConnector
+from tares.config import _source_from_dict
+from tares.connectors import full_schema
+from tares.connectors.vercel import VercelConnector
 
 P = F = 0
 def ck(l, c, d=""):
@@ -42,7 +42,7 @@ ck("full entry kept in payload", envs[0].payload.get("id") == "1")
 ck("vercel is schema-backed", full_schema("vercel") is not None)
 
 # --- ingest end to end through the daemon ---
-from navflow.daemon import make_app
+from tares.daemon import make_app
 async def main():
     app = make_app()
     async with app.router.lifespan_context(app):

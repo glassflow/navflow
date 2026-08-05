@@ -1,8 +1,8 @@
 """OTLP gRPC receiver test. Skips cleanly if the optional [otlp-grpc] deps aren't installed."""
 import asyncio, os, time
-os.environ["NAVFLOW_DB"] = "/tmp/otlpg.duckdb"
-os.environ["NAVFLOW_CATALOG"] = "/tmp/none.yaml"
-os.environ["NAVFLOW_OTLP_GRPC_PORT"] = "14317"
+os.environ["TARES_DB"] = "/tmp/otlpg.duckdb"
+os.environ["TARES_CATALOG"] = "/tmp/none.yaml"
+os.environ["TARES_OTLP_GRPC_PORT"] = "14317"
 for _p in ("/tmp/otlpg.duckdb", "/tmp/otlpg.duckdb.wal"):
     if os.path.exists(_p):
         os.remove(_p)
@@ -18,7 +18,7 @@ except ImportError:
     print("[otlp-grpc] deps not installed — skipping gRPC test")
     raise SystemExit(0)
 import httpx
-from navflow.daemon import make_app
+from tares.daemon import make_app
 
 P = F = 0
 def ck(l, c, d=""):

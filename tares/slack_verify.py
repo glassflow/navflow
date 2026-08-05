@@ -1,7 +1,7 @@
 """Slack request signing — the *only* thing standing between the public internet and this daemon's
 inbound Slack endpoint.
 
-Kept in its own module on purpose: it is the one piece of NavFlow that is pure, security-critical
+Kept in its own module on purpose: it is the one piece of Tares that is pure, security-critical
 and directly unit-testable, and it should be readable end to end without the daemon around it
 (tests/test_slack_verify.py drives it with known-good, tampered and replayed vectors).
 
@@ -33,7 +33,7 @@ import hmac
 import os
 import time
 
-ENV_VAR = "NAVFLOW_SLACK_SIGNING_SECRET"
+ENV_VAR = "TARES_SLACK_SIGNING_SECRET"
 SETTING_KEY = "slack_signing_secret"
 
 VERSION = "v0"

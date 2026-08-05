@@ -151,7 +151,7 @@ class Runtime:
                     {"name": "model", "field": "model"}]}))
             self.reload_catalog()
             cfg = self.catalog.sources.get("claude_code")
-            print("navflowd: auto-provisioned Claude Code source 'claude_code'")
+            print("taresd: auto-provisioned Claude Code source 'claude_code'")
         if cfg is None:
             raise KeyError(f"unknown source {token!r}")
         # push sources, plus poll connectors that opt into accepting pushes too (claude_code can be

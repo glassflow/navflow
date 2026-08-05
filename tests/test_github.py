@@ -2,9 +2,9 @@
 best-effort live check against a public repo (skipped on network/rate-limit)."""
 import asyncio
 
-from navflow.config import _source_from_dict
-from navflow.connectors import full_schema
-from navflow.connectors.github import GithubConnector
+from tares.config import _source_from_dict
+from tares.connectors import full_schema
+from tares.connectors.github import GithubConnector
 
 P = F = 0
 def ck(l, c, d=""):

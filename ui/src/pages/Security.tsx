@@ -164,7 +164,7 @@ function SlackTokenPanel() {
         <code>slack://channel/C0123456789</code> on any trigger and every firing is delivered,
         retried and logged like a webhook. Create a Slack app with the <code>chat:write</code>{" "}
         scope, invite it to the channel, and paste its <strong>Bot User OAuth Token</strong> here —
-        or set <code>NAVFLOW_SLACK_BOT_TOKEN</code> in the daemon's environment. It is never
+        or set <code>TARES_SLACK_BOT_TOKEN</code> in the daemon's environment. It is never
         returned by the API and never included in a catalog export.
       </p>
 
@@ -238,7 +238,7 @@ function SlackSigningSecretPanel() {
         command at <code>/api/slack/events</code> on this instance and run{" "}
         <code>/navflow ask what happened to checkout-svc?</code> in any channel. Paste the app's{" "}
         <strong>Signing Secret</strong> (Basic Information) here, or set{" "}
-        <code>NAVFLOW_SLACK_SIGNING_SECRET</code>. Every inbound request is verified against it and
+        <code>TARES_SLACK_SIGNING_SECRET</code>. Every inbound request is verified against it and
         replays older than 5 minutes are refused; with no secret configured the endpoint answers
         503 rather than trusting anything. The secret is never returned by the API.
       </p>
@@ -313,7 +313,7 @@ function ApiKeysPanel() {
       </p>
       {!enforced && keys && (
         <div className="alert">
-          No <code>NAVFLOW_AUTH_TOKEN</code> is set, so this instance is open and keys are not
+          No <code>TARES_AUTH_TOKEN</code> is set, so this instance is open and keys are not
           enforced. Keys become meaningful once the daemon has a root auth token.
         </div>
       )}

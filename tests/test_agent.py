@@ -1,13 +1,13 @@
 """In-app agent — tool surface + the endpoint requires a key (the live LLM loop is tested manually)."""
 import asyncio, os
 
-os.environ["NAVFLOW_DB"] = "/tmp/agent_t.duckdb"
-os.environ["NAVFLOW_CATALOG"] = "/tmp/none_agent.yaml"
+os.environ["TARES_DB"] = "/tmp/agent_t.duckdb"
+os.environ["TARES_CATALOG"] = "/tmp/none_agent.yaml"
 for _p in ("/tmp/agent_t.duckdb", "/tmp/agent_t.duckdb.wal"):
     if os.path.exists(_p):
         os.remove(_p)
 import httpx
-from navflow import agent
+from tares import agent
 
 P = F = 0
 def ck(l, c, d=""):
@@ -21,7 +21,7 @@ ck("every tool has a schema", all("input_schema" in t for t in agent.TOOLS))
 ck("one adaptive system prompt covers understand + debug",
    "UNDERSTAND" in agent.system_prompt() and "DEBUG" in agent.system_prompt())
 
-from navflow.daemon import make_app
+from tares.daemon import make_app
 async def main():
     app = make_app()
     async with app.router.lifespan_context(app):

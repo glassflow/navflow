@@ -1,5 +1,5 @@
 [project]
-name = "navflow"
+name = "tares"
 version = "0.3.1"
 description = "A self-hostable data plane for AI agents: ingest events, store them losslessly, and serve one correlated read of any entity over MCP."
 readme = "README.md"
@@ -23,25 +23,25 @@ dependencies = [
     "pydantic>=2",
     "mcp>=1.2,<2",   # 2.0 renamed FastMCP->MCPServer and dropped mcp.server.fastmcp (see mcp_server.py)
     "pytz>=2024.1",   # DuckDB needs it to bind tz-aware datetimes to TIMESTAMPTZ
-    "asyncpg>=0.29",  # Postgres connector driver — base so the connector works on `navflow up`
-    "anthropic>=0.40",  # console Ask/Organize agent — base so it works on `navflow up`
+    "asyncpg>=0.29",  # Postgres connector driver — base so the connector works on `tares up`
+    "anthropic>=0.40",  # console Ask/Organize agent — base so it works on `tares up`
 ]
 
 [project.urls]
-Homepage = "https://navflow.ai"
-Documentation = "https://www.navflow.ai/docs"
+Homepage = "https://tares-glassflow.com"
+Documentation = "https://tares-glassflow.com/docs"
 Repository = "https://github.com/glassflow/navflow"
 
 [project.optional-dependencies]
 # OTLP gRPC receiver (:4317). The OTLP/HTTP JSON receiver needs none of this; grpcio is a heavy
-# compiled dep, so the gRPC path stays opt-in. (postgres/agent deps are now base — `navflow up`
+# compiled dep, so the gRPC path stays opt-in. (postgres/agent deps are now base — `tares up`
 # ships a working Postgres connector and Ask agent with no extras.)
 otlp-grpc = ["grpcio>=1.60", "opentelemetry-proto>=1.20"]
 
 [project.scripts]
-navflow = "navflow.cli:main"
-navflowd = "navflow.cli:run_daemon"
-navflow-mcp = "navflow.cli:run_mcp"
+tares = "tares.cli:main"
+taresd = "tares.cli:run_daemon"
+tares-mcp = "tares.cli:run_mcp"
 
 [build-system]
 requires = ["hatchling"]
@@ -53,9 +53,9 @@ build-backend = "hatchling.build"
 artifacts = ["ui/dist/**"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["navflow"]
+packages = ["tares"]
 
-# Ship the built console SPA inside the package (navflow/console), so `pip install` serves the UI.
+# Ship the built console SPA inside the package (tares/console), so `pip install` serves the UI.
 # Build the UI first: `cd ui && npm install && npm run build` emits ui/dist before the wheel build.
 [tool.hatch.build.targets.wheel.force-include]
-"ui/dist" = "navflow/console"
+"ui/dist" = "tares/console"

@@ -1,4 +1,4 @@
-"""Trigger evaluation — runs in navflowd after each ingest tick.
+"""Trigger evaluation — runs in taresd after each ingest tick.
 
 Collapsed form of the design doc's Trigger Engine: instead of a stream consumer with windowed
 state in JetStream KV, we evaluate each condition as a SQL aggregate over the DuckDB window. On a
@@ -22,7 +22,7 @@ _OPS = {">=": operator.ge, "<=": operator.le, "==": operator.eq, ">": operator.g
 # push-heavy source re-runs the same windowed aggregate on every push — poll=5s, window=60s means the
 # same window is re-scanned ~12x, and cooldown already prevents double-fires. Trades up to this many
 # seconds of detection latency for dropping the redundant scans off the ingest hot path.
-_DEBOUNCE_SECONDS = float(os.getenv("NAVFLOW_TRIGGER_DEBOUNCE_SECONDS", "10"))
+_DEBOUNCE_SECONDS = float(os.getenv("TARES_TRIGGER_DEBOUNCE_SECONDS", "10"))
 
 
 def _predicate(value: float, pred: str) -> bool:

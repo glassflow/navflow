@@ -14,7 +14,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from navflow import slack_verify as sv
+from tares import slack_verify as sv
 
 P = F = 0
 def ck(l, c, d=""):

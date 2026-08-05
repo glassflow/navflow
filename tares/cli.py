@@ -1,6 +1,6 @@
-"""Entry points: `navflow` (the user CLI), `navflowd` (the daemon), `navflow-mcp` (stdio MCP proxy).
+"""Entry points: `tares` (the user CLI), `taresd` (the daemon), `tares-mcp` (stdio MCP proxy).
 
-`navflow up` is the one command a local install needs: it picks a data home (~/.navflow), points the
+`tares up` is the one command a local install needs: it picks a data home (~/.tares), points the
 daemon's DuckDB + catalog there, and starts the server (API + console UI) on http://127.0.0.1:8787.
 """
 from __future__ import annotations
@@ -9,13 +9,13 @@ import argparse
 import os
 from pathlib import Path
 
-DEFAULT_HOME = Path(os.getenv("NAVFLOW_HOME", str(Path.home() / ".navflow")))
+DEFAULT_HOME = Path(os.getenv("TARES_HOME", str(Path.home() / ".tares")))
 
 
 def _pkg_version() -> str:
     from importlib.metadata import PackageNotFoundError, version
     try:
-        return version("navflow")
+        return version("tares")
     except PackageNotFoundError:
         return "0+source"   # running from a source checkout without an install
 
@@ -24,22 +24,24 @@ def _warn_if_exposed(host: str) -> None:
     """Loud warning when binding a non-loopback address with no auth token set — the common way to
     accidentally expose your data on the network."""
     loopback = {"127.0.0.1", "localhost", "::1", ""}
-    if host not in loopback and not os.getenv("NAVFLOW_AUTH_TOKEN", "").strip():
+    if host not in loopback and not os.getenv("TARES_AUTH_TOKEN", "").strip():
         print(
-            f"\n  ⚠  NavFlow is binding {host} (reachable off this machine) with NO auth token.\n"
-            "     Anyone who can reach this port can read your data. Set NAVFLOW_AUTH_TOKEN and put\n"
-            "     it behind TLS before exposing it — see https://www.navflow.ai/docs (Deployment).\n",
+            f"\n  ⚠  Tares is binding {host} (reachable off this machine) with NO auth token.\n"
+            "     Anyone who can reach this port can read your data. Set TARES_AUTH_TOKEN and put\n"
+            "     it behind TLS before exposing it — see https://www.tares-glassflow.com/docs (Deployment).\n",
             flush=True,
         )
 
 
 def run_daemon():
+    from .config import reject_legacy_env
+    reject_legacy_env()
     import uvicorn
 
     from .daemon import make_app
 
-    host = os.getenv("NAVFLOW_HOST", "127.0.0.1")
-    port = int(os.getenv("NAVFLOW_PORT", "8787"))
+    host = os.getenv("TARES_HOST", "127.0.0.1")
+    port = int(os.getenv("TARES_PORT", "8787"))
     _warn_if_exposed(host)
     uvicorn.run(make_app(), host=host, port=port)
 
@@ -56,14 +58,14 @@ _AUTH_GENERATE = "\x00generate"   # sentinel: bare `--auth` (no value) → gener
 def _resolve_root_token(home: Path, flag) -> str | None:
     """The console/API login credential when auth is ON — or None (auth OFF).
 
-    Three categories of credential in NavFlow: the ingest URL (a per-source address, not a secret),
+    Three categories of credential in Tares: the ingest URL (a per-source address, not a secret),
     scoped API keys (minted in the console for machines), and THIS — the root login a human uses to
     reach the console. It's bootstrapped at launch, never minted in the UI, and printed to whoever
     ran the command (terminal access == operator). Precedence: an explicit --auth=<token> or the
-    NAVFLOW_AUTH_TOKEN env var (hosted/scripted, stable), else a token persisted in the data dir
+    TARES_AUTH_TOKEN env var (hosted/scripted, stable), else a token persisted in the data dir
     (generated once on the first bare `--auth`, reused on every restart so you never get locked out
     or have to re-copy it). Auth is OFF unless --auth is passed or the env token is set."""
-    env = os.getenv("NAVFLOW_AUTH_TOKEN", "").strip()
+    env = os.getenv("TARES_AUTH_TOKEN", "").strip()
     if isinstance(flag, str) and flag != _AUTH_GENERATE:
         return flag.strip()                      # explicit --auth=<token>
     if flag is None and not env:
@@ -90,25 +92,27 @@ def _up(args: argparse.Namespace):
     home.mkdir(parents=True, exist_ok=True)
     # point the daemon at the data home unless the user already set these explicitly.
     # (the daemon reads these env vars at import time, so set them before run_daemon imports it.)
-    os.environ.setdefault("NAVFLOW_DB", str(home / "navflow.duckdb"))
-    os.environ.setdefault("NAVFLOW_CATALOG", str(home / "catalog.yaml"))  # seed only; absent is fine
-    os.environ["NAVFLOW_HOST"] = args.host
-    os.environ["NAVFLOW_PORT"] = str(args.port)
+    # navflow.duckdb, not tares.duckdb — see the note in daemon.py. Renaming the file orphans the
+    # data of every install that already has one.
+    os.environ.setdefault("TARES_DB", str(home / "navflow.duckdb"))
+    os.environ.setdefault("TARES_CATALOG", str(home / "catalog.yaml"))  # seed only; absent is fine
+    os.environ["TARES_HOST"] = args.host
+    os.environ["TARES_PORT"] = str(args.port)
 
-    # Auth mode. Setting NAVFLOW_AUTH_TOKEN is what the daemon's guard keys off, so resolving the
+    # Auth mode. Setting TARES_AUTH_TOKEN is what the daemon's guard keys off, so resolving the
     # root token here and exporting it turns the whole existing enforcement on — nothing else to wire.
     root_token = _resolve_root_token(home, getattr(args, "auth", None))
     if root_token:
-        os.environ["NAVFLOW_AUTH_TOKEN"] = root_token
+        os.environ["TARES_AUTH_TOKEN"] = root_token
 
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     url = f"http://{shown}:{args.port}"
     if root_token:
         # print the login the operator uses — a click-through URL, since they're at the terminal.
-        print(f"navflow: console at {url}  ·  data in {home}", flush=True)
-        print(f"navflow: auth ON — log in at {url}/?token={root_token}", flush=True)
+        print(f"tares: console at {url}  ·  data in {home}", flush=True)
+        print(f"tares: auth ON — log in at {url}/?token={root_token}", flush=True)
     else:
-        print(f"navflow: console at {url}  ·  data in {home}  ·  auth OFF (open; "
+        print(f"tares: console at {url}  ·  data in {home}  ·  auth OFF (open; "
               f"run with --auth to require a login)", flush=True)
     if args.open:
         import threading
@@ -120,28 +124,30 @@ def _up(args: argparse.Namespace):
 
 def _mcp(args: argparse.Namespace):
     """Run the MCP server over a network transport (for remote agents). stdio is the default for
-    local use and is what the `navflow-mcp` entry point a client spawns uses."""
-    os.environ["NAVFLOW_MCP_TRANSPORT"] = args.transport
-    os.environ["NAVFLOW_MCP_HOST"] = args.host
-    os.environ["NAVFLOW_MCP_PORT"] = str(args.port)
-    if args.navflowd:
-        os.environ["NAVFLOWD_URL"] = args.navflowd
-    target = os.getenv("NAVFLOWD_URL", "http://127.0.0.1:8787")
+    local use and is what the `tares-mcp` entry point a client spawns uses."""
+    os.environ["TARES_MCP_TRANSPORT"] = args.transport
+    os.environ["TARES_MCP_HOST"] = args.host
+    os.environ["TARES_MCP_PORT"] = str(args.port)
+    if args.taresd:
+        os.environ["TARESD_URL"] = args.taresd
+    target = os.getenv("TARESD_URL", "http://127.0.0.1:8787")
     path = "/sse" if args.transport == "sse" else "/mcp"
-    print(f"navflow-mcp: {args.transport} on http://{args.host}:{args.port}{path}  ->  {target}",
+    print(f"tares-mcp: {args.transport} on http://{args.host}:{args.port}{path}  ->  {target}",
           flush=True)
     run_mcp()
 
 
 def main():
-    p = argparse.ArgumentParser(prog="navflow", description="NavFlow — a data plane for AI agents.")
-    p.add_argument("--version", action="version", version=f"navflow {_pkg_version()}")
+    from .config import reject_legacy_env
+    reject_legacy_env()
+    p = argparse.ArgumentParser(prog="tares", description="Tares — a data plane for AI agents.")
+    p.add_argument("--version", action="version", version=f"tares {_pkg_version()}")
     sub = p.add_subparsers(dest="cmd")
 
-    up = sub.add_parser("up", help="start the NavFlow daemon (API + console UI)")
-    up.add_argument("--host", default=os.getenv("NAVFLOW_HOST", "127.0.0.1"),
+    up = sub.add_parser("up", help="start the Tares daemon (API + console UI)")
+    up.add_argument("--host", default=os.getenv("TARES_HOST", "127.0.0.1"),
                     help="bind address (default 127.0.0.1; use 0.0.0.0 to expose on the network)")
-    up.add_argument("--port", type=int, default=int(os.getenv("NAVFLOW_PORT", "8787")))
+    up.add_argument("--port", type=int, default=int(os.getenv("TARES_PORT", "8787")))
     up.add_argument("--data-dir", default=str(DEFAULT_HOME),
                     help=f"where to keep the DuckDB + catalog (default {DEFAULT_HOME})")
     up.add_argument("--open", action="store_true", help="open the console in your browser")
@@ -153,10 +159,10 @@ def main():
 
     m = sub.add_parser("mcp", help="run the MCP server for remote agents (HTTP transport)")
     m.add_argument("--transport", default="streamable-http", choices=["stdio", "sse", "streamable-http"])
-    m.add_argument("--host", default=os.getenv("NAVFLOW_MCP_HOST", "127.0.0.1"))
-    m.add_argument("--port", type=int, default=int(os.getenv("NAVFLOW_MCP_PORT", "8788")))
-    m.add_argument("--navflowd", default=os.getenv("NAVFLOWD_URL", ""),
-                   help="navflowd base URL to proxy to (default http://127.0.0.1:8787)")
+    m.add_argument("--host", default=os.getenv("TARES_MCP_HOST", "127.0.0.1"))
+    m.add_argument("--port", type=int, default=int(os.getenv("TARES_MCP_PORT", "8788")))
+    m.add_argument("--taresd", default=os.getenv("TARESD_URL", ""),
+                   help="taresd base URL to proxy to (default http://127.0.0.1:8787)")
     m.set_defaults(func=_mcp)
 
     args = p.parse_args()

@@ -14,7 +14,7 @@ The three contracts this endpoint lives or dies by are each asserted directly:
 · **Never silence.** No Anthropic key, or hitting the daily cap, comes back as words a user can
   act on.
 
-The HMAC here is computed independently of `navflow.slack_verify` (its own vectors live in
+The HMAC here is computed independently of `tares.slack_verify` (its own vectors live in
 tests/test_slack_verify.py) — the server and the test must agree on the wire format, not on an
 implementation.
 """
@@ -144,7 +144,7 @@ async def _until(fn, tries=60):
 
 
 def _spawn(env):
-    return subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+    return subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -162,10 +162,10 @@ async def main():
     stub = ThreadingHTTPServer(("127.0.0.1", int(STUB_PORT)), Stub)
     threading.Thread(target=stub.serve_forever, daemon=True).start()
 
-    base_env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": SEED, "NAVFLOW_PORT": PORT,
-                "NAVFLOW_OTLP_GRPC_PORT": "off",
+    base_env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": SEED, "TARES_PORT": PORT,
+                "TARES_OTLP_GRPC_PORT": "off",
                 "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{STUB_PORT}"}
-    for k in ("NAVFLOW_SLACK_SIGNING_SECRET", "NAVFLOW_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+    for k in ("TARES_SLACK_SIGNING_SECRET", "TARES_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
         base_env.pop(k, None)
 
     # ── phase 1: no signing secret configured — 503, never 200 ──────────────
@@ -212,8 +212,8 @@ async def main():
     REPLIES.clear(); MODEL_CALLS.clear()
 
     # ── phase 2: signed, keyed, capped ──────────────────────────────────────
-    env2 = {**base_env, "NAVFLOW_SLACK_SIGNING_SECRET": SECRET, "ANTHROPIC_API_KEY": "sk-test",
-            "NAVFLOW_SLACK_DAILY_CAP": "2"}
+    env2 = {**base_env, "TARES_SLACK_SIGNING_SECRET": SECRET, "ANTHROPIC_API_KEY": "sk-test",
+            "TARES_SLACK_DAILY_CAP": "2"}
     proc = _spawn(env2)
     try:
         if not await _wait(f"{B}/health"):
@@ -221,7 +221,7 @@ async def main():
         async with httpx.AsyncClient(timeout=30) as cx:
             st = (await cx.get(f"{B}/api/settings/slack-signing-secret")).json()
             ck("the environment beats the stored secret",
-               st["source"] == "env:NAVFLOW_SLACK_SIGNING_SECRET" and st["env_overrides"] is True,
+               st["source"] == "env:TARES_SLACK_SIGNING_SECRET" and st["env_overrides"] is True,
                str(st))
 
             # ── the handshake, without which the app can never be configured ──
@@ -303,7 +303,7 @@ async def main():
             ck("...in the thread it was asked in", rep.get("thread_ts") == "1700000000.000100",
                str(rep)[:200])
 
-            # ── the cost cap (NAVFLOW_SLACK_DAILY_CAP=2 for this daemon) ─────
+            # ── the cost cap (TARES_SLACK_DAILY_CAP=2 for this daemon) ─────
             REPLIES.clear()
             before = len(MODEL_CALLS)
             r = await slash(cx, "ask a third question")
@@ -320,7 +320,7 @@ async def main():
     REPLIES.clear(); MODEL_CALLS.clear()
 
     # ── phase 3: auth on, no model key — reachable, and it says why it can't answer ──
-    env3 = {**base_env, "NAVFLOW_SLACK_SIGNING_SECRET": SECRET, "NAVFLOW_AUTH_TOKEN": AUTH}
+    env3 = {**base_env, "TARES_SLACK_SIGNING_SECRET": SECRET, "TARES_AUTH_TOKEN": AUTH}
     proc = _spawn(env3)
     try:
         if not await _wait(f"{B}/health"):

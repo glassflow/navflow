@@ -59,7 +59,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // login_url is present only on a cloud-managed cell (daemon NAVFLOW_LOGIN_URL) — it tells the
+  // login_url is present only on a cloud-managed cell (daemon TARES_LOGIN_URL) — it tells the
   // logged-out console where to send the browser to authenticate.
   // status: "ok" | "degraded" (running, storage nearly full) | "down" (no usable database — the
   // daemon is serving the console and 503s so the failure is visible). `detail` says why when it
@@ -200,7 +200,7 @@ export const api = {
   mcpTools: () => request<{ name: string; description: string }[]>("/api/mcp/tools"),
 
   // What this instance is using on disk. `max_bytes`/`pct_used` are null unless the operator set
-  // NAVFLOW_MAX_DB_SIZE — see the Usage type before rendering any of it.
+  // TARES_MAX_DB_SIZE — see the Usage type before rendering any of it.
   usage: () => request<Usage>("/api/usage"),
 
   catalog: () => request<CatalogList>("/catalog"),

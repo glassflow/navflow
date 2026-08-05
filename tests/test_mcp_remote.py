@@ -30,15 +30,15 @@ async def main():
     for p in (DB, DB + ".wal"):
         if os.path.exists(p):
             os.remove(p)
-    base = {**os.environ, "NAVFLOW_OTLP_GRPC_PORT": "off"}
+    base = {**os.environ, "TARES_OTLP_GRPC_PORT": "off"}
     daemon = subprocess.Popen(
-        [sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
-        env={**base, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": "/tmp/none_mr.yaml", "NAVFLOW_PORT": DPORT},
+        [sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
+        env={**base, "TARES_DB": DB, "TARES_CATALOG": "/tmp/none_mr.yaml", "TARES_PORT": DPORT},
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     mcpsrv = subprocess.Popen(
-        [sys.executable, "-c", "from navflow.cli import run_mcp; run_mcp()"],
-        env={**base, "NAVFLOW_MCP_TRANSPORT": "streamable-http", "NAVFLOW_MCP_HOST": "127.0.0.1",
-             "NAVFLOW_MCP_PORT": MPORT, "NAVFLOWD_URL": f"http://127.0.0.1:{DPORT}"},
+        [sys.executable, "-c", "from tares.cli import run_mcp; run_mcp()"],
+        env={**base, "TARES_MCP_TRANSPORT": "streamable-http", "TARES_MCP_HOST": "127.0.0.1",
+             "TARES_MCP_PORT": MPORT, "NAVFLOWD_URL": f"http://127.0.0.1:{DPORT}"},
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if not await _wait(f"http://127.0.0.1:{DPORT}/health"):

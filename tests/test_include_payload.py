@@ -32,9 +32,9 @@ async def main():
     for p in (DB, DB + ".wal"):
         if os.path.exists(p):
             os.remove(p)
-    env = {**os.environ, "NAVFLOW_DB": DB, "NAVFLOW_CATALOG": "/tmp/none_ip.yaml",
-           "NAVFLOW_PORT": PORT, "NAVFLOW_OTLP_GRPC_PORT": "off"}
-    proc = subprocess.Popen([sys.executable, "-c", "from navflow.cli import run_daemon; run_daemon()"],
+    env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": "/tmp/none_ip.yaml",
+           "TARES_PORT": PORT, "TARES_OTLP_GRPC_PORT": "off"}
+    proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     B = f"http://127.0.0.1:{PORT}"
     line = json.dumps({"sessionId": "sess-raw", "type": "assistant", "cwd": "/tmp/proj",

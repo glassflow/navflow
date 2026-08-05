@@ -5,8 +5,8 @@ Run with the platform stack up: postgresql://demo:demo@127.0.0.1:5432/demo
 """
 import asyncio, os, sys
 
-from navflow.config import SourceCfg, CatalogError
-from navflow.connectors.postgres import PostgresConnector, _pick_cursor, _pick_key
+from tares.config import SourceCfg, CatalogError
+from tares.connectors.postgres import PostgresConnector, _pick_cursor, _pick_key
 
 DSN = os.getenv("PG_TEST_DSN", "postgresql://demo:demo@127.0.0.1:5432/demo")
 
