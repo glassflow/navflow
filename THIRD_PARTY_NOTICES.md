@@ -1,6 +1,6 @@
 # Third-party notices
 
-NavFlow is MIT-licensed (see LICENSE). The console bundles the following font
+Tares is MIT-licensed (see LICENSE). The console bundles the following font
 software, each licensed under the SIL Open Font License 1.1 — OFL fonts may be
 bundled and redistributed with software under any license; the font files
 themselves remain under the OFL:

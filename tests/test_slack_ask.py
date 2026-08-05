@@ -1,4 +1,4 @@
-"""The inbound half of Slack: `POST /api/slack/events` and the `/navflow ask …` slash command.
+"""The inbound half of Slack: `POST /api/slack/events` and the `/tares ask …` slash command.
 
 End to end against a real daemon, a stub Anthropic endpoint (streaming, because the Ask path
 streams) and a stub `response_url` standing in for Slack's reply hook.
@@ -108,7 +108,7 @@ def signed_headers(body: bytes, ctype: str, ts: str | None = None, secret: str =
 def command_body(text: str, user: str = "U1", thread_ts: str | None = None,
                  response_url: str = RESPONSE_URL) -> bytes:
     form = {"token": "deprecated", "team_id": "T1", "user_id": user, "channel_id": "C1",
-            "command": "/navflow", "text": text, "response_url": response_url}
+            "command": "/tares", "text": text, "response_url": response_url}
     if thread_ts:
         form["thread_ts"] = thread_ts
     return urlencode(form).encode()
@@ -264,7 +264,7 @@ async def main():
                r.json().get("response_type") == "ephemeral", r.text[:200])
             ck("an empty command never calls the model", not MODEL_CALLS, str(MODEL_CALLS)[:200])
             r = await slash(cx, "ask")
-            ck("`/navflow ask` with no question -> usage", "ask what?" in r.text, r.text[:200])
+            ck("`/tares ask` with no question -> usage", "ask what?" in r.text, r.text[:200])
 
             # ── the happy path: ACK inside Slack's 3s, answer via response_url ──
             t0 = time.monotonic()

@@ -28,7 +28,7 @@ def ck(l, c, d=""):
 SECRET = "8f742231b10e8888abcd99yyyzzz85a5"   # gitleaks:allow
 OTHER = "8f742231b10e8888abcd99yyyzzz85a6"   # gitleaks:allow
 BODY = (b"token=xyzz0WbapA4vBCDEFasx0q6G&team_id=T1DC2JH3J&user_id=U2147483697"
-        b"&command=%2Fnavflow&text=ask+what+happened+to+checkout-svc"
+        b"&command=%2Ftares&text=ask+what+happened+to+checkout-svc"
         b"&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2F1234%2F5678")
 
 

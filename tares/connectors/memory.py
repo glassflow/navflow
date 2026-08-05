@@ -1,5 +1,5 @@
 """Agent memory connector — push ingestion of the agent's own observations, closing the loop:
-what the agent writes back becomes a NavFlow source like any other, joinable into the same
+what the agent writes back becomes a Tares source like any other, joinable into the same
 correlated reads (design doc journey step 7).
 
 Payloads arrive via POST /remember (or POST /ingest/{source}) shaped:

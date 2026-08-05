@@ -17,7 +17,7 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-NAVFLOWD = os.getenv("TARESD_URL", "http://127.0.0.1:8787")
+TARESD = os.getenv("TARESD_URL", "http://127.0.0.1:8787")
 # Bearer credentials. Over HTTP transports each caller presents its own token (the root auth token
 # or a scoped API key) and we forward it per-request — the daemon enforces scopes per route. Over
 # stdio (a local agent spawned the proxy) there is no inbound token; the env token is used.
@@ -61,7 +61,7 @@ async def query(view: str, key: str = "", window: str = "15m",
     if key:
         body["key"] = key
     async with _cx(30) as cx:
-        r = await cx.post(f"{NAVFLOWD}/query", json=body)
+        r = await cx.post(f"{TARESD}/query", json=body)
     data = r.json()
     if include_payload:
         return json.dumps({"timeline": data["payload"], "events": data["rows"]}, default=str)
@@ -79,7 +79,7 @@ async def read(selector: dict, window: str = "15m", include_payload: bool = Fals
     `include_payload` when the one-line summaries aren't enough and you need each event's full
     lossless record — the return becomes JSON {timeline, events[]} where each event carries `raw`."""
     async with _cx(30) as cx:
-        r = await cx.post(f"{NAVFLOWD}/read",
+        r = await cx.post(f"{TARESD}/read",
                           json={"selector": selector, "window": window, "client": "mcp",
                                 "include_payload": include_payload})
     data = r.json()
@@ -101,7 +101,7 @@ async def create_trigger(name: str, view: str, condition: dict,
     body = {"name": name, "view": view, "condition": condition,
             "emit": emit or {}, "cooldown": cooldown}
     async with _cx(10) as cx:
-        r = await cx.post(f"{NAVFLOWD}/api/triggers", json=body)
+        r = await cx.post(f"{TARESD}/api/triggers", json=body)
     return r.text
 
 
@@ -114,7 +114,7 @@ async def update_trigger(name: str, view: str, condition: dict,
     body = {"name": name, "view": view, "condition": condition,
             "emit": emit or {}, "cooldown": cooldown}
     async with _cx(10) as cx:
-        r = await cx.put(f"{NAVFLOWD}/api/triggers/{name}", json=body)
+        r = await cx.put(f"{TARESD}/api/triggers/{name}", json=body)
     return r.text
 
 
@@ -122,7 +122,7 @@ async def update_trigger(name: str, view: str, condition: dict,
 async def subscribe(trigger: str, url: str) -> str:
     """Register a webhook to be woken (pushed) when a trigger fires. Returns a subscription id."""
     async with _cx(10) as cx:
-        r = await cx.post(f"{NAVFLOWD}/subscribe", json={"trigger": trigger, "url": url})
+        r = await cx.post(f"{TARESD}/subscribe", json={"trigger": trigger, "url": url})
     return r.json()["subscription_id"]
 
 
@@ -130,7 +130,7 @@ async def subscribe(trigger: str, url: str) -> str:
 async def catalog_list() -> str:
     """List available sources, views, and triggers."""
     async with _cx(10) as cx:
-        r = await cx.get(f"{NAVFLOWD}/catalog")
+        r = await cx.get(f"{TARESD}/catalog")
     return r.text
 
 
@@ -141,7 +141,7 @@ async def catalog_describe(handle: str) -> str:
     view:service_timeline, trigger:error_spike. Use this to discover field names before
     writing a derive() or querying an unfamiliar view."""
     async with _cx(10) as cx:
-        r = await cx.get(f"{NAVFLOWD}/catalog/{handle}")
+        r = await cx.get(f"{TARESD}/catalog/{handle}")
     return r.text
 
 
@@ -157,7 +157,7 @@ async def derive(sources: list[str], key_field: str, name: str = "",
     if name:
         body["name"] = name
     async with _cx(10) as cx:
-        r = await cx.post(f"{NAVFLOWD}/derive", json=body)
+        r = await cx.post(f"{TARESD}/derive", json=body)
     return r.text
 
 
@@ -170,7 +170,7 @@ async def update_view(name: str, sources: list[str], key_field: str = "",
     lte). Use catalog_describe first to learn the available fields."""
     body = {"name": name, "key_field": key_field, "sources": sources, "filters": filters or []}
     async with _cx(10) as cx:
-        r = await cx.put(f"{NAVFLOWD}/api/views/{name}", json=body)
+        r = await cx.put(f"{TARESD}/api/views/{name}", json=body)
     return r.text
 
 
@@ -180,7 +180,7 @@ async def remember(key: str, content: str, memory_type: str = "observation") -> 
     other: joined into correlated reads, so what you learned this incident appears in the
     timeline next time the same key acts up. memory_type: observation | aggregation | decision."""
     async with _cx(10) as cx:
-        r = await cx.post(f"{NAVFLOWD}/remember",
+        r = await cx.post(f"{TARESD}/remember",
                           json={"key": key, "content": content, "memory_type": memory_type})
     return r.text
 
@@ -193,7 +193,7 @@ async def list_connectors() -> str:
     (poll | push), and whether it supports discovery. Read this first to learn what you can ingest
     and how to configure it."""
     async with _cx(10) as cx:
-        r = await cx.get(f"{NAVFLOWD}/api/connectors")
+        r = await cx.get(f"{TARESD}/api/connectors")
     return r.text
 
 
@@ -204,7 +204,7 @@ async def discover_source(connector: str, config: dict) -> str:
     {"repo": "owner/name"}. The returned `proposed_config` can be passed straight to create_source.
     (Use list_connectors to see which connectors support discovery.)"""
     async with _cx(20) as cx:
-        r = await cx.post(f"{NAVFLOWD}/api/sources/discover",
+        r = await cx.post(f"{TARESD}/api/sources/discover",
                           json={"connector": connector, "config": config})
     return r.text
 
@@ -214,7 +214,7 @@ async def discover_docker() -> str:
     """Scan the local Docker environment and get a list of proposed sources (one per container's
     logs, plus a detected Prometheus). Each item's `config` is ready to pass to create_source."""
     async with _cx(20) as cx:
-        r = await cx.get(f"{NAVFLOWD}/api/discover/environment", params={"provider": "docker"})
+        r = await cx.get(f"{TARESD}/api/discover/environment", params={"provider": "docker"})
     return r.text
 
 
@@ -224,7 +224,7 @@ async def test_source(name: str, connector: str, config: dict, poll: str = "5s")
     sample; push connectors return their ingest endpoint. Use before create_source to check the
     config works."""
     async with _cx(20) as cx:
-        r = await cx.post(f"{NAVFLOWD}/api/sources/test",
+        r = await cx.post(f"{TARESD}/api/sources/test",
                           json={"name": name, "connector": connector, "poll": poll, "config": config})
     return r.text
 
@@ -236,7 +236,7 @@ async def create_source(name: str, connector: str, config: dict, poll: str = "5s
     Returns {ok, name} or an error detail. After creating, use list_sources to watch it ingest and
     catalog_describe("source:<name>") to see its labels."""
     async with _cx(15) as cx:
-        r = await cx.post(f"{NAVFLOWD}/api/sources",
+        r = await cx.post(f"{TARESD}/api/sources",
                           json={"name": name, "connector": connector, "poll": poll, "config": config})
     return r.text
 
@@ -246,7 +246,7 @@ async def list_sources() -> str:
     """List every configured source with its live health (status, events ingested, last error).
     Use it to confirm a source you created is actually ingesting."""
     async with _cx(10) as cx:
-        r = await cx.get(f"{NAVFLOWD}/api/sources")
+        r = await cx.get(f"{TARESD}/api/sources")
     return r.text
 
 
@@ -257,7 +257,7 @@ async def source_fields(name: str, limit: int = 500) -> str:
     choosing labels for a source — a label's `field` MUST be one of these exact field names (never
     invent one). The `labels` block echoes the source's current declared axes."""
     async with _cx(15) as cx:
-        r = await cx.get(f"{NAVFLOWD}/api/sources/{name}/fields", params={"limit": limit})
+        r = await cx.get(f"{TARESD}/api/sources/{name}/fields", params={"limit": limit})
     return r.text
 
 

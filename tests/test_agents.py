@@ -1,4 +1,4 @@
-"""NavFlow agents — a prompt attached to a trigger writes a finding back onto the entity's timeline.
+"""Tares agents — a prompt attached to a trigger writes a finding back onto the entity's timeline.
 
 End-to-end against a stub Anthropic endpoint (TARES_ANTHROPIC_BASE): create source/view/trigger/
 agent, enable it (= subscribe to the trigger), ingest until the trigger fires, and assert the agent
@@ -157,7 +157,7 @@ async def main():
             disp = (await cx.get(f"{B}/api/activity/dispatches")).json()[0]
             detail = (await cx.get(f"{B}/api/activity/dispatches/{disp['dispatch_id']}")).json()
             names = [dv["agent"] for dv in detail.get("deliveries", [])]
-            ck("firing detail lists the NavFlow agent as a delivery", "first-look" in names, str(names))
+            ck("firing detail lists the Tares agent as a delivery", "first-look" in names, str(names))
 
             # ── the roster counts are windowed, with the all-time total kept ──
             me = next(a for a in (await cx.get(f"{B}/api/agents")).json()["agents"]

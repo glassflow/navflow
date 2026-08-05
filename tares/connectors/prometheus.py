@@ -3,7 +3,7 @@
 Stores every non-null sample (lossless); the view and triggers decide what's interesting.
 
 `discover()` is deterministic (no LLM) and drives a pick-don't-write flow: the user chooses *which
-metrics* to ingest (by name pattern or by label) and *which labels* become NavFlow labels — never
+metrics* to ingest (by name pattern or by label) and *which labels* become Tares labels — never
 writing PromQL. discover has three modes, keyed off its input:
   - catalog (default): the metric-name list + the label-name list, for the pickers.
   - for_label="<label>": the metric names that carry that label (the by-label picker).
@@ -28,7 +28,7 @@ _BAD = ("NaN", "+Inf", "-Inf")
 _INTERNAL = re.compile(r"^(go_|process_|prometheus_|scrape_|net_|promhttp_|python_)")
 # Labels that make a good entity key, best first. The first present with >1 value wins.
 _KEY_PRIORITY = ["service", "tenant", "tenant_id", "namespace", "pod", "app", "instance", "job"]
-# Structural labels we don't propose as NavFlow labels, and never as a key.
+# Structural labels we don't propose as Tares labels, and never as a key.
 _LABEL_SKIP = {"le", "instance", "job", "__name__"}
 
 # Finalize samples at most this many of the picked metrics (concurrently) to learn their label set —

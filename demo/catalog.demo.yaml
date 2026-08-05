@@ -1,14 +1,14 @@
-# NavFlow catalog for the demo stack (demo/docker-compose.yml).
+# Tares catalog for the demo stack (demo/docker-compose.yml).
 # Prometheus on :9090 (metrics + alerting rules), logs via docker. Everything is keyed `api-server`,
 # so logs, metrics, and the alerts Prometheus fires correlate in one timeline.
 #
-# The division of labour is the real one: Prometheus evaluates the alerting rules and fires; NavFlow
+# The division of labour is the real one: Prometheus evaluates the alerting rules and fires; Tares
 # ingests those alerts, correlates them with the metrics and logs, and a trigger wakes a subscribed
-# agent with the whole timeline — NavFlow diagnoses, it doesn't re-implement alerting.
+# agent with the whole timeline — Tares diagnoses, it doesn't re-implement alerting.
 #
 # Works from any directory (the logs source tails the container by its fixed name):
 #   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
-#   NAVFLOW_CATALOG=catalog.demo.yaml navflow up
+#   TARES_CATALOG=catalog.demo.yaml tares up
 
 sources:
   # Prometheus metrics — context in the timeline (the signals behind the alert). Values ride on the
@@ -40,7 +40,7 @@ sources:
     connector: docker_logs
     poll: 5s
     config:
-      container: navflow-demo-api-server   # fixed container_name in docker-compose.yml
+      container: tares-demo-api-server   # fixed container_name in docker-compose.yml
       labels:
         - { name: service, const: api-server, primary: true }   # same key as metrics/alerts, and a real label
 
@@ -81,10 +81,10 @@ triggers:
     cooldown: 5m
 
 agents:
-  # A NavFlow agent shipped with the demo — the loop closes with nothing to deploy. When the
+  # A Tares agent shipped with the demo — the loop closes with nothing to deploy. When the
   # `incident` trigger fires it reads the correlated timeline (the fired alert plus the signals
   # behind it and the request logs) and writes a finding onto api-server's timeline. It's a real
-  # agent, so it needs an Anthropic key: export ANTHROPIC_API_KEY before `navflow up` (or set one in
+  # agent, so it needs an Anthropic key: export ANTHROPIC_API_KEY before `tares up` (or set one in
   # the console -> Security). Without a key the run is logged as "no key" and no finding is written.
   # Enabled here (= subscribed to the trigger); disable it on the trigger's page any time.
   - name: incident-first-look

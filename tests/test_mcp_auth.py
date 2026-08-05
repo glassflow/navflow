@@ -1,5 +1,5 @@
 """Remote MCP + TARES_AUTH_TOKEN — the MCP endpoint requires the bearer token from the agent, and
-forwards it to navflowd (whose API also requires it). Without the token, the connection is refused.
+forwards it to taresd (whose API also requires it). Without the token, the connection is refused.
 """
 import asyncio, os, signal, subprocess, sys
 import httpx
@@ -36,7 +36,7 @@ async def main():
     mcpsrv = subprocess.Popen(
         [sys.executable, "-c", "from tares.cli import run_mcp; run_mcp()"],
         env={**base, "TARES_MCP_TRANSPORT": "streamable-http", "TARES_MCP_HOST": "127.0.0.1",
-             "TARES_MCP_PORT": MPORT, "NAVFLOWD_URL": f"http://127.0.0.1:{DPORT}"},
+             "TARES_MCP_PORT": MPORT, "TARESD_URL": f"http://127.0.0.1:{DPORT}"},
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -56,7 +56,7 @@ async def main():
         except Exception:
             ck("MCP without token refused", True)
 
-        # with token -> works, and tools proxy to navflowd (which also requires the token)
+        # with token -> works, and tools proxy to taresd (which also requires the token)
         hdr = {"Authorization": f"Bearer {TOKEN}"}
         async with streamablehttp_client(URL, headers=hdr) as (r, w, _):
             async with ClientSession(r, w) as s:
@@ -65,7 +65,7 @@ async def main():
                 names = {t.name for t in (await s.list_tools()).tools}
                 ck("tools listed with token", "query" in names and "list_connectors" in names, str(sorted(names)))
                 res = await s.call_tool("list_connectors", {})
-                ck("token forwarded to navflowd (call succeeds)", "postgres" in res.content[0].text, res.content[0].text[:80])
+                ck("token forwarded to taresd (call succeeds)", "postgres" in res.content[0].text, res.content[0].text[:80])
     finally:
         for proc in (mcpsrv, daemon):
             proc.send_signal(signal.SIGTERM)

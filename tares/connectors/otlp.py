@@ -1,5 +1,5 @@
 """OpenTelemetry (OTLP) connector — a push receiver. Producers (an OTel SDK or Collector) export
-OTLP/HTTP JSON to NavFlow's POST /v1/logs (traces/metrics later); nothing is polled.
+OTLP/HTTP JSON to Tares's POST /v1/logs (traces/metrics later); nothing is polled.
 
 OTLP nests three layers — resource → scope → record — with the entity-defining data (service.name,
 host.name, …) at the *resource* level and the actual log/span at the *record* level. We flatten to

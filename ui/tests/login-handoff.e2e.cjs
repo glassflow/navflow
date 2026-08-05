@@ -10,7 +10,7 @@
  * so the exchanged token actually works — the console stays authed instead of bouncing to login.
  *
  * Run:  npm run test:e2e   (builds the console first, then this)
- * Needs: the navflow daemon importable (repo .venv or system python with navflow installed).
+ * Needs: the tares daemon importable (repo .venv or system python with tares installed).
  */
 const http = require("http");
 const { spawn } = require("child_process");
@@ -92,7 +92,7 @@ function waitFor(url, tries = 100) {
 (async () => {
   const py = fs.existsSync(path.join(REPO, ".venv/bin/python3"))
     ? path.join(REPO, ".venv/bin/python3") : "python3";
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "navflow-e2e-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tares-e2e-"));
   const db = path.join(tmp, "handoff.duckdb");
   const seed = path.join(tmp, "seed.yaml");
   fs.writeFileSync(seed, "sources:\n  - name: evt\n    connector: webhook\n    poll: 5s\n    config: {}\n");

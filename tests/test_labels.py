@@ -10,7 +10,7 @@ import asyncio
 import os
 import sys
 
-os.environ["TARES_DB"] = "/tmp/navflow-labels-test.duckdb"
+os.environ["TARES_DB"] = "/tmp/tares-labels-test.duckdb"
 os.environ["TARES_CATALOG"] = "/tmp/does-not-exist.yaml"
 
 import duckdb

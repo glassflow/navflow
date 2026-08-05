@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""NavFlow plugin shipper — runs as a Claude Code hook and streams this session into NavFlow.
+"""Tares plugin shipper — runs as a Claude Code hook and streams this session into Tares.
 
 Every hook receives the session's `transcript_path` (the JSONL Claude Code writes) on stdin. We read
 the *new* lines since the last run (tracked by a byte offset in the plugin's persistent data dir) and
-POST them as NDJSON to NavFlow's claude_code source at {navflow_url}/ingest/claude_code. The daemon
+POST them as NDJSON to Tares's claude_code source at {tares_url}/ingest/claude_code. The daemon
 maps each line into the data plane (same mapping as the local file tail).
 
-The source is created automatically on NavFlow the first time the plugin runs (and re-created if it's
+The source is created automatically on Tares the first time the plugin runs (and re-created if it's
 missing), so installing the plugin is the only setup step — no need to provision a source by hand.
 
 Idempotent: the offset only advances after a successful POST. Best-effort: never raises into the
@@ -67,17 +67,17 @@ def main() -> None:
     if not _truthy(_opt("stream_sessions", "true")):
         return
 
-    base = (_opt("navflow_url") or "http://127.0.0.1:8787").rstrip("/")
+    base = (_opt("tares_url") or "http://127.0.0.1:8787").rstrip("/")
     token = (_opt("access_token") or "").strip()
     headers = {"Content-Type": "application/x-ndjson"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    data_dir = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.expanduser("~/.navflow-plugin")
+    data_dir = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.expanduser("~/.tares-plugin")
     os.makedirs(data_dir, exist_ok=True)
     marker = os.path.join(data_dir, "ensured-" + hashlib.sha1(base.encode()).hexdigest()[:12])
 
-    # ensure the source exists (once per NavFlow URL; cheap fast-path via a marker file)
+    # ensure the source exists (once per Tares URL; cheap fast-path via a marker file)
     if not os.path.exists(marker):
         if ensure_source(base, headers):
             open(marker, "w").write("1")

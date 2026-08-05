@@ -1,4 +1,4 @@
-"""Agent-driven source setup over MCP — exercises the MCP tools against a real navflowd:
+"""Agent-driven source setup over MCP — exercises the MCP tools against a real taresd:
 list_connectors -> create_source -> (data flows) -> list_sources -> derive -> query.
 """
 import asyncio, os, signal, subprocess, sys, time
@@ -14,8 +14,8 @@ env = {**os.environ, "TARES_DB": DB, "TARES_CATALOG": "/tmp/none.yaml",
 proc = subprocess.Popen([sys.executable, "-c", "from tares.cli import run_daemon; run_daemon()"],
                         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-# NAVFLOWD_URL must be set before importing the MCP server (it reads it at import time)
-os.environ["NAVFLOWD_URL"] = f"http://127.0.0.1:{PORT}"
+# TARESD_URL must be set before importing the MCP server (it reads it at import time)
+os.environ["TARESD_URL"] = f"http://127.0.0.1:{PORT}"
 import httpx
 import json as _json
 

@@ -90,11 +90,11 @@ SPECS = {
                                    "message, keyed by session, with project/branch/model labels and "
                                    "token-usage fields. Sub-agents roll up into the same source. "
                                    "Secrets are redacted before storage."},
-    # `internal`: provisioned by NavFlow itself (the first finding creates it), never offered in
+    # `internal`: provisioned by Tares itself (the first finding creates it), never offered in
     # "Add source". Still a first-class source everywhere else — it appears on timelines, in the
     # catalog and in exports like any other.
     "finding": {"label": "Agent findings", "mode": "push", "internal": True,
-                "description": "What NavFlow agents conclude when a trigger fires — one finding per "
+                "description": "What Tares agents conclude when a trigger fires — one finding per "
                                "run, keyed to the entity, on that entity's timeline."},
 }
 

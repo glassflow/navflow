@@ -9,7 +9,7 @@ import asyncio
 import os
 import sys
 
-os.environ["TARES_DB"] = "/tmp/navflow-normalize-test.duckdb"
+os.environ["TARES_DB"] = "/tmp/tares-normalize-test.duckdb"
 os.environ["TARES_CATALOG"] = "/tmp/does-not-exist.yaml"
 
 import httpx

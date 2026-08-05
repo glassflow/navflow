@@ -1,4 +1,4 @@
-"""Claude Code sessions connector — receives pushed session transcripts from the NavFlow Claude Code
+"""Claude Code sessions connector — receives pushed session transcripts from the Tares Claude Code
 plugin and maps them into the data plane.
 
 Claude Code writes one structured JSONL event per line (user / assistant / tool_use / tool_result /
@@ -9,7 +9,7 @@ numeric fields. Sub-agent (sidechain) transcripts land in the SAME source, tagge
 Secrets are redacted before storage (thin PII guard).
 
 Push-only: install the plugin (claude-plugin/) to feed it. Local file tailing was removed in favor of
-the plugin, which covers both local and remote NavFlow with one path.
+the plugin, which covers both local and remote Tares with one path.
 """
 from __future__ import annotations
 

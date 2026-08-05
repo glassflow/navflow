@@ -1,6 +1,6 @@
 """Docker logs connector — tails a container's logs via `docker [compose] logs --since`.
 
-Ingests **all** lines by default (lossless — NavFlow stores the truth; reads/triggers decide
+Ingests **all** lines by default (lossless — Tares stores the truth; reads/triggers decide
 what's interesting). Optional filters narrow it:
   match: regex — keep only lines matching it (e.g. "ERROR|WARN")
   drop:  regex — skip lines matching it (e.g. 'HTTP/1.1"' to drop access logs)

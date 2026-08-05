@@ -1,5 +1,5 @@
-# NavFlow demo stack — the *upstream* services NavFlow ingests from (the thing being monitored).
-# NavFlow itself is NOT in here: install it separately (see demo/README.md), then point it at
+# Tares demo stack — the *upstream* services Tares ingests from (the thing being monitored).
+# Tares itself is NOT in here: install it separately (see demo/README.md), then point it at
 # this stack via catalog.demo.yaml.
 #
 # Self-contained — runs anywhere, no repo checkout needed (Docker Compose v2.23.1+ for the
@@ -10,19 +10,19 @@
 #
 # Hacking on the api-server from a checkout? Build it from source instead of pulling:
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
-name: navflow-demo
+name: tares-demo
 
 services:
   # The monitored app: Prometheus metrics on /metrics, request logs, and /demo/inject to
-  # cause an incident. The fixed container_name is what NavFlow's docker_logs source tails
+  # cause an incident. The fixed container_name is what Tares's docker_logs source tails
   # (catalog.demo.yaml), from any directory.
   api-server:
-    image: ghcr.io/glassflow/navflow-demo-api-server:latest
-    container_name: navflow-demo-api-server
+    image: ghcr.io/glassflow/tares-demo-api-server:latest
+    container_name: tares-demo-api-server
     ports:
       - "8080:8080"
 
-  # Scrapes api-server:8080/metrics every 5s. NavFlow reads PromQL from here on :9090.
+  # Scrapes api-server:8080/metrics every 5s. Tares reads PromQL from here on :9090.
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -75,7 +75,7 @@ configs:
             - targets: ["api-server:8080"]
 
   # Alerting rules — Prometheus evaluates these itself and exposes firing alerts on /api/v1/alerts,
-  # which NavFlow's `prometheus_alerts` source polls. No Alertmanager needed. Short `for:` so an
+  # which Tares's `prometheus_alerts` source polls. No Alertmanager needed. Short `for:` so an
   # injected fault fires within ~15s. Each maps 1:1 to a `./inject.sh` scenario.
   prometheus_rules:
     content: |

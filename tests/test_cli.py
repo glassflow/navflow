@@ -1,4 +1,4 @@
-"""navflow CLI — `navflow up` wires a data home and starts the daemon (without actually serving)."""
+"""tares CLI — `tares up` wires a data home and starts the daemon (without actually serving)."""
 import os, sys, types
 from pathlib import Path
 
@@ -40,7 +40,7 @@ def test_ui_dist_dev_fallback():
 
 def test_parser_builds():
     # no subcommand -> prints help, no crash
-    sys.argv = ["navflow"]
+    sys.argv = ["tares"]
     cli.main()
     ck("main() with no args is a no-op (prints help)", True)
 

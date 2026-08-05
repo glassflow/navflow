@@ -15,9 +15,9 @@ labels: bug
 2.
 
 **Environment**
-- NavFlow version:
+- Tares version:
 - Install method: pip / docker / source
 - OS:
 
 **Logs / output**
-<!-- navflowd output, browser console errors, relevant payloads -->
+<!-- taresd output, browser console errors, relevant payloads -->

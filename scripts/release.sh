@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cut a release: bump the package version, commit + tag. The compose files track :latest, so there
 # is no pinned tag to bump here. Pushing the tag triggers CI (.github/workflows/docker-publish.yml)
-# to build and publish ghcr.io/glassflow/navflow:<version> (+ :<major>.<minor> and :latest).
+# to build and publish ghcr.io/glassflow/tares:<version> (+ :<major>.<minor> and :latest).
 #
 #   scripts/release.sh 0.0.2
 #   git push && git push origin v0.0.2     # then publish (review first)

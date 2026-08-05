@@ -1,52 +1,52 @@
-# NavFlow self-hosted single-tenant (Scenario 3) — a writable instance for one team, behind a token.
+# Tares self-hosted single-tenant (Scenario 3) — a writable instance for one team, behind a token.
 # Pulls the latest released image (:latest) — CI publishes only on release tags, so :latest tracks
-# the newest release. Pin a specific one with NAVFLOW_VERSION=0.1.4 for reproducible deploys;
-# NAVFLOW_REGISTRY points at another registry. Build locally with the build override.
-#   NAVFLOW_AUTH_TOKEN=$(openssl rand -hex 24) NAVFLOW_DOMAIN=navflow.acme.com \
+# the newest release. Pin a specific one with TARES_VERSION=0.1.4 for reproducible deploys;
+# TARES_REGISTRY points at another registry. Build locally with the build override.
+#   TARES_AUTH_TOKEN=$(openssl rand -hex 24) TARES_DOMAIN=tares.acme.com \
 #     docker compose -f deploy/compose/docker-compose.selfhost.yml up -d
 #
-# The console + MCP + ingest all require NAVFLOW_AUTH_TOKEN (humans log in with it; agents send it as
+# The console + MCP + ingest all require TARES_AUTH_TOKEN (humans log in with it; agents send it as
 # a bearer token). Give producers their own scoped ingest API keys from the console (Security → API
-# keys) rather than the root token. DuckDB is single-writer, so this is exactly ONE navflowd + one
+# keys) rather than the root token. DuckDB is single-writer, so this is exactly ONE taresd + one
 # volume — do not scale to replicas.
-name: navflow
+name: tares
 
 services:
-  navflowd:
-    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
-    command: ["navflow", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
+  taresd:
+    image: ${TARES_REGISTRY:-ghcr.io/glassflow/tares}:${TARES_VERSION:-latest}
+    command: ["tares", "up", "--host", "0.0.0.0", "--data-dir", "/data"]
     environment:
-      NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN (e.g. openssl rand -hex 24)}"
+      TARES_AUTH_TOKEN: "${TARES_AUTH_TOKEN:?set TARES_AUTH_TOKEN (e.g. openssl rand -hex 24)}"
     volumes:
-      - navflow-data:/data                              # back this up: it holds navflow.duckdb
+      - tares-data:/data                              # back this up: it holds tares.duckdb
     expose: ["8787"]
     restart: unless-stopped
 
   mcp:
-    image: ${NAVFLOW_REGISTRY:-ghcr.io/glassflow/navflow}:${NAVFLOW_VERSION:-latest}
-    command: ["navflow", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0",
-              "--port", "8788", "--navflowd", "http://navflowd:8787"]
+    image: ${TARES_REGISTRY:-ghcr.io/glassflow/tares}:${TARES_VERSION:-latest}
+    command: ["tares", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0",
+              "--port", "8788", "--taresd", "http://taresd:8787"]
     environment:
-      NAVFLOW_AUTH_TOKEN: "${NAVFLOW_AUTH_TOKEN:?set NAVFLOW_AUTH_TOKEN}"
+      TARES_AUTH_TOKEN: "${TARES_AUTH_TOKEN:?set TARES_AUTH_TOKEN}"
     expose: ["8788"]
-    depends_on: [navflowd]
+    depends_on: [taresd]
     restart: unless-stopped
 
   caddy:
     image: caddy:2
     ports:
-      - "${NAVFLOW_HTTP_PORT:-80}:80"
-      - "${NAVFLOW_HTTPS_PORT:-443}:443"
+      - "${TARES_HTTP_PORT:-80}:80"
+      - "${TARES_HTTPS_PORT:-443}:443"
     environment:
-      NAVFLOW_DOMAIN: "${NAVFLOW_DOMAIN:-:80}"   # a real domain enables automatic HTTPS
+      TARES_DOMAIN: "${TARES_DOMAIN:-:80}"   # a real domain enables automatic HTTPS
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
-    depends_on: [navflowd, mcp]
+    depends_on: [taresd, mcp]
     restart: unless-stopped
 
 volumes:
-  navflow-data:
+  tares-data:
   caddy-data:
   caddy-config:

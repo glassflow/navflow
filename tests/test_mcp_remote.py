@@ -1,5 +1,5 @@
 """Remote MCP transport — a real MCP client connects over streamable-HTTP and calls tools that
-proxy to a live navflowd. Proves an agent can reach NavFlow without stdio (the demo/server path).
+proxy to a live taresd. Proves an agent can reach Tares without stdio (the demo/server path).
 """
 import asyncio, os, signal, subprocess, sys
 
@@ -38,7 +38,7 @@ async def main():
     mcpsrv = subprocess.Popen(
         [sys.executable, "-c", "from tares.cli import run_mcp; run_mcp()"],
         env={**base, "TARES_MCP_TRANSPORT": "streamable-http", "TARES_MCP_HOST": "127.0.0.1",
-             "TARES_MCP_PORT": MPORT, "NAVFLOWD_URL": f"http://127.0.0.1:{DPORT}"},
+             "TARES_MCP_PORT": MPORT, "TARESD_URL": f"http://127.0.0.1:{DPORT}"},
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if not await _wait(f"http://127.0.0.1:{DPORT}/health"):
@@ -61,7 +61,7 @@ async def main():
 
                 res = await session.call_tool("list_connectors", {})
                 text = res.content[0].text
-                ck("call_tool proxies to navflowd over remote transport", "postgres" in text and "webhook" in text, text[:80])
+                ck("call_tool proxies to taresd over remote transport", "postgres" in text and "webhook" in text, text[:80])
 
                 cat = await session.call_tool("catalog_list", {})
                 ck("catalog_list reachable remotely", cat.content[0].text.strip().startswith(("{", "[")), cat.content[0].text[:60])

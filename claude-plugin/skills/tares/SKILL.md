@@ -1,29 +1,29 @@
 ---
-name: navflow
-description: Use when you need cross-source context about this project's systems (recent deploys, logs, metrics, entities, correlated timelines), OR when organizing NavFlow itself — creating sources, labels, and views. NavFlow is the data plane; read it via the navflow MCP tools for one correlated timeline per entity, and author its catalog with the create/derive tools following the rules below.
+name: tares
+description: Use when you need cross-source context about this project's systems (recent deploys, logs, metrics, entities, correlated timelines), OR when organizing Tares itself — creating sources, labels, and views. Tares is the data plane; read it via the tares MCP tools for one correlated timeline per entity, and author its catalog with the create/derive tools following the rules below.
 ---
 
-# NavFlow
+# Tares
 
-NavFlow is a data plane for agents: it ingests many sources (logs, metrics, deploys, database rows,
+Tares is a data plane for agents: it ingests many sources (logs, metrics, deploys, database rows,
 agent sessions) and serves **one correlated, time-ordered timeline per entity** (a service, customer,
-session, …). The **navflow** MCP server is connected (this plugin registers it).
+session, …). The **tares** MCP server is connected (this plugin registers it).
 
 ## Reading
 
 When a question needs real context about running systems — "what changed before this error", "is
-this service healthy", "what has this customer done recently" — read NavFlow instead of guessing:
+this service healthy", "what has this customer done recently" — read Tares instead of guessing:
 
 - Start by discovering what's there: `list_sources`, `catalog_list`, `entities`.
 - Read a timeline with `query` (a view + an entity key) or `read` (a `{label: value}` selector).
 - Treat the timeline as ground truth for *what happened and when*; cite specific events.
 
-This plugin also streams the current Claude Code session into NavFlow (the `claude_code` source) when
+This plugin also streams the current Claude Code session into Tares (the `claude_code` source) when
 session streaming is enabled, so prior sessions are queryable as a source.
 
 ## Authoring: sources, labels, and views
 
-NavFlow's data model has three layers — get them right and correlation just works; guess and it
+Tares's data model has three layers — get them right and correlation just works; guess and it
 silently doesn't:
 
 - **Fields** — the *candidate menu*. A source's raw payload is stored losslessly; `source_fields`

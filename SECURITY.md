@@ -10,7 +10,7 @@ We support the latest released version.
 
 ## Deploying safely
 
-NavFlow is self-hosted. By default the daemon binds `127.0.0.1` (local only) with
+Tares is self-hosted. By default the daemon binds `127.0.0.1` (local only) with
 **no authentication**. If you expose it on a network:
 
 - Run with `navflow up --auth` (or set `NAVFLOW_AUTH_TOKEN`) so the API, console, and ingest all

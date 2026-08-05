@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cause a demo incident (or clear it), then watch NavFlow correlate it in the console.
+# Cause a demo incident (or clear it), then watch Tares correlate it in the console.
 #   ./inject.sh error_spike         # 5xx storm
 #   ./inject.sh latency             # p99 blows past the timeout
 #   ./inject.sh dependency_outage   # the DB dependency goes down

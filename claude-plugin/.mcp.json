@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "navflow": {
-      "command": "navflow-mcp",
+    "tares": {
+      "command": "tares-mcp",
       "env": {
-        "NAVFLOWD_URL": "${user_config.navflow_url}",
-        "NAVFLOW_AUTH_TOKEN": "${user_config.access_token}"
+        "TARESD_URL": "${user_config.tares_url}",
+        "TARES_AUTH_TOKEN": "${user_config.access_token}"
       }
     }
   }

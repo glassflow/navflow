@@ -36,7 +36,7 @@ DB, PORT, STUB_PORT = "/tmp/slack.duckdb", "8810", "8811"
 CHANNEL = "C0123456789"
 TOKEN = "xoxb-stored-test-token"
 ENV_TOKEN = "xoxb-env-test-token"
-PUBLIC_URL = "https://navflow.example.com"
+PUBLIC_URL = "https://tares.example.com"
 
 # ── stub Slack: chat.postMessage, with the reply switchable per phase ────────
 # Slack answers HTTP 200 with {"ok": false, "error": ...} for nearly everything that goes wrong,

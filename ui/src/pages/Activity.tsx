@@ -164,7 +164,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
     mcpServers: { tares: { type: "http", url, ...(authReq ? { headers: { Authorization: `Bearer ${t}` } } : {}) } },
   }, null, 2);
   const stdioJson = (t: string) => JSON.stringify({
-    mcpServers: { tares: { command: "tares-mcp", env: { NAVFLOWD_URL: origin, ...(authReq ? { TARES_AUTH_TOKEN: t } : {}) } } },
+    mcpServers: { tares: { command: "tares-mcp", env: { TARESD_URL: origin, ...(authReq ? { TARES_AUTH_TOKEN: t } : {}) } } },
   }, null, 2);
   const subscribeCurl = (t: string) =>
     `curl -X POST ${origin}/subscribe \\\n` +

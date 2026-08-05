@@ -1,10 +1,10 @@
-"""NavFlow demo — a small 'api-server' to ingest from.
+"""Tares demo — a small 'api-server' to ingest from.
 
-It exposes what NavFlow's connectors ingest from the cookbook platform: Prometheus metrics
+It exposes what Tares's connectors ingest from the cookbook platform: Prometheus metrics
 (`/metrics`) and request logs (uvicorn access logs → docker logs). `/demo/inject` flips a
-fault so you can cause an incident and watch NavFlow correlate it across the sources.
+fault so you can cause an incident and watch Tares correlate it across the sources.
 
-This service is the *thing being monitored*. NavFlow itself is installed separately (uv) and reads
+This service is the *thing being monitored*. Tares itself is installed separately (uv) and reads
 from here — see demo/README.md.
 """
 import random
@@ -37,7 +37,7 @@ DEP_UP.labels("postgres").set(1)
 ERR_RATE.set(0)
 INJ_LAT.set(0)
 
-app = FastAPI(title="navflow-demo api-server")
+app = FastAPI(title="tares-demo api-server")
 
 
 def _handle(endpoint: str) -> JSONResponse:
@@ -79,7 +79,7 @@ def metrics():
 
 
 # Fault levers for the demo — flip app state + the Prometheus gauges so you can cause an incident
-# and watch NavFlow correlate it across metrics and logs (the cookbook's incident shapes).
+# and watch Tares correlate it across metrics and logs (the cookbook's incident shapes).
 SCENARIOS = {
     "error_spike": {"error_rate": 0.4},
     "latency": {"latency_ms": 1500},

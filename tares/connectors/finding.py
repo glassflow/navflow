@@ -1,8 +1,8 @@
-"""Findings connector — the built-in source a NavFlow agent writes its conclusion into.
+"""Findings connector — the built-in source a Tares agent writes its conclusion into.
 
 A finding is an ordinary event, which is the whole point (docs/design/navflow-agents.md): correlation puts
 it on the entity's timeline automatically, `read`/`query` pick it up with no special case, and the
-next dispatch to another agent carries prior findings as evidence. A NavFlow agent's conclusions do
+next dispatch to another agent carries prior findings as evidence. A Tares agent's conclusions do
 NOT go to `agent_memory` — that source is where agents keep free-form notes via remember(); a
 finding is the tagged output of a triggered run, distinct provenance.
 

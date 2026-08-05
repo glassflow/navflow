@@ -118,7 +118,7 @@ class PostgresConnector(Connector):
         "dsn": {"type": "string", "secret": True, "required": True, "discover_input": True,
                 "help": "postgresql://user:pass@host:port/dbname — this source's connection URL (the "
                         "path after the slash picks the database; omitted, Postgres defaults to a db "
-                        "named after the user). Must be reachable from the NavFlow host. Stored as a "
+                        "named after the user). Must be reachable from the Tares host. Stored as a "
                         "secret: redacted in the API and omitted from catalog exports."},
         # NOT discover_input: you don't fill the table in before discovering — Discover (which only
         # needs the DSN) lists the tables and you pick one. So the form shows Discover right after

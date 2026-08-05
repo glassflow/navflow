@@ -61,7 +61,7 @@ class AlertmanagerConnector(Connector):
         payload = {"labels": raw, "annotations": dict(anns), "status": status,
                    "startsAt": a.get("startsAt"), "endsAt": a.get("endsAt"),
                    "fingerprint": a.get("fingerprint"), "generatorURL": a.get("generatorURL")}
-        # every alert label becomes a real NavFlow label (+ status); alertname is the event_type.
+        # every alert label becomes a real Tares label (+ status); alertname is the event_type.
         # Any labels the source declares (const / rename) merge on top; a declared primary wins the key.
         declared, primary_key = self.keyed(self.label_context(payload), fallback="")
         labels = {k: v for k, v in raw.items() if k != "alertname"}

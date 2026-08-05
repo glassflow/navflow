@@ -13,7 +13,7 @@ SEED = "/tmp/auth_catalog.yaml"
 with open(SEED, "w") as fh:
     fh.write("sources:\n  - name: evt\n    connector: webhook\n    poll: 5s\n    config: {}\n")
 DB, PORT, TOKEN = "/tmp/auth.duckdb", "8804", "sekret-123"
-LOGIN = "https://app.navflow.dev/login"   # cloud login handoff (TARES_LOGIN_URL)
+LOGIN = "https://app.tares-glassflow.com/login"   # cloud login handoff (TARES_LOGIN_URL)
 
 
 async def _wait(url):

@@ -1,4 +1,4 @@
-"""A tiny webhook that prints NavFlow dispatches — stands in for the agent being woken.
+"""A tiny webhook that prints Tares dispatches — stands in for the agent being woken.
 
     python examples/woke_receiver.py        # listens on http://127.0.0.1:9999/woke
 
