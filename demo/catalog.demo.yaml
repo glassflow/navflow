@@ -7,7 +7,7 @@
 # agent with the whole timeline — Tares diagnoses, it doesn't re-implement alerting.
 #
 # Works from any directory (the logs source tails the container by its fixed name):
-#   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
+#   curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/catalog.demo.yaml
 #   TARES_CATALOG=catalog.demo.yaml tares up
 
 sources:

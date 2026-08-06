@@ -30,7 +30,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://tares-glassflow.com"
 Documentation = "https://tares-glassflow.com/docs"
-Repository = "https://github.com/glassflow/navflow"
+Repository = "https://github.com/glassflow/tares"
 
 [project.optional-dependencies]
 # OTLP gRPC receiver (:4317). The OTLP/HTTP JSON receiver needs none of this; grpcio is a heavy

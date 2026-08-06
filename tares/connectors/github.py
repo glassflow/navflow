@@ -51,7 +51,7 @@ def _headers(token: str | None) -> dict:
 class GithubConnector(Connector):
     CONFIG_SCHEMA = {
         "repo": {"type": "string", "required": True, "discover_input": True,
-                 "help": "owner/name, e.g. glassflow/navflow (a pasted GitHub URL works too)"},
+                 "help": "owner/name, e.g. glassflow/tares (a pasted GitHub URL works too)"},
         "branch": {"type": "string",
                    "help": "branch to follow (empty = the repo's default branch, labeled by its "
                            "real name). One source follows one branch — add a source per branch "

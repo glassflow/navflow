@@ -4,7 +4,7 @@
 #
 # Self-contained — runs anywhere, no repo checkout needed (Docker Compose v2.23.1+ for the
 # inline prometheus config):
-#   curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/docker-compose.yml
+#   curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compose.yml
 #   docker compose up -d              # start the stack
 #   docker compose down               # stop it
 #

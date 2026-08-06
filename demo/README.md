@@ -22,7 +22,7 @@ view of it). The commands below curl them; from a checkout, run them from `demo/
 ## 1. Start the stack
 
 ```bash
-curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/docker-compose.yml
+curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compose.yml
 docker compose up -d              # api-server + prometheus + traffic
 ```
 
@@ -42,7 +42,7 @@ directory:
 uv tool install tares          # or: pipx install tares  (or from source: uv pip install -e .)
 
 # seed the demo sources/views/triggers/agent and start the daemon + console
-curl -O https://raw.githubusercontent.com/glassflow/navflow/main/demo/catalog.demo.yaml
+curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/catalog.demo.yaml
 export ANTHROPIC_API_KEY=sk-ant-…     # so the shipped Tares agent can run (or set one later in the console)
 TARES_CATALOG=catalog.demo.yaml tares up
 ```
