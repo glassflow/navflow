@@ -20,12 +20,15 @@ export function authHeader(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-const AKEY = "tares_anthropic_key";
-export const anthropicKey = {
-  get: () => localStorage.getItem(AKEY) ?? "",
-  set: (k: string) => localStorage.setItem(AKEY, k),
-  clear: () => localStorage.removeItem(AKEY),
-};
+// The Anthropic key lives on the SERVER (Security → /api/settings/anthropic-key), never here. It
+// used to sit in localStorage and ride along as a per-request header, which meant a key added on
+// the Ask page made Ask work while Slack and trigger-woken agents still reported none configured —
+// they have no browser to read it from. Credentials do not belong in localStorage: any script on
+// the origin can read them and they persist silently.
+//
+// This clears anything left by that older build. Safe to delete once no browser can still be
+// carrying one (say, a release or two after 1.0.2).
+try { localStorage.removeItem("tares_anthropic_key"); } catch { /* private mode */ }
 
 function unauthorized() {
   auth.clear();

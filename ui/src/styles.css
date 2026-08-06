@@ -943,25 +943,76 @@ pre.payload {
 .seg.small button { padding: 5px 10px; font-size: 12px; font-family: var(--mono); }
 
 /* Ask — in-app agent chat */
-.chat { min-height: 320px; max-height: 64vh; overflow-y: auto; padding: 4px 2px; }
+/* The transcript scrolls with the PAGE. It used to be a 64vh inner scroller inside a page that
+   didn't scroll, so a long answer was read through a slot half the window high while the rest of
+   the viewport sat frozen — and the wheel only did what you expected with the pointer inside it. */
+.askchat { position: relative; padding-bottom: 8px; }
+.chat { padding: 4px 2px 8px; }
+
 .starters { display: flex; gap: 24px; flex-wrap: wrap; padding: 10px 0; }
 .starter-group { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 6px; }
 .starter { text-align: left; padding: 9px 12px; font: inherit; border-radius: 0; cursor: pointer; }
-.bubble { margin: 12px 0; max-width: 100%; }
-.bubble.user .bubble-text {
-  display: inline-block; background: var(--accent); color: var(--on-accent); padding: 8px 12px;
-  border-radius: 0; white-space: pre-wrap;
+
+/* One turn, clearly bounded. Before, the question was a small right-aligned pill and the answer was
+   unstyled full-bleed text with no container, label or rule, so consecutive turns ran together into
+   one wall you couldn't scan back through. */
+.turn { padding: 14px 0; border-top: 1px solid var(--line); }
+.turn:first-of-type { border-top: 0; }
+.turn-who {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--pixel); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); margin-bottom: 6px;
 }
-.bubble.user { text-align: right; }
-.bubble.assistant .bubble-text { white-space: pre-wrap; line-height: 1.5; }
-.toolcall { font-size: 12px; color: var(--ink-faint); margin: 2px 0; font-family: var(--mono); }
-.askbar { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.turn-copy {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-faint); cursor: pointer; opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.turn:hover .turn-copy { opacity: 1; }
+.turn-copy:hover { color: var(--accent-deep); }
+.turn.user .bubble-text {
+  white-space: pre-wrap; background: var(--accent-soft); color: var(--ink);
+  padding: 8px 12px; border-left: 2px solid var(--accent);
+}
+/* Prose caps at a readable measure; code, tables and cards still use the full width. */
+.turn.assistant .md > p, .turn.assistant .md > ul, .turn.assistant .md > ol { max-width: 78ch; }
+
+/* Tool calls are mechanical detail in the middle of the reasoning. Folded by default with a
+   one-line summary; they used to render at the same weight as the answer. */
+.toolrun { margin: 6px 0; }
+.toolrun-head {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 12px;
+  color: var(--ink-faint); cursor: pointer;
+}
+.toolrun-head:hover { color: var(--ink); }
+.toolcall { font-size: 12px; color: var(--ink-faint); margin: 2px 0 2px 14px; font-family: var(--mono); }
+
+/* Pinned, and visibly a different surface from the transcript — the answer used to run straight
+   into the input with nothing between them, so there was no "here is where you reply". */
+.askbar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; gap: 8px; align-items: center;
+  padding: 12px 0 10px; margin-top: 4px;
+  background: var(--bg);
+  border-top: 1px solid var(--border-strong);
+}
 .askbar input { flex: 1; padding: 0.55rem 0.7rem; font: inherit; }
+
+/* Only shown once the reader has scrolled away from the tail. The wrapper does the centring: a
+   sticky element stays in flow, so `left: 50%` on the button itself did nothing and it stretched
+   to the row's width instead of sitting as a pill above the composer. */
+.jump-latest-wrap {
+  position: sticky; bottom: 84px; z-index: 6;
+  display: flex; justify-content: center; height: 0; pointer-events: none;
+}
+.jump-latest {
+  pointer-events: auto; font-size: 12px; padding: 5px 12px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 18px var(--sheet-shadow); cursor: pointer;
+}
 
 /* Ask chat shared shell (page + ⌘K overlay) */
 .askchat { display: flex; flex-direction: column; min-height: 0; }
-.chat-tools { display: flex; justify-content: flex-end; margin-bottom: 2px; }
-.chat-tools button { font-size: 12px; }
 
 /* nav ⌘K hint on the Ask link */
 .nav-kbd {

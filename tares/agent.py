@@ -201,56 +201,64 @@ Keep answers tight and useful; use small tables or lists where they help. If a t
 When the user wants the catalog changed — labels on a source, a view, a trigger — do not just \
 describe it: call propose_labels / propose_view / propose_trigger. Each proposal appears to the \
 user as a card they apply or skip; you never change the catalog directly. Ground every proposal \
-in evidence from the read tools."""
+in evidence from the read tools.
+
+HOW TO CHOOSE WHAT TO PROPOSE. These rules used to live in a separate "organize mode" that the \
+user had to find; they apply to every proposal you make, so they are always in force:
+
+· A good KEY identifies a durable entity (a service, a session, a tenant): moderate distinct count, \
+high coverage, stable values. Check both before choosing one — a field with ONE distinct value \
+cannot discriminate between entities and is never a key, however sensible its name. Dimensions \
+(http_method, level, status) make good secondary labels but bad keys. Sparse or constant fields \
+are weak.
+· Labels come from REAL fields — never invent one. A label's `field` MUST be a name source_fields \
+actually showed for that source; anything else extracts nothing. A label reads a `field`, a \
+`const`, or a regex over a field (`pattern`/`replace`, plus `map` for aliases) — reach for the \
+regex to clean messy values rather than guessing at a tidy field that isn't there.
+· FIRST check a source's existing labels (list_sources shows config.labels). If they already match \
+what you would propose, say so in text and do NOT call propose_labels. Otherwise call it ONCE with \
+the COMPLETE label set — the proposal replaces, it does not append. Same for views: don't propose \
+a duplicate of one that already covers it.
+· Watch top values for VARIANTS of one entity (checkout / checkout-svc / checkout-service). \
+Correlation needs values to agree literally, so propose normalization on the label: \
+`pattern`/`replace` for whole families, `map` for irregular aliases (pattern runs first, map \
+applies to its result). This is often the highest-value fix available.
+· Views key and filter on LABELS only — never a raw field. A view's `key_field` and filters must be \
+a label the chosen sources EXPOSE. To correlate on something that isn't a label yet, promote it \
+first, then build the view. When sources share nothing but belong together, propose const labels \
+(same name and value) on each and key by that.
+· To match a label across sources, ADD a new label — there is no rename, and a source's label set \
+is declared whole. If source B should join A on `service`, propose a NEW label named `service` on \
+B reading B's matching field, keep B's other labels, and normalize B's values so they agree \
+literally with A's.
+· A trigger needs a numeric field the view's events actually carry, an aggregate and predicate, a \
+detection window, and a cooldown. Say what it would have fired on recently, in the data you just \
+read — a trigger that would fire constantly, or never, is not worth proposing.
+
+Everything goes through proposals; the user applies or skips each card. Be decisive; don't ask \
+permission to inspect."""
 
 
-_ORGANIZE_SYSTEM = _SYSTEM_BASE + """
-
-You are running in ORGANIZE mode: help the user structure their ingested data with the right
-labels, keys, and views. Work in one pass:
-
-1. Inventory: list_sources, then source_fields (and recent_events where the shape is unclear)
-   for every source that has data.
-2. Judge entity-ness from evidence: a good KEY identifies a durable entity (a service, a session,
-   a tenant) — moderate distinct count, high coverage, stable values. Dimensions (http_method,
-   level, status) make good secondary labels but bad keys. Sparse or constant fields are weak.
-3. Labels come from REAL fields — never invent one. A label's `field` MUST be a field name
-   source_fields actually showed for that source; anything else extracts nothing. A label reads a
-   `field`, a `const`, or a regex over a field (`pattern`/`replace`, plus `map` for aliases) — reach
-   for the regex to clean messy values rather than guessing at a tidy field that isn't there.
-   FIRST check each source's existing labels (list_sources shows config.labels): if they already
-   match what you'd propose, say so in text and do NOT call propose_labels. Otherwise call it ONCE
-   with the COMPLETE label set (the proposal replaces, not appends). Same for views — don't propose
-   a duplicate of one that already covers it.
-3b. Watch the top values for VARIANTS of one entity (checkout / checkout-svc / checkout-service):
-   correlation needs values to agree literally, so propose value normalization on the label —
-   `pattern`/`replace` for whole families, `map` for irregular aliases (pattern runs first, map
-   applies to its result). This is often the highest-value fix you can propose.
-4. Views key and filter on LABELS only — never a raw field. A view's `key_field` (and filters) must
-   be a label the chosen sources EXPOSE. If you want to correlate on something that isn't a label
-   yet, promote it to a label first (propose_labels), then the view. Prefer a natural shared label;
-   when sources share nothing but belong together, propose const labels (same name+value) on each,
-   then key the view by that label. propose_view for each (1–3 views, not a zoo).
-4b. To match a label across sources, add a NEW label — don't rename. If source B should join source
-   A on `service` but B has no such label, propose a NEW label named `service` on B (reading B's
-   matching field) — there is no rename, and a source's label set is declared whole, so add it and
-   keep B's others. Normalize B's values (pattern/map) so they agree literally with A's.
-5. When the user's goal involves alerting or waking agents on a condition (errors, spikes,
-   thresholds), also propose triggers on the views you proposed: a numeric field the view's
-   events carry, an aggregate + predicate + detection window, a sensible cooldown.
-6. Finish with a short summary of what you proposed and why. Everything goes through proposals;
-   the user applies or skips each card.
-
-Proposals stream to the user as cards they apply or skip on the spot. Labels apply to new events
-going forward — mention this only if the user asks. Be decisive; don't ask permission to inspect."""
+# The full-inventory sweep that "organize mode" used to run. It is a TASK, not knowledge: the
+# judgement it relied on now lives in _SYSTEM_BASE and applies to every proposal. Kept as a starter
+# prompt so the sweep is one click from Ask, instead of a second page with its own chat.
+ORGANIZE_STARTER = (
+    "Organize my data: inventory every source that has data (list_sources, then source_fields, "
+    "and recent_events where the shape is unclear), then propose the labels, keys and views that "
+    "would let me correlate it. Check existing labels first and don't duplicate them. Finish with "
+    "a short summary of what you proposed and why."
+)
 
 
-def system_prompt(mode: str | None = None) -> str:
-    return _ORGANIZE_SYSTEM if mode == "organize" else _SYSTEM_BASE
+def system_prompt() -> str:
+    """One prompt. There used to be a second, "organize" one — but `tools_for` ignored the mode, so
+    the ONLY difference between the two surfaces was guidance the assistant needed in both. A user
+    asking Ask to add a label got an agent with no idea what makes a key good."""
+    return _SYSTEM_BASE
 
 
-def tools_for(mode: str | None = None) -> list:
-    # every mode: read tools + proposal cards — the agent never mutates the catalog directly
+def tools_for() -> list:
+    # read tools + proposal cards — the agent never mutates the catalog directly
     return TOOLS + PROPOSAL_TOOLS
 
 
@@ -258,7 +266,7 @@ def _sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
 
 
-async def run_agent(api_key: str, messages: list, mode: str = "explore",
+async def run_agent(api_key: str, messages: list,
                     model: str | None = None, self_headers: dict | None = None):
     """Async generator of SSE lines: the agent loop, streaming assistant text and tool activity."""
     try:
@@ -275,7 +283,7 @@ async def run_agent(api_key: str, messages: list, mode: str = "explore",
         for _ in range(MAX_ROUNDS):
             async with client.messages.stream(
                 model=model or DEFAULT_MODEL, max_tokens=2048,
-                system=system_prompt(mode), tools=tools_for(mode), messages=convo,
+                system=system_prompt(), tools=tools_for(), messages=convo,
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":

@@ -2,33 +2,46 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { api, anthropicKey, authHeader } from "../api";
+import { api, authHeader } from "../api";
 import { applyProposal, ProposalCard } from "./proposals";
 import type { DecisionMap, Proposal } from "./proposals";
 
-// The Ask assistant, extracted so it can back both the dedicated /ask page and the global ⌘K
-// command palette. Same engine, two doors: the page for long sessions, the overlay to ask from
-// anywhere without losing your place.
+// The Ask assistant. Backs both the /ask page and the global ⌘K palette — the page for long
+// sessions, the overlay to ask from anywhere without losing your place.
+//
+// There is no second "organize" surface any more. It sent the same tools to the same endpoint and
+// differed only by a system prompt, so the judgement it carried (what makes a good key, labels come
+// from real fields, watch for value variants) now applies to every proposal — see tares/agent.py.
+// The full-source sweep it ran is a starter prompt below.
 
 type Part = { type: "text"; text: string } | { type: "tool"; name: string; input: unknown }
   | { type: "proposal"; proposal: Proposal };
 type Msg = { role: "user" | "assistant"; parts: Part[] };
 
-const STARTERS: { mode: "explore" | "debug"; title: string; prompts: string[] }[] = [
+const ORGANIZE_PROMPT =
+  "Organize my data: inventory every source that has data, then propose the labels, keys and " +
+  "views that would let me correlate it. Check existing labels first and don't duplicate them.";
+
+const STARTERS: { title: string; prompts: string[] }[] = [
   {
-    mode: "explore", title: "Explore the data",
+    title: "Explore the data",
     prompts: [
       "What sources am I ingesting, and what does each one contain?",
-      "Summarize the shape and structure of my data.",
       "What entities exist and how many events does each have?",
     ],
   },
   {
-    mode: "debug", title: "Debug something",
+    title: "Debug something",
     prompts: [
       "Is anything not ingesting, empty, or sparse? What looks off?",
-      "Why might one of my entities show almost no events?",
       "What data is stale or unusually low-volume?",
+    ],
+  },
+  {
+    title: "Organize it",
+    prompts: [
+      ORGANIZE_PROMPT,
+      "Which of my labels would make bad entity keys, and why?",
     ],
   },
 ];
@@ -51,25 +64,54 @@ function compact(v: unknown): string {
   return s === "{}" ? "" : s.length > 60 ? s.slice(0, 60) + "…" : s;
 }
 
+/** How close to the bottom counts as "following along". Below this the reader has deliberately
+ *  scrolled away and must not be dragged back. */
+const STICK_PX = 120;
+
+const nearBottom = () => {
+  const el = document.scrollingElement || document.documentElement;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+};
+
 export default function AskChat() {
-  const [key, setKeyState] = useState(anthropicKey.get());
-  const [keyInput, setKeyInput] = useState("");
-  // A hosted cell can carry a server-provisioned key — then the console never prompts.
-  const [serverKey, setServerKey] = useState<boolean>();
+  const [ready, setReady] = useState<boolean>();      // is a key configured on the server?
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [decisions, setDecisions] = useState<DecisionMap>({});
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // Follow the tail only while the reader is at the tail. The old code called scrollTo() on every
+  // streamed chunk unconditionally, so scrolling up to re-read something was undone by the next
+  // token and a long answer could not be read until it finished.
+  const [stick, setStick] = useState(true);
+  const endRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const refreshKey = () => api.capabilities()
+    .then((c) => setReady(!!c.agent_key_configured)).catch(() => setReady(false));
+  useEffect(() => { refreshKey(); }, []);
+
+  // Detach ONLY on a deliberate upward scroll. Re-checking `nearBottom()` on every scroll event
+  // isn't enough: streamed text lands between the programmatic scroll and the event, so the check
+  // sees "not at the bottom", detaches, and the transcript stops following its own output.
+  const lastTop = useRef(0);
   useEffect(() => {
-    api.capabilities().then((c) => setServerKey(!!c.agent_key_configured)).catch(() => setServerKey(false));
+    const onScroll = () => {
+      const el = document.scrollingElement || document.documentElement;
+      const scrolledUp = el.scrollTop < lastTop.current - 2;
+      lastTop.current = el.scrollTop;
+      if (scrolledUp) setStick(false);
+      else if (nearBottom()) setStick(true);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  if (serverKey === undefined) return <div className="dim">loading…</div>;
-  if (!key && !serverKey) {
-    return <KeySetup onSave={(k) => { anthropicKey.set(k); setKeyState(k); }}
-                     value={keyInput} onChange={setKeyInput} />;
-  }
+  useEffect(() => {
+    if (stick) endRef.current?.scrollIntoView({ block: "end" });
+  }, [msgs, stick]);
+
+  if (ready === undefined) return <div className="dim">loading…</div>;
+  if (!ready) return <KeySetup onSaved={refreshKey} />;
 
   const mutLast = (fn: (parts: Part[]) => Part[]) =>
     setMsgs((cur) => cur.map((m, i) => (i === cur.length - 1 ? { ...m, parts: fn(m.parts) } : m)));
@@ -83,15 +125,17 @@ export default function AskChat() {
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
+    setStick(true);
     const history: Msg[] = [...msgs, { role: "user", parts: [{ type: "text", text }] }];
     setMsgs([...history, { role: "assistant", parts: [] }]);
     setBusy(true);
-    const scroll = () => scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+    const ctl = new AbortController();
+    abortRef.current = ctl;
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
-        headers: { "content-type": "application/json",
-                   ...(key ? { "X-Anthropic-Key": key } : {}), ...authHeader() },
+        signal: ctl.signal,
+        headers: { "content-type": "application/json", ...authHeader() },
         body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: textOf(m, decisions) })) }),
       });
       if (!res.ok || !res.body) {
@@ -118,13 +162,15 @@ export default function AskChat() {
           }
           else if (e.type === "error") appendText(`\n\n⚠️ ${e.detail}`);
         }
-        scroll();
       }
     } catch (err) {
-      appendText(`\n\n⚠️ ${String((err as Error).message ?? err)}`);
+      // An aborted run is the user pressing Stop, not a failure to report.
+      if ((err as Error).name !== "AbortError") {
+        appendText(`\n\n⚠️ ${String((err as Error).message ?? err)}`);
+      }
     } finally {
+      abortRef.current = null;
       setBusy(false);
-      scroll();
     }
   }
 
@@ -137,17 +183,11 @@ export default function AskChat() {
 
   return (
     <div className="askchat">
-      <div className="chat-tools">
-        {key
-          ? <button className="dim" onClick={() => { anthropicKey.clear(); setKeyState(""); }}>change key</button>
-          : <span className="dim">using this instance&rsquo;s key</span>}
-      </div>
-
-      <div className="chat" ref={scrollRef}>
+      <div className="chat">
         {msgs.length === 0 && (
           <div className="starters">
             {STARTERS.map((g) => (
-              <div key={g.mode} className="starter-group">
+              <div key={g.title} className="starter-group">
                 <div className="help">{g.title}</div>
                 {g.prompts.map((p) => (
                   <button key={p} className="starter" onClick={() => send(p)}>{p}</button>
@@ -157,47 +197,135 @@ export default function AskChat() {
           </div>
         )}
         {msgs.map((m, i) => (
-          <div key={i} className={`bubble ${m.role}`}>
-            {m.role === "user"
-              ? <div className="bubble-text">{textOf(m)}</div>
-              : m.parts.map((p, j) => p.type === "tool"
-                ? <div key={j} className="toolcall">→ <span className="mono">{p.name}</span>(<span className="mono">{compact(p.input)}</span>)</div>
-                : p.type === "proposal"
-                ? <ProposalCard key={j} proposal={p.proposal} decision={decisions[p.proposal.id]}
-                                onApply={() => apply(p.proposal)}
-                                onSkip={() => decide(p.proposal.id, "skipped")} />
-                : <div key={j} className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{p.text}</ReactMarkdown></div>)}
-            {busy && i === msgs.length - 1 && m.parts.length === 0 && <div className="dim">thinking…</div>}
-          </div>
+          <Turn key={i} msg={m} decisions={decisions} apply={apply} decide={decide}
+                thinking={busy && i === msgs.length - 1 && m.parts.length === 0} />
         ))}
+        <div ref={endRef} />
       </div>
+
+      {!stick && msgs.length > 0 && (
+        <div className="jump-latest-wrap">
+          <button className="jump-latest"
+                  onClick={() => { setStick(true); endRef.current?.scrollIntoView({ block: "end" }); }}>
+            ↓ latest
+          </button>
+        </div>
+      )}
 
       <form className="askbar" onSubmit={(e) => { e.preventDefault(); send(input); }}>
         <input value={input} placeholder="ask about your data…" disabled={busy} autoFocus
                onChange={(e) => setInput(e.target.value)} />
-        <button className="primary" disabled={busy || !input.trim()}>{busy ? "…" : "Send"}</button>
+        {busy
+          ? <button type="button" className="danger" onClick={() => abortRef.current?.abort()}>Stop</button>
+          : <button className="primary" disabled={!input.trim()}>Send</button>}
+        {msgs.length > 0 && !busy && (
+          <button type="button" className="dim" title="start a new conversation"
+                  onClick={() => { setMsgs([]); setDecisions({}); setStick(true); }}>New</button>
+        )}
       </form>
     </div>
   );
 }
 
-function KeySetup({ value, onChange, onSave }:
-  { value: string; onChange: (s: string) => void; onSave: (k: string) => void }) {
+/** One turn. Consecutive tool calls fold into a single line: they are mechanical detail in the
+ *  middle of the reasoning, and at full weight they were most of what you scrolled past. */
+function Turn({ msg, decisions, apply, decide, thinking }: {
+  msg: Msg; decisions: DecisionMap; thinking: boolean;
+  apply: (p: Proposal) => void;
+  decide: (id: string, status: "applied" | "skipped" | "error", detail?: string) => void;
+}) {
+  if (msg.role === "user") {
+    return (
+      <div className="turn user">
+        <div className="turn-who">you</div>
+        <div className="bubble-text">{textOf(msg)}</div>
+      </div>
+    );
+  }
+
+  // group runs of tool calls so they collapse together
+  const blocks: ({ kind: "tools"; tools: Extract<Part, { type: "tool" }>[] } | { kind: "part"; part: Part })[] = [];
+  for (const p of msg.parts) {
+    const last = blocks[blocks.length - 1];
+    if (p.type === "tool" && last && last.kind === "tools") last.tools.push(p);
+    else if (p.type === "tool") blocks.push({ kind: "tools", tools: [p] });
+    else blocks.push({ kind: "part", part: p });
+  }
+
+  const copyable = msg.parts.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("");
+
+  return (
+    <div className="turn assistant">
+      <div className="turn-who">
+        tares
+        {copyable && (
+          <button className="turn-copy" title="copy this answer"
+                  onClick={() => navigator.clipboard?.writeText(copyable)}>copy</button>
+        )}
+      </div>
+      {blocks.map((b, j) => b.kind === "tools"
+        ? <ToolRun key={j} tools={b.tools} />
+        : b.part.type === "proposal"
+        ? <ProposalCard key={j} proposal={b.part.proposal} decision={decisions[b.part.proposal.id]}
+                        onApply={() => apply((b.part as { proposal: Proposal }).proposal)}
+                        onSkip={() => decide((b.part as { proposal: Proposal }).proposal.id, "skipped")} />
+        : <div key={j} className="md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{(b.part as { text: string }).text}</ReactMarkdown></div>)}
+      {thinking && <div className="dim">thinking…</div>}
+    </div>
+  );
+}
+
+function ToolRun({ tools }: { tools: Extract<Part, { type: "tool" }>[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="toolrun">
+      <button className="toolrun-head" onClick={() => setOpen((o) => !o)}>
+        {open ? "▾" : "▸"} {tools.length} step{tools.length === 1 ? "" : "s"}
+        {!open && <span className="dim"> · {tools.map((t) => t.name).join(", ")}</span>}
+      </button>
+      {open && tools.map((t, i) => (
+        <div key={i} className="toolcall">
+          → <span className="mono">{t.name}</span>(<span className="mono">{compact(t.input)}</span>)
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The key is stored on the SERVER, under Security — the same one Slack and trigger-woken agents
+ *  resolve. It used to live in this browser's localStorage and ride along as a header, so a key
+ *  added here made Ask work while Slack still reported no key configured (NF-125). */
+function KeySetup({ onSaved }: { onSaved: () => void }) {
+  const [value, setValue] = useState("");
+  const [err, setErr] = useState<string>();
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true); setErr(undefined);
+    try { await api.setAnthropicKey(value.trim()); onSaved(); }
+    catch (e) { setErr(String((e as Error).message ?? e)); }
+    finally { setSaving(false); }
+  }
+
   return (
     <div className="panel" style={{ maxWidth: 560 }}>
       <h2 style={{ marginTop: 0 }}>Add your Anthropic API key</h2>
       <p className="help" style={{ whiteSpace: "normal" }}>
-        The assistant runs on your Tares daemon using your key. The key is sent to this instance
-        with each request and used transiently — it is <strong>not stored on the server</strong>;
-        it's kept in this browser. Get one at{" "}
+        The assistant runs on your Tares daemon using this key. It is stored on this instance and
+        used by everything that reasons over your data: this assistant, Tares agents woken by
+        triggers, and <span className="mono">/tares ask</span> in Slack. You can change or remove it
+        later under <strong>Security</strong>. Get one at{" "}
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
       </p>
-      <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) onSave(value.trim()); }}>
+      {err && <div className="alert error">{err}</div>}
+      <form onSubmit={(e) => { e.preventDefault(); if (value.trim()) save(); }}>
         <input type="password" placeholder="sk-ant-…" value={value}
-               onChange={(e) => onChange(e.target.value)}
+               onChange={(e) => setValue(e.target.value)}
                style={{ width: "100%", boxSizing: "border-box", padding: "0.5rem 0.7rem" }} autoFocus />
         <div className="btnrow" style={{ marginTop: 12 }}>
-          <button className="primary" disabled={!value.trim()}>Save key</button>
+          <button className="primary" disabled={!value.trim() || saving}>
+            {saving ? "saving…" : "Save key"}
+          </button>
         </div>
       </form>
     </div>
