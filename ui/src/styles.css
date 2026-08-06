@@ -509,6 +509,11 @@ details.adv-group[open] > summary .caret { transform: rotate(90deg); }
 details.adv-group .fld-row:first-child { border-top: none; }
 
 /* One consistent data field: filled box, defined hairline, sand focus */
+/* `input:not([type])` matters: an <input> with no type attribute IS a text input, but the attribute
+   selectors below never matched one. Seven of them across the console rendered with no border at
+   all — survivable on the bone ground, invisible on the dark one (the Ask composer was the report).
+   Matching bare inputs here fixes them all, and the next one nobody remembers to type. */
+input:not([type]),
 input[type="text"], input[type="number"], input[type="password"], select, textarea {
   font: inherit;
   font-size: 13.5px;
@@ -1005,6 +1010,9 @@ pre.payload {
   position: sticky; bottom: 84px; z-index: 6;
   display: flex; justify-content: center; height: 0; pointer-events: none;
 }
+/* Hidden, not unmounted. Inserting and removing a sticky element mid-scroll relayouts the page
+   under the reader. `visibility` keeps it out of the way without touching layout. */
+.jump-latest-wrap.hidden { visibility: hidden; }
 .jump-latest {
   pointer-events: auto; font-size: 12px; padding: 5px 12px;
   background: var(--panel); border: 1px solid var(--border-strong);

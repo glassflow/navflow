@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -64,13 +64,17 @@ function compact(v: unknown): string {
   return s === "{}" ? "" : s.length > 60 ? s.slice(0, 60) + "…" : s;
 }
 
-/** How close to the bottom counts as "following along". Below this the reader has deliberately
- *  scrolled away and must not be dragged back. */
-const STICK_PX = 120;
+/** Hysteresis, not one threshold. With a single cutoff the state flips back and forth while you
+ *  scroll across it, and each flip re-rendered the transcript AND mounted/unmounted a sticky
+ *  element — which made the whole viewport shiver on a fast scroll. Re-attach only well inside the
+ *  tail, detach only well outside it, so crossing once cannot oscillate.
+ *  The gap also covers the pinned composer, which hides ~76px of the bottom. */
+const ATTACH_PX = 180;
+const DETACH_PX = 360;
 
-const nearBottom = () => {
+const scrollToEnd = () => {
   const el = document.scrollingElement || document.documentElement;
-  return el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+  el.scrollTop = el.scrollHeight;
 };
 
 export default function AskChat() {
@@ -82,33 +86,54 @@ export default function AskChat() {
   // Follow the tail only while the reader is at the tail. The old code called scrollTo() on every
   // streamed chunk unconditionally, so scrolling up to re-read something was undone by the next
   // token and a long answer could not be read until it finished.
-  const [stick, setStick] = useState(true);
-  const endRef = useRef<HTMLDivElement>(null);
+  //
+  // `stick` is a REF, not state: the scroll handler runs on every scroll event, and setting state
+  // there re-rendered the entire transcript — markdown, tables and all — at scroll speed. Only the
+  // jump button needs to re-render, so only it gets state, and only when the value truly changes.
+  const stick = useRef(true);
+  const [showJump, setShowJump] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const refreshKey = () => api.capabilities()
     .then((c) => setReady(!!c.agent_key_configured)).catch(() => setReady(false));
   useEffect(() => { refreshKey(); }, []);
 
-  // Detach ONLY on a deliberate upward scroll. Re-checking `nearBottom()` on every scroll event
-  // isn't enough: streamed text lands between the programmatic scroll and the event, so the check
-  // sees "not at the bottom", detaches, and the transcript stops following its own output.
+  // One layout read per animation frame, never per scroll event, and no React state unless the
+  // button's visibility actually changes.
   const lastTop = useRef(0);
+  const queued = useRef(false);
   useEffect(() => {
-    const onScroll = () => {
+    const measure = () => {
+      queued.current = false;
       const el = document.scrollingElement || document.documentElement;
-      const scrolledUp = el.scrollTop < lastTop.current - 2;
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // Detach on a deliberate upward scroll, or once well clear of the tail. Re-attach only when
+      // back inside it — streamed text lands between a programmatic scroll and its event, so
+      // "am I exactly at the bottom?" is the wrong question to ask here.
+      if (el.scrollTop < lastTop.current - 2 || gap > DETACH_PX) stick.current = false;
+      else if (gap < ATTACH_PX) stick.current = true;
       lastTop.current = el.scrollTop;
-      if (scrolledUp) setStick(false);
-      else if (nearBottom()) setStick(true);
+      setShowJump(!stick.current);
+    };
+    const onScroll = () => {
+      if (queued.current) return;
+      queued.current = true;
+      requestAnimationFrame(measure);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Coalesce: a burst of streamed chunks scrolls once per frame, not once per token. Setting
+  // scrollTop directly beats scrollIntoView on a sentinel — the sentinel sits above the sticky
+  // composer, so aligning to it made the browser scroll, re-place the sticky bar, then scroll
+  // again on the next chunk.
+  const scrollQueued = useRef(false);
   useEffect(() => {
-    if (stick) endRef.current?.scrollIntoView({ block: "end" });
-  }, [msgs, stick]);
+    if (!stick.current || scrollQueued.current) return;
+    scrollQueued.current = true;
+    requestAnimationFrame(() => { scrollQueued.current = false; if (stick.current) scrollToEnd(); });
+  }, [msgs]);
 
   if (ready === undefined) return <div className="dim">loading…</div>;
   if (!ready) return <KeySetup onSaved={refreshKey} />;
@@ -125,7 +150,7 @@ export default function AskChat() {
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
-    setStick(true);
+    stick.current = true;
     const history: Msg[] = [...msgs, { role: "user", parts: [{ type: "text", text }] }];
     setMsgs([...history, { role: "assistant", parts: [] }]);
     setBusy(true);
@@ -200,17 +225,17 @@ export default function AskChat() {
           <Turn key={i} msg={m} decisions={decisions} apply={apply} decide={decide}
                 thinking={busy && i === msgs.length - 1 && m.parts.length === 0} />
         ))}
-        <div ref={endRef} />
       </div>
 
-      {!stick && msgs.length > 0 && (
-        <div className="jump-latest-wrap">
-          <button className="jump-latest"
-                  onClick={() => { setStick(true); endRef.current?.scrollIntoView({ block: "end" }); }}>
-            ↓ latest
-          </button>
-        </div>
-      )}
+      {/* Always mounted; only its `hidden` class changes. Adding and removing a STICKY element as
+          you scroll past the threshold relayouts the page under the scroll, which is what made the
+          viewport shiver. */}
+      <div className={"jump-latest-wrap" + (showJump && msgs.length > 0 ? "" : " hidden")}>
+        <button className="jump-latest"
+                onClick={() => { stick.current = true; setShowJump(false); scrollToEnd(); }}>
+          ↓ latest
+        </button>
+      </div>
 
       <form className="askbar" onSubmit={(e) => { e.preventDefault(); send(input); }}>
         <input value={input} placeholder="ask about your data…" disabled={busy} autoFocus
@@ -220,7 +245,7 @@ export default function AskChat() {
           : <button className="primary" disabled={!input.trim()}>Send</button>}
         {msgs.length > 0 && !busy && (
           <button type="button" className="dim" title="start a new conversation"
-                  onClick={() => { setMsgs([]); setDecisions({}); setStick(true); }}>New</button>
+                  onClick={() => { setMsgs([]); setDecisions({}); stick.current = true; setShowJump(false); }}>New</button>
         )}
       </form>
     </div>
@@ -228,8 +253,11 @@ export default function AskChat() {
 }
 
 /** One turn. Consecutive tool calls fold into a single line: they are mechanical detail in the
- *  middle of the reasoning, and at full weight they were most of what you scrolled past. */
-function Turn({ msg, decisions, apply, decide, thinking }: {
+ *  middle of the reasoning, and at full weight they were most of what you scrolled past.
+ *
+ *  memo(): only the streaming turn changes, so re-rendering the parent must not re-parse the
+ *  markdown of every finished one. */
+const Turn = memo(function Turn({ msg, decisions, apply, decide, thinking }: {
   msg: Msg; decisions: DecisionMap; thinking: boolean;
   apply: (p: Proposal) => void;
   decide: (id: string, status: "applied" | "skipped" | "error", detail?: string) => void;
@@ -273,7 +301,7 @@ function Turn({ msg, decisions, apply, decide, thinking }: {
       {thinking && <div className="dim">thinking…</div>}
     </div>
   );
-}
+});
 
 function ToolRun({ tools }: { tools: Extract<Part, { type: "tool" }>[] }) {
   const [open, setOpen] = useState(false);
