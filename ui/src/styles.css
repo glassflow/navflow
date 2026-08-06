@@ -515,6 +515,31 @@ input[type="text"], input[type="number"], input[type="password"], select, textar
   color: var(--ink);
 }
 input:hover, select:hover, textarea:hover { border-color: color-mix(in srgb, var(--ink) 50%, var(--panel)); }
+
+/* Selects are drawn by us, not by the OS. A native control ignores the palette, the square corners
+   and the hairline, so one macOS-chrome dropdown in a row of our own inputs is the only thing on
+   the page that doesn't belong to the design system. `appearance: none` keeps it a real <select>
+   — full keyboard and screen-reader behaviour, native menu on open — and only restyles the box. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7' fill='none'><path d='M1 1l4 4 4-4' stroke='%236f665a' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  cursor: pointer;
+}
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7' fill='none'><path d='M1 1l4 4 4-4' stroke='%23b3a99a' stroke-width='1.5'/></svg>");
+}
+/* Without appearance:none the OS greyed a disabled select for us. It doesn't any more, and the
+   key's type select is permanently disabled — it has to look it. */
+select:disabled {
+  cursor: not-allowed;
+  color: var(--ink-faint);
+  background-color: color-mix(in srgb, var(--input-bg) 70%, var(--panel));
+  background-image: none;
+}
 textarea.code { font-family: var(--mono); font-size: 12.5px; min-height: 110px; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--input-bg); border-color: var(--accent); box-shadow: none; }
 button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; box-shadow: none; }
@@ -580,6 +605,40 @@ pre.payload {
 /* combobox */
 .combo { position: relative; }
 .combo input { width: 100%; font-family: var(--mono); }
+
+/* `Picker` — the pick-one dropdown. The trigger is a button dressed as one of our inputs so it
+   sits flush with the real inputs beside it; the menu is `.combo-list`, shared with `Combo`. */
+.picker-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; font: inherit; font-size: 13.5px; text-align: left;
+  padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--input-bg); color: var(--ink); cursor: pointer;
+}
+.picker-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ink) 50%, var(--panel)); }
+.picker-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.picker-btn:disabled {
+  cursor: not-allowed; color: var(--ink-faint);
+  background: color-mix(in srgb, var(--input-bg) 70%, var(--panel));
+}
+.picker-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-caret { flex-shrink: 0; color: var(--ink-faint); }
+.picker-btn:disabled .picker-caret { display: none; }
+
+/* Label name + its badges on one line that never wraps. Inline, a long name pushed the badge to a
+   second row while a short one kept it alongside, so the badges staggered down the column. */
+.label-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.label-cell-name { margin-right: 2px; }
+.rule-chip { background: var(--accent-soft); color: var(--accent-deep); }
+
+/* Section header that folds. The whole title is the hit target, not a lone chevron. */
+.disclosure {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.disclosure:hover h2 { color: var(--accent-deep); }
+.disclosure-caret { flex-shrink: 0; color: var(--ink-faint); transform: rotate(-90deg); transition: transform 0.12s ease; }
+.disclosure-caret.open { transform: rotate(0deg); }
 .combo-list {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
   min-width: 100%; width: max-content; max-width: min(560px, 85vw);
@@ -601,6 +660,27 @@ pre.payload {
 .label-col-from { width: 170px; flex-shrink: 0; }
 .label-col-grow { flex: 1; min-width: 0; }
 .label-col-x { width: 24px; flex-shrink: 0; }
+
+/* The key is one decision about the source, so it is one control above the table rather than a
+   radio on every row. The row keeps a quiet chip so you can still see where it landed. */
+.key-picker { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; flex-wrap: wrap; }
+/* Sized to the control, not to the row — a five-item picker as a full-width bar reads as a text
+   field. `.picker` is the themed replacement for the native select. */
+.key-picker select, .key-picker .picker { width: 200px; flex: 0 0 auto; }
+.key-chip { background: var(--accent-soft); color: var(--accent-deep); }
+
+/* Fixed width so rows stay aligned whether or not a label carries rules. Without the .norm.active
+   rule below there was NO visual difference between a pass-through label and one rewriting every
+   value: `.active` matched nothing here (every .active rule in this file is scoped to some other
+   component), so it fell through to default text — a shade off `.dim`. */
+.label-col-norm { width: 116px; flex-shrink: 0; }
+.label-row button.norm { width: 116px; font-size: 12px; color: var(--ink-faint); }
+.label-row button.norm.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
+}
 
 /* ── right-side slide-over sheet ── */
 .sheet-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 40; animation: sheet-fade 0.12s ease; }
