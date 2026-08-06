@@ -14,8 +14,12 @@ import type { DecisionMap, Proposal } from "./proposals";
 // from real fields, watch for value variants) now applies to every proposal — see tares/agent.py.
 // The full-source sweep it ran is a starter prompt below.
 
-type Part = { type: "text"; text: string } | { type: "tool"; name: string; input: unknown }
-  | { type: "proposal"; proposal: Proposal };
+type ToolPart = {
+  type: "tool"; id: string; name: string; input: unknown;
+  // filled in by the matching `tool_done` event
+  ms?: number; ok?: boolean; preview?: string;
+};
+type Part = { type: "text"; text: string } | ToolPart | { type: "proposal"; proposal: Proposal };
 type Msg = { role: "user" | "assistant"; parts: Part[] };
 
 const ORGANIZE_PROMPT =
@@ -72,6 +76,13 @@ function compact(v: unknown): string {
 const ATTACH_PX = 180;
 const DETACH_PX = 360;
 
+/** Grow with the content up to a ceiling, then scroll inside itself. */
+const MAX_COMPOSER_PX = 160;
+const growTextarea = (ta: HTMLTextAreaElement) => {
+  ta.style.height = "auto";
+  ta.style.height = Math.min(ta.scrollHeight, MAX_COMPOSER_PX) + "px";
+};
+
 const scrollToEnd = () => {
   const el = document.scrollingElement || document.documentElement;
   el.scrollTop = el.scrollHeight;
@@ -93,6 +104,7 @@ export default function AskChat() {
   const stick = useRef(true);
   const [showJump, setShowJump] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
   const refreshKey = () => api.capabilities()
     .then((c) => setReady(!!c.agent_key_configured)).catch(() => setReady(false));
@@ -145,11 +157,15 @@ export default function AskChat() {
     if (last && last.type === "text") return [...parts.slice(0, -1), { type: "text", text: last.text + t }];
     return [...parts, { type: "text", text: t }];
   });
-  const addTool = (name: string, inputv: unknown) => mutLast((parts) => [...parts, { type: "tool", name, input: inputv }]);
+  const addTool = (id: string, name: string, inputv: unknown) =>
+    mutLast((parts) => [...parts, { type: "tool", id, name, input: inputv }]);
+  const finishTool = (id: string, patch: Partial<ToolPart>) =>
+    mutLast((parts) => parts.map((p) => (p.type === "tool" && p.id === id ? { ...p, ...patch } : p)));
 
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
+    if (taRef.current) { taRef.current.style.height = "auto"; }
     stick.current = true;
     const history: Msg[] = [...msgs, { role: "user", parts: [{ type: "text", text }] }];
     setMsgs([...history, { role: "assistant", parts: [] }]);
@@ -180,7 +196,8 @@ export default function AskChat() {
           if (!chunk.startsWith("data: ")) continue;
           const e = JSON.parse(chunk.slice(6));
           if (e.type === "text") appendText(e.text);
-          else if (e.type === "tool") addTool(e.name, e.input);
+          else if (e.type === "tool") addTool(e.id, e.name, e.input);
+          else if (e.type === "tool_done") finishTool(e.id, { ms: e.ms, ok: e.ok, preview: e.preview });
           else if (e.type === "proposal") {
             const proposal = { id: e.id, kind: e.kind, ...e.payload } as Proposal;
             mutLast((parts) => [...parts, { type: "proposal", proposal }]);
@@ -237,9 +254,16 @@ export default function AskChat() {
         </button>
       </div>
 
+      {/* A textarea, not an input: a question worth asking a data tool often carries a log line or
+          a config snippet, and a one-line field can't hold one. Enter sends, Shift+Enter breaks. */}
       <form className="askbar" onSubmit={(e) => { e.preventDefault(); send(input); }}>
-        <input value={input} placeholder="ask about your data…" disabled={busy} autoFocus
-               onChange={(e) => setInput(e.target.value)} />
+        <textarea ref={taRef} value={input} placeholder="ask about your data…" rows={1} autoFocus
+                  onChange={(e) => { setInput(e.target.value); growTextarea(e.target); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
+                  }} />
+        {/* One button, two jobs — the prototype's call, and right: Send and Stop are never both
+            available, so two buttons is one more thing to read mid-answer. */}
         {busy
           ? <button type="button" className="danger" onClick={() => abortRef.current?.abort()}>Stop</button>
           : <button className="primary" disabled={!input.trim()}>Send</button>}
@@ -303,22 +327,45 @@ const Turn = memo(function Turn({ msg, decisions, apply, decide, thinking }: {
   );
 });
 
-function ToolRun({ tools }: { tools: Extract<Part, { type: "tool" }>[] }) {
-  const [open, setOpen] = useState(false);
+/** A run of tool calls as a pipeline: one node per call, with a state dot, the tool, how long it
+ *  took, and its input/output behind a click. Borrowed from the chat prototype, and worth it —
+ *  a fold reading "2 steps" told you nothing while it was happening, so a read that takes four
+ *  seconds looked exactly like a hung one. */
+function ToolRun({ tools }: { tools: ToolPart[] }) {
   return (
-    <div className="toolrun">
-      <button className="toolrun-head" onClick={() => setOpen((o) => !o)}>
-        {open ? "▾" : "▸"} {tools.length} step{tools.length === 1 ? "" : "s"}
-        {!open && <span className="dim"> · {tools.map((t) => t.name).join(", ")}</span>}
-      </button>
-      {open && tools.map((t, i) => (
-        <div key={i} className="toolcall">
-          → <span className="mono">{t.name}</span>(<span className="mono">{compact(t.input)}</span>)
-        </div>
-      ))}
+    <div className="rail">
+      {tools.map((t) => <ToolNode key={t.id} tool={t} />)}
     </div>
   );
 }
+
+function ToolNode({ tool }: { tool: ToolPart }) {
+  const [open, setOpen] = useState(false);
+  const done = tool.ms !== undefined;
+  const state = !done ? "running" : tool.ok === false ? "fail" : "done";
+  const args = compact(tool.input);
+  return (
+    <div className={"node" + (open ? " open" : "")} data-state={state}>
+      <button className="node-head" onClick={() => setOpen((o) => !o)}>
+        <span className="node-tool mono">{tool.name}</span>
+        <span className="node-label">
+          {!done ? "running…" : tool.ok === false ? "failed" : args || "done"}
+        </span>
+        {done && <span className="node-time mono">{fmtMs(tool.ms!)}</span>}
+      </button>
+      {open && (
+        <div className="node-body">
+          <div className="kv"><b>input</b> <span className="mono">{args || "{}"}</span></div>
+          {tool.preview !== undefined && (
+            <div className="kv"><b>output</b> <span className="mono">{tool.preview || "(empty)"}</span></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const fmtMs = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
 /** The key is stored on the SERVER, under Security — the same one Slack and trigger-woken agents
  *  resolve. It used to live in this browser's localStorage and ride along as a header, so a key

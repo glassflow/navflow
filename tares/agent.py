@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
 
@@ -315,8 +316,17 @@ async def run_agent(api_key: str, messages: list,
                                     "content": "proposal recorded — the user will review it as a "
                                                "card and apply or skip it"})
                     continue
-                yield _sse({"type": "tool", "name": tu.name, "input": tu.input})
+                # A start AND a finish. The console draws each call as a step that is visibly
+                # running and then resolves — without the second event it could only ever say
+                # "thinking…", and a read that takes four seconds looked identical to a hung one.
+                yield _sse({"type": "tool", "id": tu.id, "name": tu.name, "input": tu.input})
+                t0 = time.perf_counter()
                 out = await _execute_tool(tu.name, tu.input, headers)
+                yield _sse({"type": "tool_done", "id": tu.id,
+                            "ms": int((time.perf_counter() - t0) * 1000),
+                            "ok": not out.lstrip().startswith('{"error"'),
+                            # enough to see WHAT came back without shipping a 20k payload twice
+                            "preview": out[:400] + ("…" if len(out) > 400 else "")})
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out})
             convo.append({"role": "user", "content": results})
         yield _sse({"type": "done"})
