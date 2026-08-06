@@ -17,4 +17,4 @@ Tares is self-hosted. By default the daemon binds `127.0.0.1` (local only) with
   require a credential. Hand producers and agents their own scoped API keys (console → Security).
 - Put it behind TLS (a reverse proxy such as Caddy — see the deployment docs).
 
-See https://www.navflow.ai/docs for the full deployment guide.
+See https://docs.glassflow.ai/tares for the full deployment guide.

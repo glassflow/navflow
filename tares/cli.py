@@ -28,7 +28,7 @@ def _warn_if_exposed(host: str) -> None:
         print(
             f"\n  ⚠  Tares is binding {host} (reachable off this machine) with NO auth token.\n"
             "     Anyone who can reach this port can read your data. Set TARES_AUTH_TOKEN and put\n"
-            "     it behind TLS before exposing it — see https://www.tares-glassflow.com/docs (Deployment).\n",
+            "     it behind TLS before exposing it — see https://docs.glassflow.ai/tares (Deployment).\n",
             flush=True,
         )
 

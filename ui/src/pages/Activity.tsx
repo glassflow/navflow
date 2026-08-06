@@ -273,8 +273,8 @@ function Connect({ tab }: { tab: ConnectTab }) {
             endpoint shows up under <Link to="/activity">Agents</Link> with its delivery history
             (firings are logged even with no subscribers — useful to test a trigger before wiring
             the agent). Full walkthrough and a runnable incident-response example:{" "}
-            <a href="https://www.tares.ai/docs/agents" target="_blank" rel="noreferrer">
-              tares.ai/docs/agents</a>.
+            <a href="https://docs.glassflow.ai/tares/agents" target="_blank" rel="noreferrer">
+              docs.glassflow.ai/tares/agents</a>.
           </p>
 
         </>

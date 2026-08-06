@@ -5,7 +5,7 @@ Tares is an open-source, self-hosted data plane for AI agents. It ingests events
 It runs as two processes: `taresd` (the daemon) and `tares-mcp` (the MCP proxy) both writing to a
 single DuckDB file. No external database or broker are needed to get tares up and running.
 
-**Documentation:** [Tares Documentation](https://tares-glassflow.com/docs) where you can find quickstart, core concepts, connectors, MCP setup, and deployment guides.
+**Documentation:** [Tares Documentation](https://docs.glassflow.ai/tares) where you can find quickstart, core concepts, connectors, MCP setup, and deployment guides.
 
 ## Install and run
 
@@ -14,7 +14,7 @@ uv tool install tares        # or: pipx install tares
 tares up                     # daemon + console on http://127.0.0.1:8787
 ```
 
-Docker images and server deployment (TLS, auth) are coveredin the [server deployment guide (Docker, TLS, auth)](https://tares-glassflow.com/docs/deployment).
+Docker images and server deployment (TLS, auth) are coveredin the [server deployment guide (Docker, TLS, auth)](https://docs.glassflow.ai/tares/deployment).
 
 ## See it work
 
@@ -39,11 +39,11 @@ Open **Explore** and pick `api-server`: request logs, latency and error-rate met
 three sources merged into one time-ordered timeline. That timeline is exactly what an agent gets,
 so connect one next and break the demo on purpose.
 
-Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console. You can see the [list of supported connectors](https://tares-glassflow.com/docs/connectors).
+Skip the demo? Add one of your own sources instead: **Sources → Add source** in the console. You can see the [list of supported connectors](https://docs.glassflow.ai/tares/connectors).
 
 ## Connect an agent over MCP
 
-Tares serves its read/watch surface as an [MCP server for AI agents](https://tares-glassflow.com/docs/agents). Run the MCP
+Tares serves its read/watch surface as an [MCP server for AI agents](https://docs.glassflow.ai/tares/agents). Run the MCP
 endpoint and point a client (Claude Code, Cursor, Claude Desktop, …) at it:
 
 ```bash
@@ -70,21 +70,21 @@ together across systems. (The `incident` trigger fires too, and the catalog ship
 that wakes on it and writes its diagnosis back as a **finding** on the timeline. Please set
 `ANTHROPIC_API_KEY` first, or see [`demo/`](demo/). `./demo/inject.sh clear` rolls the fault back.)
 Other clients, stdio transport, and auth are covered in
-[connecting AI agents over MCP](https://tares-glassflow.com/docs/agents).
+[connecting AI agents over MCP](https://docs.glassflow.ai/tares/agents).
 
 ## What you get: connectors, reads, triggers, MCP tools
 
 - **Connectors**: Prometheus (metrics and alerts), Alertmanager, Docker logs, GitHub, Postgres,
   Vercel, OpenTelemetry (OTLP), a generic webhook, reference documents, agent memory, and Claude Code
   sessions. Add and configure sources at runtime; a **Discover** step proposes config for connectors
-  that can introspect. → [Connector setup docs](https://tares-glassflow.com/docs/connectors)
+  that can introspect. → [Connector setup docs](https://docs.glassflow.ai/tares/connectors)
 - **Reads**: `read(selector, window)` returns any entity's correlated timeline across *all* sources
   with no view required; `query(view, …)` reads through a saved, narrowed view; agents `subscribe` to
-  be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://tares-glassflow.com/docs/concepts)
+  be pushed the timeline when a trigger fires. → [reads, views, and triggers explained](https://docs.glassflow.ai/tares/concepts)
 - **Tares agents**: attach a prompt to a trigger and Tares runs it in-process when the trigger
   fires: it reads the correlated timeline and writes a **finding** back onto the entity's timeline
   (so the next agent to read that entity starts ahead). Read-only — it concludes, it doesn't act.
-  → [Tares agents](https://tares-glassflow.com/docs/tares-agents)
+  → [Tares agents](https://docs.glassflow.ai/tares/tares-agents)
 - **Slack**: subscribe a channel to any trigger with `slack://channel/C0123456789` and every firing
   is posted there as Block Kit — retried, logged in the delivery ledger, and visible in the console
   like any other subscriber. One bot token per instance (`TARES_SLACK_BOT_TOKEN`, or set it under
@@ -100,7 +100,7 @@ Other clients, stdio transport, and auth are covered in
   **Ask** (an in-console assistant over your data, summonable with ⌘K).
 - **MCP tools**: `read`, `query`, `subscribe`, `catalog_list` / `catalog_describe`, `derive` (an
   agent authors its own view), `remember` (write observations back), and source-setup tools.
-  → [MCP tools reference](https://tares-glassflow.com/docs/agents)
+  → [MCP tools reference](https://docs.glassflow.ai/tares/agents)
 
 ## Architecture
 
@@ -116,7 +116,7 @@ continuously; `tares-mcp` is a thin stdio proxy the agent spawns, reaching the d
 ```
 
 DuckDB is single-writer, which is why the daemon owns the DB and everything else goes through its
-HTTP API. More in [Concepts](https://tares-glassflow.com/docs/concepts).
+HTTP API. More in [Concepts](https://docs.glassflow.ai/tares/concepts).
 
 ## Feedback
 

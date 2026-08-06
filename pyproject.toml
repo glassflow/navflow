@@ -29,7 +29,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://tares-glassflow.com"
-Documentation = "https://tares-glassflow.com/docs"
+Documentation = "https://docs.glassflow.ai/tares"
 Repository = "https://github.com/glassflow/tares"
 
 [project.optional-dependencies]
