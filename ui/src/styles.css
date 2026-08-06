@@ -375,6 +375,11 @@ td .dim, .dim { color: var(--ink-faint); }
 .badge.error { background: var(--err-soft); color: var(--err); }
 .badge.paused { background: var(--warn-soft); color: var(--warn); }
 .badge.push { background: var(--slate-soft); color: var(--slate); }
+/* A value rewritten to nothing. Deliberately NOT `ok` — blanking is a legitimate rule, but it is
+   not a success to be congratulated, and it must not look like a target that failed to render.
+   NOT called `.empty`: that is the empty-state panel (32px padding, centred, bordered) and the bare
+   class name would win on the shared specificity and inflate the chip into a block. */
+.badge.blanked { background: var(--slate-soft); color: var(--slate); }
 .badge.agent { background: var(--accent-soft); color: var(--accent-deep); }
 .badge.starting { background: var(--starting-bg); color: var(--ink-soft); }
 

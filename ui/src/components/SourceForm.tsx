@@ -731,7 +731,7 @@ function normTitle(row: LabelRow): string {
   const bits: string[] = [];
   if (row.pattern) bits.push(`pattern ${row.pattern} → ${row.replace ? `"${row.replace}"` : "(empty)"}`);
   if (row.map.length) bits.push(`${row.map.length} value rename${row.map.length === 1 ? "" : "s"}`);
-  return bits.length ? `${bits.join(", ")} — click to edit` : "no rules — click to normalize values";
+  return bits.length ? `${bits.join(", ")}. Click to edit.` : "No rules. Click to normalize values.";
 }
 
 function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
@@ -868,11 +868,16 @@ function NormalizeEditor({ row, onChange, sourceName }:
   const fromHints = Object.fromEntries(observed.map((r2) => [r2.from, `${r2.events} events`]));
 
   const hasRules = !!row.pattern || row.map.length > 0;
+  // Which label this panel is editing. It is a full-width panel under a table row, so without the
+  // name in the heading there is nothing tying it to the row that opened it.
+  const label = row.name.trim();
 
   return (
     <div className="panel" style={{ margin: "2px 0 10px 28px", padding: 12 }}>
       <div className="pagehead" style={{ marginBottom: 6 }}>
-        <strong>Merge value variants</strong>
+        <strong>
+          Merge value variants{label && <>: <code>{label}</code></>}
+        </strong>
         <span className="btnrow">
           {hasRules && (
             <button type="button" className="danger"
@@ -885,10 +890,14 @@ function NormalizeEditor({ row, onChange, sourceName }:
         </span>
       </div>
       <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 8, whiteSpace: "normal" }}>
-        If the same thing appears under different names
-        (say <span className="mono">checkout</span> and <span className="mono">checkout-svc</span>),
-        they count as different entities and won&rsquo;t correlate. Rename the variants onto one
-        name here. Renaming never loses data — the original value stays in the stored event.
+        {/* Kept, unlike the paragraphs removed elsewhere on this page: both sentences carry a fact
+            the screen cannot show. The first is why merging matters at all; the second is what
+            makes someone willing to click. "Rename the variants onto one name here" went — the
+            controls below say that. */}
+        Variants of the same thing
+        (<span className="mono">checkout</span>, <span className="mono">checkout-svc</span>)
+        count as different entities and won&rsquo;t correlate. Renaming makes a copy and the
+        original stays in the stored event.
       </span>
 
       {pErr && <div className="alert error">{pErr}</div>}
@@ -896,8 +905,9 @@ function NormalizeEditor({ row, onChange, sourceName }:
       {sourceName && preview && (
         <div style={{ marginBottom: 10 }}>
           <span className="help">
-            This field has <strong>{preview.distinct_before}</strong> distinct value{preview.distinct_before === 1 ? "" : "s"} in
-            recent events{merges > 0 && <> — with your renames it becomes <strong>{preview.distinct_after}</strong></>}:
+            {label ? <code>{label}</code> : "This field"} has{" "}
+            <strong>{preview.distinct_before}</strong> distinct value{preview.distinct_before === 1 ? "" : "s"} in
+            recent events{merges > 0 && <>. With your rules it becomes <strong>{preview.distinct_after}</strong></>}:
           </span>
           <table style={{ marginTop: 6 }}>
             <thead><tr><th>value seen</th><th className="num">events</th><th>will become</th></tr></thead>
@@ -906,9 +916,16 @@ function NormalizeEditor({ row, onChange, sourceName }:
                 <tr key={k}>
                   <td className="mono">{r2.from}</td>
                   <td className="num">{r2.events}</td>
+                  {/* An empty target used to render as a green arrow followed by nothing, which is
+                      indistinguishable from a missing value — and `ok` styling on it reads as
+                      approval of the wrong thing. Blanking a value is a legitimate rule (a pattern
+                      that keeps only what matches), so it needs to be stated, not flagged. */}
                   <td className="mono">
                     {r2.from === r2.to
                       ? <span className="dim">unchanged</span>
+                      : r2.to === ""
+                      ? <><span className="badge blanked" style={{ marginRight: 6 }}>→</span>
+                          <span className="dim"><em>(empty)</em></span></>
                       : <><span className="badge ok" style={{ marginRight: 6 }}>→</span>{r2.to}</>}
                   </td>
                 </tr>
