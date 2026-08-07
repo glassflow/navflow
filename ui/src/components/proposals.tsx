@@ -18,6 +18,24 @@ export type Proposal =
   | { id: string; kind: "trigger"; name: string; view: string; condition: TriggerCondition;
       emit?: { kind?: string; context_window?: string }; cooldown?: string; reasoning: string };
 
+// The operators a view filter may use — the set `tares/config.py` validates against on Apply.
+const FILTER_OPS = ["eq", "neq", "contains", "gt", "gte", "lt", "lte"];
+
+/** One filter as it will be sent, plus whether it is well-formed.
+ *
+ *  The card used to say "2 filter(s)" and nothing else, which is the one place a human could have
+ *  caught a bad filter before pressing Apply — and it was showing a count. A filter the assistant
+ *  got wrong (a flat {label: value} pair, or "==" for the operator) renders as its raw JSON and is
+ *  marked, so the mistake is visible on the card rather than arriving as a 400 afterwards. */
+export function filterText(f: Record<string, unknown>): { text: string; ok: boolean } {
+  const { field, op, value } = f as { field?: unknown; op?: unknown; value?: unknown };
+  const ok = typeof field === "string" && typeof op === "string"
+    && FILTER_OPS.includes(op) && value !== undefined && value !== null;
+  return ok
+    ? { text: `${field as string} ${op as string} ${String(value)}`, ok: true }
+    : { text: JSON.stringify(f), ok: false };
+}
+
 export type Decision = "applied" | "skipped" | "error";
 export type DecisionMap = Record<string, { status: Decision; detail?: string }>;
 
@@ -138,7 +156,21 @@ export function ProposalCard({ proposal, decision, onApply, onSkip }: {
         <p style={{ margin: "0 0 8px" }}>
           key <span className="chip mono">{proposal.key_field}</span> over{" "}
           {proposal.sources.map((s) => <span className="chip mono" key={s}>{s}</span>)}
-          {!!proposal.filters?.length && <> · {proposal.filters.length} filter(s)</>}
+          {!!proposal.filters?.length && (
+            <> · keeping only{" "}
+              {proposal.filters.map((f, i) => {
+                const { text, ok } = filterText(f);
+                return (
+                  <span key={i} className={"chip" + (ok ? "" : " invalid")}
+                        title={ok ? undefined
+                                  : "not a valid filter — needs field, op and value, with op one of "
+                                    + FILTER_OPS.join(", ") + ". Apply will be rejected."}>
+                    {text}
+                  </span>
+                );
+              })}
+            </>
+          )}
         </p>
       )}
 

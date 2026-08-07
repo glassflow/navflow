@@ -405,6 +405,12 @@ a.chip:hover { border-color: var(--accent); }
   margin: 0 4px 4px 0;
 }
 
+/* A chip whose content is malformed — today: a view filter the assistant got wrong, shown as raw
+   JSON so the mistake is visible before Apply. Scoped to `.chip` deliberately: the bare `.invalid`
+   rules elsewhere are all scoped to their own element (label.field, .fld-row), so nothing here
+   collides the way `.badge.empty` did with the empty-state panel. */
+.chip.invalid { background: var(--err-soft); color: var(--err); border-color: var(--danger-border); }
+
 /* ── buttons & forms: square, hairline; primary is the sand fill ── */
 button, .btn {
   font: inherit;
