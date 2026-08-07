@@ -3,6 +3,22 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] — 2026-08-07
+
+### Fixed
+- **A subscribed Slack channel is no longer presented as an agent.** It sat under "Agents woken by
+  this trigger" in a column headed `agent`, but a channel is a destination — it doesn't wake up and
+  do anything. The section is now "Where this trigger delivers" and the column is `subscriber`,
+  which covers all three kinds honestly: a Tares agent, a connected webhook, and a channel. The
+  delete-trigger warning and the trigger's summary line had inherited the same wrong noun.
+- **A subscription can be removed from the console.** Subscribing was a one-way door — the
+  `/unsubscribe` endpoint and the per-trigger subscription id both existed, and nothing used them.
+  Removing affects only that trigger; a subscriber wired to several keeps the rest, and its delivery
+  history is kept.
+- A Slack row showed the raw channel ID (`#C0BNV121CRX`). It now resolves to the channel name, with
+  a lock for a private one, falling back to the id — which is the honest answer when the bot has
+  been removed from the channel and the name is no longer knowable.
+
 ## [1.2.0] — 2026-08-07
 
 ### Added
