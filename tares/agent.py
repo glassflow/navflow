@@ -153,8 +153,13 @@ async def _current_labels(source: str, headers: dict):
         return None
 
 
-async def _execute_tool(name: str, args: dict, headers: dict) -> str:
-    """Run a tool by calling the daemon's own read endpoint. Returns the response text (JSON)."""
+async def _execute_tool(name: str, args: dict, headers: dict) -> tuple[bool, str]:
+    """Run a tool by calling the daemon's own read endpoint. Returns (ok, response text).
+
+    `ok` comes from the status code, not from the shape of the body. Every daemon error path raises
+    HTTPException, which serializes as {"detail": ...} — so a caller sniffing for {"error" would
+    read a 404 as a success and the console would draw a failed read as a completed step.
+    """
     args = args or {}
     async with httpx.AsyncClient(timeout=30, headers=headers, base_url=_SELF) as cx:
         if name == "list_sources":
@@ -180,9 +185,9 @@ async def _execute_tool(name: str, args: dict, headers: dict) -> str:
                 body["where"] = args["where"]
             r = await cx.post("/query", json=body)
         else:
-            return json.dumps({"error": f"unknown tool {name!r}"})
+            return False, json.dumps({"error": f"unknown tool {name!r}"})
     text = r.text
-    return text if len(text) <= 20000 else text[:20000] + "\n…(truncated)"
+    return r.status_code < 400, (text if len(text) <= 20000 else text[:20000] + "\n…(truncated)")
 
 
 _SYSTEM_BASE = """You are Tares's in-app data assistant. Tares is a data plane for AI agents: \
@@ -240,15 +245,11 @@ Everything goes through proposals; the user applies or skips each card. Be decis
 permission to inspect."""
 
 
-# The full-inventory sweep that "organize mode" used to run. It is a TASK, not knowledge: the
-# judgement it relied on now lives in _SYSTEM_BASE and applies to every proposal. Kept as a starter
-# prompt so the sweep is one click from Ask, instead of a second page with its own chat.
-ORGANIZE_STARTER = (
-    "Organize my data: inventory every source that has data (list_sources, then source_fields, "
-    "and recent_events where the shape is unclear), then propose the labels, keys and views that "
-    "would let me correlate it. Check existing labels first and don't duplicate them. Finish with "
-    "a short summary of what you proposed and why."
-)
+# The full-inventory sweep that "organize mode" used to run is a TASK, not knowledge: the judgement
+# it relied on now lives in _SYSTEM_BASE and applies to every proposal. The sweep itself survives as
+# an ordinary starter prompt in the console (ORGANIZE_PROMPT in ui/src/components/AskChat.tsx),
+# alongside the other starters — one click from Ask instead of a second page with its own chat.
+# It is not duplicated here: a second copy is a copy that drifts.
 
 
 def system_prompt() -> str:
@@ -321,10 +322,10 @@ async def run_agent(api_key: str, messages: list,
                 # "thinking…", and a read that takes four seconds looked identical to a hung one.
                 yield _sse({"type": "tool", "id": tu.id, "name": tu.name, "input": tu.input})
                 t0 = time.perf_counter()
-                out = await _execute_tool(tu.name, tu.input, headers)
+                ok, out = await _execute_tool(tu.name, tu.input, headers)
                 yield _sse({"type": "tool_done", "id": tu.id,
                             "ms": int((time.perf_counter() - t0) * 1000),
-                            "ok": not out.lstrip().startswith('{"error"'),
+                            "ok": ok,
                             # enough to see WHAT came back without shipping a 20k payload twice
                             "preview": out[:400] + ("…" if len(out) > 400 else "")})
                 results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out})

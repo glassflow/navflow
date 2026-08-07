@@ -162,6 +162,15 @@ export default function AskChat() {
   const finishTool = (id: string, patch: Partial<ToolPart>) =>
     mutLast((parts) => parts.map((p) => (p.type === "tool" && p.id === id ? { ...p, ...patch } : p)));
 
+  // One transcript message on the wire. A turn the user pressed Stop on before it produced any
+  // text serializes to "" — tool calls contribute nothing — and the Messages API rejects empty
+  // content, so the NEXT question would fail with a ⚠️ pointing at nothing. Say what happened
+  // instead of dropping the turn: dropping it would leave two user turns in a row.
+  const wire = (m: Msg) => {
+    const content = textOf(m, decisions);
+    return { role: m.role, content: content.trim() ? content : "[stopped before answering]" };
+  };
+
   async function send(text: string) {
     if (!text.trim() || busy) return;
     setInput("");
@@ -177,7 +186,7 @@ export default function AskChat() {
         method: "POST",
         signal: ctl.signal,
         headers: { "content-type": "application/json", ...authHeader() },
-        body: JSON.stringify({ messages: history.map((m) => ({ role: m.role, content: textOf(m, decisions) })) }),
+        body: JSON.stringify({ messages: history.map(wire) }),
       });
       if (!res.ok || !res.body) {
         appendText(`⚠️ ${await res.text().catch(() => res.statusText)}`);
