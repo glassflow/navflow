@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { Search, Settings as SettingsIco } from "../components/icons";
-import { ErrorState, StatusBadge, TimeAgo, formatBytes, usePolling } from "../components/bits";
+import { ErrorState, Picker, StatusBadge, TimeAgo, formatBytes, usePolling } from "../components/bits";
 
 // Gear dropdown next to "Add source" — catalog import/export, each on its own page.
 function CatalogMenu() {
@@ -95,10 +95,12 @@ export default function Sources() {
                 onChange={(e) => setQ(e.target.value)}
               />
             </div>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="all">All statuses</option>
-              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {/* Fixed width so the search box and count don't shift when you pick a status —
+                the picker sizes to its selected text, unlike a native select. */}
+            <Picker value={status} onChange={setStatus} ariaLabel="filter by status"
+                    style={{ width: 150 }}
+                    options={["all", ...statuses]}
+                    labels={{ all: "All statuses" }} />
             <span className="grow" />
             <span className="count">{shown.length} of {sources.length}</span>
           </div>
