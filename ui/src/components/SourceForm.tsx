@@ -512,11 +512,10 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
             <div style={{ display: "flex", gap: 8 }}>
               <input type="number" min="1" step="1" value={num} style={{ flex: 1 }}
                      onChange={(e) => setPoll(`${e.target.value}${unit}`)} />
-              <select value={unit} onChange={(e) => setPoll(`${num}${e.target.value}`)} style={{ width: 120 }}>
-                <option value="s">seconds</option>
-                <option value="m">minutes</option>
-                <option value="h">hours</option>
-              </select>
+              <Picker value={unit} onChange={(v) => setPoll(`${num}${v}`)} style={{ width: 120 }}
+                      ariaLabel="poll interval unit"
+                      options={["s", "m", "h"]}
+                      labels={{ s: "seconds", m: "minutes", h: "hours" }} />
             </div>
             <span className="help">how often to poll the source</span>
           </div>
@@ -994,14 +993,12 @@ function PatternRule({ row, onChange }:
         The table shows its effect live.
       </span>
       <div className="btnrow" style={{ alignItems: "center" }}>
-        <select value={kind} style={{ maxWidth: 260 }}
-                onChange={(e) => { const k = e.target.value as RuleKind; setKind(k);
-                                   if (k === "custom") return; apply(k, text); }}>
-          <option value="suffix">remove this ending</option>
-          <option value="prefix">remove this beginning</option>
-          <option value="after">cut everything from … onwards</option>
-          <option value="custom">custom (regular expression)</option>
-        </select>
+        <Picker value={kind} style={{ maxWidth: 260 }} ariaLabel="pattern rule kind"
+                options={["suffix", "prefix", "after", "custom"]}
+                labels={{ suffix: "remove this ending", prefix: "remove this beginning",
+                          after: "cut everything from … onwards", custom: "custom (regular expression)" }}
+                onChange={(v) => { const k = v as RuleKind; setKind(k);
+                                   if (k === "custom") return; apply(k, text); }} />
         {kind !== "custom" ? (
           <input className="mono" style={{ flex: 1 }}
                  placeholder={kind === "suffix" ? "e.g. -svc" : kind === "prefix" ? "e.g. prod-" : "e.g. ."}
