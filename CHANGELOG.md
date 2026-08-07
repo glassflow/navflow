@@ -3,6 +3,56 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-08-07
+
+### Changed
+- **Breaking: `/api/agent/chat` no longer accepts an `X-Anthropic-Key` header.** There is one
+  Anthropic key per instance — the environment's `ANTHROPIC_API_KEY`, else the one stored under
+  Security — and it is the key the console assistant, `/tares ask` in Slack and trigger-woken
+  agents all resolve. The console used to keep a copy in `localStorage` and send it per request, so
+  a key added on the Ask page made Ask work while Slack and Tares agents still reported none
+  configured, having no browser to read it from. Callers passing the header now get the instance's
+  key; a request with no key configured anywhere gets a 400. Stale browser copies are cleared on
+  load.
+- **Ask and Organize are one assistant.** Organize was Ask with a different system prompt — both
+  surfaces posted the same tools to the same endpoint — so the judgement it carried (what makes a
+  good entity key, labels come only from real fields, watch for value variants, views key on labels
+  rather than raw fields) now governs every proposal Ask makes. Asking Ask to add a label
+  previously got an agent with none of it. Organize's full-source sweep survives as a starter
+  prompt; `/organize` redirects to `/ask`.
+- **The Ask page is readable at length.** The transcript scrolls with the page instead of inside a
+  64vh slot; autoscroll follows the tail only while you are at the tail and detaches on a
+  deliberate upward scroll; turns are labelled and separated; tool calls draw as a pipeline of
+  steps showing what ran, how long it took and what came back; the composer is pinned, takes
+  multiple lines, and offers Stop, New and copy-on-hover.
+- **The source page says what it already knows.** The labels table gains a `rules` column naming
+  which rule rewrites a label's values (`≈ regex`, `≈ 2 renames`, `≈ regex +5`, `≈ none`), from one
+  shared summary so the editor and the read-only table cannot describe the same rule differently.
+  The entity key is chosen from one dropdown above the table rather than a radio per row.
+  `Labels & key` collapses, defaulting to closed. `Fields` lists only what is not already a label.
+- Dropdowns are ours. A native `<select>`'s open menu is drawn by the OS and cannot be themed, so
+  one macOS menu appeared mid-form beside our own styled inputs. `Picker` replaces it, keeping
+  keyboard control, `disabled`, and listbox semantics.
+
+### Fixed
+- **A failed tool call in the assistant reported itself as successful.** The `ok` flag was derived
+  from the response body starting with `{"error"`, which only ever matched the local unknown-tool
+  case — every daemon error path raises `HTTPException` and serializes as `{"detail": …}`, so a 404
+  read as a success and the console drew a failed read as a completed step. It now comes from the
+  status code.
+- **Pressing Stop could break the next question.** A turn stopped before it produced text
+  serializes to an empty string, which the Messages API rejects, so the following question failed
+  with a warning pointing at nothing.
+- **A label rewriting every value looked identical to a pass-through one.** The table computed the
+  distinction and styled it with a bare `button.active`, which no CSS rule matched — every
+  `.active` rule is scoped to another component. On one instance a rule silently collapsing 237
+  distinct values to 2 was invisible from the table.
+- The merge panel never said which label it was editing, and a rule that blanks a value rendered as
+  a green `ok` badge followed by nothing — indistinguishable from a value that failed to render.
+  Blanking is a legitimate rule and is now stated as one.
+- Normalize panels no longer expand on load, a long label name no longer pushes its badge onto a
+  second line, and three paragraphs describing the columns directly beneath them are gone.
+
 ## [1.0.2] — 2026-08-06
 
 ### Changed
