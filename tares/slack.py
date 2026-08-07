@@ -24,6 +24,7 @@ import os
 import re
 import time
 from collections import deque
+from datetime import datetime, timezone
 
 import httpx
 
@@ -57,34 +58,88 @@ def resolve_token(store) -> tuple[str, str]:
     return (stored, "console") if stored else ("", "")
 
 
+def public_base() -> str:
+    """The instance's reachable address, or "". A link to 127.0.0.1 is worse than no link, so
+    nothing is linked until the operator says the instance is reachable (TARES_PUBLIC_URL)."""
+    return os.getenv("TARES_PUBLIC_URL", "").strip().rstrip("/")
+
+
 def deep_link(key: str) -> str:
-    """The `<url|label>` suffix appended to a Slack message, or "" when this instance has no
-    reachable address. A link to 127.0.0.1 is worse than no link, so it is only emitted when the
-    operator has told us the instance is reachable (TARES_PUBLIC_URL)."""
-    base = os.getenv("TARES_PUBLIC_URL", "").strip().rstrip("/")
+    """The `<url|label>` suffix appended to an agent's FINDING — the entity is what a finding is
+    about, so the entity's timeline is where it should land."""
+    base = public_base()
     return f"\n\n<{base}/explore?key={key}|Open {key} in Tares>" if base else ""
+
+
+def dispatch_link(dispatch_id: str | None) -> str:
+    """The `<url|label>` for one firing. A trigger alert is about the firing, not the entity: the
+    dispatch page is the thing that answers "what actually fired, and what did it carry" — which is
+    the question someone reading the alert in Slack has."""
+    base = public_base()
+    return f"<{base}/dispatches/{dispatch_id}|Open in Tares>" if base and dispatch_id else ""
+
+
+# `[T-1734s]` on every event line. Correct, and what an agent wants; unreadable at a glance in a
+# chat client. Rewritten in the SLACK COPY ONLY — the payload itself is the agent-facing contract
+# (it goes out over MCP verbatim), so it keeps its exact seconds.
+_AGE = re.compile(r"\[T-(\d+)s\]")
+
+
+def _humanize_ages(text: str) -> str:
+    def one(m: re.Match) -> str:
+        s = int(m.group(1))
+        if s < 90:
+            return f"[{s}s ago]"
+        if s < 5400:
+            return f"[{round(s / 60)}m ago]"
+        if s < 172800:
+            return f"[{round(s / 3600)}h ago]"
+        return f"[{round(s / 86400)}d ago]"
+    return _AGE.sub(one, text)
+
+
+def _slack_date(iso: str) -> str:
+    """Slack's `<!date^…>` token, which renders in each READER's timezone. A raw ISO string with
+    microseconds and a UTC offset is not a timestamp anyone reads in a chat client. Falls back to
+    the original string if it can't be parsed — a wrong-looking date beats a broken token."""
+    try:
+        dt = datetime.fromisoformat(iso.strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError, AttributeError):
+        return iso
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return f"<!date^{int(dt.timestamp())}^{{date_short_pretty}} at {{time}}|{iso}>"
 
 
 def _truncate(text: str, limit: int = _MAX_SECTION) -> str:
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
-def build_message(trigger: str, key: str, payload: str, fired_at: str | None = None) -> dict:
+def build_message(trigger: str, key: str, payload: str, fired_at: str | None = None,
+                  dispatch_id: str | None = None) -> dict:
     """Block Kit body for a fired trigger. `text` is always set as well — Slack uses it for the
     notification and for clients that can't render blocks, so a blocks-only message shows up as an
-    empty push notification."""
+    empty push notification.
+
+    `unfurl_links`/`unfurl_media` are off. The body carries every label on the event, so a source
+    with a `host` or `url` label — web traffic, CDN logs, deploys nearly always have one — made
+    Slack fetch that site and staple a preview card to the alert. It roughly doubled the height with
+    nothing about the incident, read as though Tares were linking somewhere relevant, and meant
+    alerting had the side effect of Slack fetching a customer's URLs.
+    """
     headline = f"*{trigger}* fired for *{key}*"
-    link = deep_link(key)
+    link = dispatch_link(dispatch_id)
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": headline}}]
-    body = (payload or "").strip()
+    body = _humanize_ages((payload or "").strip())
     if body:
         blocks.append({"type": "section", "text": {
             "type": "mrkdwn", "text": "```" + _truncate(body) + "```"}})
-    context = f"Tares · {fired_at}" if fired_at else "Tares"
+    context = f"Tares · {_slack_date(fired_at)}" if fired_at else "Tares"
     if link:
-        context += " ·" + link.strip()
+        context += " · " + link
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": context}]})
-    return {"text": f"{trigger} fired for {key}", "blocks": blocks}
+    return {"text": f"{trigger} fired for {key}", "blocks": blocks,
+            "unfurl_links": False, "unfurl_media": False}
 
 
 def classify(status: int, data: dict | None) -> tuple[bool, str | None, bool]:
@@ -274,17 +329,90 @@ def parse_command(text: str) -> tuple[str, str | None]:
 _MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
 _MD_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
 _MD_HEAD = re.compile(r"^#{1,6}\s*(.+)$", re.M)
+# A horizontal rule. Slack has no such thing, so `---` arrives as three literal dashes on a line of
+# their own. Excludes anything containing a pipe, which is a table's separator row, not a rule.
+_MD_RULE = re.compile(r"^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$", re.M)
+_MD_BULLET = re.compile(r"^([ \t]*)[-*][ \t]+(?=\S)", re.M)
+# A table row: starts and ends with a pipe. The separator row is the one that is only dashes,
+# colons, pipes and spaces — it carries alignment, which monospace output cannot express anyway.
+_TBL_ROW = re.compile(r"^[ \t]*\|.*\|[ \t]*$")
+_TBL_SEP = re.compile(r"^[ \t]*\|[\s\-:|]+\|[ \t]*$")
+# Emphasis and code ticks inside a table cell: a code block renders them literally, so `**ok**`
+# would read as asterisks. Stripped rather than converted — inside ``` there is nothing to convert to.
+_CELL_NOISE = re.compile(r"(\*\*|__|`)")
+_BLANKS = re.compile(r"\n{3,}")
+
+
+def _cells(row: str) -> list[str]:
+    return [_CELL_NOISE.sub("", c).strip() for c in row.strip().strip("|").split("|")]
+
+
+def _table_to_code(rows: list[str]) -> str:
+    """A markdown table as an aligned monospace block.
+
+    Slack renders no tables at all — a pipe table arrives as raw pipes plus a `|---|---|` row, which
+    on a three-column answer is most of the message. A code block is the only place Slack keeps
+    columns lined up, so the table becomes text that is at least readable as a table.
+    """
+    grid = [_cells(r) for r in rows if not _TBL_SEP.match(r)]
+    if not grid:
+        return ""
+    width = max(len(r) for r in grid)
+    grid = [r + [""] * (width - len(r)) for r in grid]
+    cols = [max(len(r[i]) for r in grid) for i in range(width)]
+    lines = ["  ".join(c.ljust(cols[i]) for i, c in enumerate(r)).rstrip() for r in grid]
+    if len(grid) > 1:                 # keep the header visually separate, without markdown's pipes
+        lines.insert(1, "  ".join("-" * cols[i] for i in range(width)).rstrip())
+    return "```\n" + "\n".join(lines) + "\n```"
+
+
+def _extract_tables(text: str) -> tuple[str, list[str]]:
+    """Replace each markdown table with a placeholder, returning the rendered blocks separately.
+
+    Done before the emphasis and link substitutions so those never rewrite a table's contents —
+    inside a code block their output would be literal asterisks and angle brackets.
+    """
+    out, tables, run = [], [], []
+
+    def flush():
+        # One row and a separator is a table; a single pipe-ish line is prose and stays prose.
+        if len(run) >= 2 and any(_TBL_SEP.match(r) for r in run):
+            out.append(f"\x00TBL{len(tables)}\x00")
+            tables.append(_table_to_code(run))
+        else:
+            out.extend(run)
+        run.clear()
+
+    for line in (text or "").splitlines():
+        if _TBL_ROW.match(line):
+            run.append(line)
+            continue
+        flush()
+        out.append(line)
+    flush()
+    return "\n".join(out), tables
 
 
 def to_mrkdwn(text: str) -> str:
     """Markdown (what the model writes) → Slack mrkdwn (what Slack renders).
 
-    Only the three differences that actually show up as noise in a channel: `**bold**` is literal
-    asterisks in Slack, `[a](b)` is literal brackets, and `## heading` is a literal hash.
+    Slack's dialect is close enough to markdown to be misleading: `**bold**` is literal asterisks,
+    `[a](b)` is literal brackets, `## heading` is a literal hash, `---` is three dashes, and a pipe
+    table is the raw pipes. All of those were showing up verbatim in `/tares ask` answers — the
+    assistant is told to use small tables where they help, so the table case is not an edge case.
     """
-    text = _MD_LINK.sub(r"<\2|\1>", text or "")
+    text, tables = _extract_tables(text)
+    text = _MD_LINK.sub(r"<\2|\1>", text)
     text = _MD_BOLD.sub(r"*\1*", text)
-    return _MD_HEAD.sub(r"*\1*", text)
+    text = _MD_HEAD.sub(r"*\1*", text)
+    text = _MD_RULE.sub("", text)
+    text = _MD_BULLET.sub(r"\1•  ", text)
+    # A dropped rule leaves the blank line either side of it, so the gap doubles. Collapse any run
+    # of blank lines back to one — nothing in Slack needs more than a paragraph break.
+    text = _BLANKS.sub("\n\n", text)
+    for i, block in enumerate(tables):
+        text = text.replace(f"\x00TBL{i}\x00", block)
+    return text
 
 
 def _sections(text: str) -> list[dict]:
@@ -314,7 +442,10 @@ def build_answer(question: str, answer: str, thread_ts: str | None = None,
     body = {"response_type": "in_channel" if in_channel else "ephemeral",
             "replace_original": True,
             "text": _truncate(answer.strip() or "(no answer)", 500),
-            "blocks": blocks}
+            "blocks": blocks,
+            # Same reason as build_message: an answer that mentions one of the user's hostnames
+            # should not make Slack go and fetch it.
+            "unfurl_links": False, "unfurl_media": False}
     if thread_ts:
         # Invoked inside a thread: the answer belongs in that thread, not adrift in the channel.
         body["thread_ts"] = thread_ts
