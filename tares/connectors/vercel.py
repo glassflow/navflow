@@ -29,10 +29,23 @@ class VercelConnector(Connector):
         {"name": "project", "primary": True, "help": "Vercel project (projectName, else projectId)"},
         {"name": "environment", "help": "production | preview"},
         {"name": "source", "help": "lambda | build | edge | static | external | redirect"},
-        {"name": "path", "help": "request path"},
+        {"name": "path", "help": "rewritten path (a Next.js segment on prerendered routes)"},
         {"name": "host", "help": "request host"},
         {"name": "deployment", "help": "deployment id"},
         {"name": "branch", "help": "git branch"},
+        # --- the request (`proxy`) block. Absent on build entries, so these are simply missing
+        # there rather than empty. The status code was previously computed in _map_one and thrown
+        # away, so there was no field to label on: the only 3-digit-ish thing in reach was `path`,
+        # which is why a status label could not be built without a regex over the wrong field.
+        {"name": "status_code", "help": "HTTP status code (proxy.statusCode). Label it as "
+                                        "type=number to filter >= 400 and aggregate in triggers"},
+        {"name": "url", "help": "the request URL as asked for, with query string — unlike `path`, "
+                                "which is rewritten (/tares?_rsc=… vs tares.segments/_head.segment)"},
+        {"name": "method", "help": "GET | POST | HEAD | …"},
+        {"name": "referer", "help": "what linked here — the axis that finds the source of a 404"},
+        {"name": "path_type", "help": "PRERENDER | STATIC | FUNCTION | …"},
+        {"name": "region", "help": "edge region that served it, e.g. hnd1"},
+        {"name": "cache", "help": "Vercel cache result: HIT | MISS | STALE | BYPASS (lambda only)"},
     ]
 
     async def poll(self) -> list[Envelope]:
@@ -49,10 +62,20 @@ class VercelConnector(Connector):
         # None when genuinely absent (not faked to "unknown"), so field coverage is honest.
         e = e or {}
         proxy = e.get("proxy") or {}
+        status = e.get("statusCode")
+        if status is None:            # observed: real drains carry it only in the proxy block
+            status = proxy.get("statusCode")
         return {"project": e.get("projectName") or e.get("projectId"),
                 "environment": e.get("environment"), "source": e.get("source"),
                 "deployment": e.get("deploymentId"), "host": e.get("host"),
-                "branch": e.get("branch"), "path": e.get("path") or proxy.get("path")}
+                "branch": e.get("branch"), "path": e.get("path") or proxy.get("path"),
+                "status_code": status,
+                # `path` above prefers the REWRITTEN top-level value; this is what the client
+                # actually requested, which is the one you want when asking what 404'd.
+                "url": proxy.get("path"),
+                "method": proxy.get("method"), "referer": proxy.get("referer"),
+                "path_type": proxy.get("pathType"), "region": proxy.get("region"),
+                "cache": proxy.get("vercelCache")}
 
     def _map_one(self, e: dict) -> Envelope:
         ctx = self.label_context(e)
@@ -65,9 +88,8 @@ class VercelConnector(Connector):
         if not msg:
             msg = json.dumps(e, default=str)[:300]
 
-        status = e.get("statusCode")
-        if status is None:
-            status = proxy.get("statusCode")
+        # (the status code used to be computed here and never passed on — it is a label now,
+        # resolved in label_context so ingest and backfill agree)
         ts = e.get("timestamp")
         try:
             event_time = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
