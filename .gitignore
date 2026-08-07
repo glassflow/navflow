@@ -23,3 +23,7 @@ dist/
 
 # Claude Code local config + agent worktrees — machine-local, never publish
 .claude/
+
+.DS_Store
+docs/
+uv.lock
