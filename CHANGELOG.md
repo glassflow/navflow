@@ -3,6 +3,37 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] — 2026-08-07
+
+### Added
+- **Vercel sources expose the request (`proxy`) block**: `status_code`, `url`, `method`, `referer`,
+  `path_type`, `region` and `cache` join the fields you can build labels and keys from. `url` is
+  what the client actually requested — the existing `path` is the *rewritten* value, a Next.js
+  segment on prerendered routes (`/tares?_rsc=19hu7` logs as `tares.segments/_head.segment`), so it
+  cannot answer which page failed. Label the code as `{"field": "status_code", "type": "number"}` to
+  filter `>= 400` and aggregate it in a trigger. Fields are resolved in `label_context()`, so ingest
+  and backfill agree. Entries without a `proxy` block (builds) get no request labels rather than
+  empty ones.
+
+### Fixed
+- **The Vercel connector discarded the HTTP status code.** It was computed in `_map_one` and never
+  passed to the envelope — dead since it was written. With no status field to label on, the only
+  value in reach containing digits was `path`, so a status label had to be built as a regex over it:
+  that fires only when the request path is *literally* `404` (a hit on the 404 page asset, not a
+  request that returned 404), names the 404 page instead of the URL that failed, and is empty on
+  live traffic.
+- **The assistant had to guess the shape of a view filter, and got it wrong.** `propose_view` typed
+  `filters` as an array of unconstrained objects, so the shape was stated nowhere the model could
+  see it — producing a flat `{"service": "x"}` pair, then `"=="` for the operator, both rejected on
+  Apply. The schema now requires `field`, `op` and `value` with `op` as an enum of the operators
+  the code validates against (`eq`, `neq`, `contains`, `gt`, `gte`, `lt`, `lte`), which is enforced
+  when the tool is called rather than asked for in prose. The prompt gains the matching rule,
+  including that a filter `field` may also be one of the built-in columns `event_type`, `source`,
+  `text` and `key_value`.
+- **A view proposal showed `2 filter(s)` instead of the filters.** That was the one place a bad
+  filter could be caught before applying it, and it was showing a count. Cards now render each
+  filter, and a malformed one as its raw JSON in a marked chip.
+
 ## [1.1.0] — 2026-08-07
 
 ### Changed
