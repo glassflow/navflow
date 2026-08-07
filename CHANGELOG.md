@@ -3,6 +3,56 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-08-07
+
+### Added
+- **Pick a Slack channel from a list instead of pasting an ID.** Subscribing a trigger to Slack meant
+  going to Slack, right-clicking the channel, Copy link, and pulling the ID out of the URL. The
+  console now offers the channels the bot can actually post to.
+
+  It lists via `users.conversations`, **not** `conversations.list`, and that distinction is the whole
+  design: `conversations.list` returns every public channel including ones the bot was never invited
+  to, and posting to one of those fails at the first firing with `not_in_channel` — a subscription
+  that can never deliver, which is what `validate_slack_channel` exists to prevent. On a real
+  workspace this was the difference between offering 32 channels and offering the 2 that work.
+
+  Because a missing channel now means "the bot isn't in it", the console says so: a line under the
+  picker and a Refresh beside it that re-fetches only the channel list, so someone half-way through
+  wiring up a trigger doesn't lose it to a page reload. Private channels are included and marked with
+  a lock; the value submitted is the channel ID, which survives a rename.
+
+  Needs the `channels:read` and `groups:read` scopes. **Scopes are baked into the token at install**,
+  so a token issued before them keeps posting fine but cannot list — the console detects exactly that
+  and falls back to the free-text box it always had, with a prompt to reinstall. Nobody loses the
+  ability to subscribe.
+
+### Changed
+- **Slack alerts no longer unfurl links.** The alert body carries every label on the event, so a
+  source with a `host` label — web traffic, CDN logs and deploys nearly always have one — made Slack
+  fetch that site and staple a preview card onto the alert. It roughly doubled the height with
+  nothing about the incident, read as though Tares were linking somewhere relevant when it was
+  echoing a label value, and meant alerting had the side effect of Slack fetching a customer's URLs.
+- **A Slack alert now links the firing** (`/dispatches/<id>`) rather than the entity — "what fired
+  and what did it carry" is the question the reader has. An agent's *finding* still links the
+  entity's timeline, which is what a finding is about. Both require `TARES_PUBLIC_URL`; a link to
+  127.0.0.1 is worse than no link.
+- **Slack timestamps are readable.** The footer was a raw ISO string with microseconds and a UTC
+  offset; it now uses Slack's date token, which renders in each reader's timezone. Event ages read
+  `[29m ago]` instead of `[T-1734s]` — in the Slack copy only, since the payload is the agent-facing
+  contract and goes out over MCP verbatim.
+- **`/tares ask` answers render properly.** Markdown tables arrived as raw pipes plus a `|---|---|`
+  row, and `---` rules as three literal dashes. Tables are not an edge case — the assistant is told
+  to use small tables where they help — and Slack renders no tables at all, so one becomes an aligned
+  monospace block, the only place Slack keeps columns lined up.
+- **The last native dropdowns in the console are gone.** A native `<select>`'s open menu is drawn by
+  the OS and cannot be themed, so it arrived as a light system popup in the middle of the console.
+  The view filter operator, the trigger aggregate, the Explore lens, the poll interval unit, the
+  normalize rule kind and the sources status filter all use the app's own picker now.
+
+### Fixed
+- The Slack channel field's placeholder promised only "the channel ID", while a lowercase channel
+  name has always been accepted too.
+
 ## [1.1.1] — 2026-08-07
 
 ### Added
