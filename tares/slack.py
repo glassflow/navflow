@@ -25,6 +25,8 @@ import re
 import time
 from collections import deque
 
+import httpx
+
 API_BASE = os.getenv("TARES_SLACK_API_BASE", "https://slack.com/api").rstrip("/")
 SETTING_KEY = "slack_bot_token"
 ENV_VAR = "TARES_SLACK_BOT_TOKEN"
@@ -130,6 +132,90 @@ def _error_detail(err: str, data: dict) -> str:
     if not hint and err == "missing_scope" and data.get("needed"):
         hint = f"needs scope {data['needed']}"
     return f" ({hint})" if hint else ""
+
+
+# ── the channel picker ────────────────────────────────────────────────────
+# The console offers a list instead of a free-text box for the channel ID, which nobody can find
+# without leaving the app. One page is 200 channels and a real workspace has more, so this
+# paginates — but bounded, because a cursor that never terminates would spin here forever.
+
+_CHANNEL_PAGE = 200
+_CHANNEL_MAX_PAGES = 10          # 2000 channels; past that the picker is the wrong UI anyway
+
+
+async def list_channels(token: str, timeout: float = 10.0
+                        ) -> tuple[list[dict], str | None, str | None]:
+    """`(channels, reason, detail)` — the channels this bot is a **member of**.
+
+    `users.conversations`, not `conversations.list`. The latter lists every public channel in the
+    workspace, including the ones the bot was never invited to: picking one of those produces a
+    subscription that fails at its first firing with `not_in_channel`, which is exactly the failure
+    the picker exists to prevent. `users.conversations` returns only conversations reachable "via
+    membership of the channel" for the presented token, so everything it offers can actually be
+    posted to. It also covers private channels, which `conversations.list` cannot return at all.
+
+    Both `public_channel` and `private_channel` are asked for; the app holds `channels:read` and
+    `groups:read`. Each channel carries `is_private` so the console can render a lock rather than
+    a `#`.
+
+    `reason` is None when the list is trustworthy (an empty list then means the bot has not been
+    invited anywhere), otherwise it names why the caller should not believe it: "no_token",
+    "missing_scope", "error". Nothing raises: the console renders whatever this returns, and a
+    Slack outage must degrade to the free-text box rather than to a stack trace.
+
+    `missing_scope` is called out separately because it is the *expected* failure — a token issued
+    before these scopes were requested has it, and the only fix is reconnecting Slack.
+    """
+    if not (token or "").strip():
+        return [], "no_token", None
+    headers = {"authorization": f"Bearer {token.strip()}"}
+    params = {"types": "public_channel,private_channel", "exclude_archived": "true",
+              "limit": str(_CHANNEL_PAGE)}
+    out: list[dict] = []
+    cursor = ""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as cx:
+            for _ in range(_CHANNEL_MAX_PAGES):
+                q = {**params, **({"cursor": cursor} if cursor else {})}
+                r = await cx.get(f"{API_BASE}/users.conversations", params=q, headers=headers)
+                try:
+                    data = r.json()
+                except Exception:
+                    data = None
+                if r.status_code == 429 or r.status_code >= 500:
+                    return [], "error", f"slack: HTTP {r.status_code}"
+                if not isinstance(data, dict):
+                    return [], "error", f"slack: HTTP {r.status_code} (non-JSON response)"
+                if not data.get("ok"):
+                    err = str(data.get("error") or "unknown_error")
+                    if err == "missing_scope":
+                        # Not _error_detail's hint: that one names chat:write, which is the scope
+                        # this token almost certainly *does* have. Two scopes are in play here, so
+                        # the missing one can be either — take Slack's `needed` when it says, and
+                        # only name both when it doesn't.
+                        needed = str(data.get("needed") or "").strip() or "channels:read and groups:read"
+                        return [], "missing_scope", (
+                            f"slack: missing_scope (the bot token is missing {needed} — "
+                            "reconnect Slack to grant it)")
+                    return [], "error", f"slack: {err}{_error_detail(err, data)}"
+                for c in data.get("channels") or []:
+                    if isinstance(c, dict) and c.get("id") and c.get("name"):
+                        # id, name and is_private only: the console needs nothing else and a
+                        # conversation object carries a few hundred bytes of purpose, topic and
+                        # membership. `is_private` is absent on some payloads — a channel that
+                        # doesn't say it is private isn't.
+                        out.append({"id": str(c["id"]), "name": str(c["name"]),
+                                    "is_private": bool(c.get("is_private"))})
+                cursor = str(((data.get("response_metadata") or {}).get("next_cursor") or "")).strip()
+                if not cursor:
+                    break
+            # Falling out of the loop with a cursor still set means the bound was hit. A partial
+            # list is a usable picker; an error here would take the whole feature away.
+    except Exception as e:
+        return [], "error", ("slack: " + type(e).__name__
+                             + (f": {e}" if str(e).strip() else ""))[:200]
+    out.sort(key=lambda c: c["name"])
+    return out, None, None
 
 
 # ── inbound: the /tares slash command ─────────────────────────────────────

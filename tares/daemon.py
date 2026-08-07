@@ -1375,6 +1375,26 @@ def make_app() -> FastAPI:
         token, origin = resolve_slack_token(store)
         return {"ok": True, "configured": bool(token), "source": origin}
 
+    # ── the channels the bot can post to ─────────────────────────────────────
+    # Feeds the console's channel picker, so that subscribing a trigger to Slack does not require
+    # the operator to go and dig a channel ID out of Slack's own UI.
+    #
+    # ALWAYS 200, never an exception: the console branches on `reason` and falls back to the
+    # free-text channel box when the list can't be trusted. A Slack outage, or the very common
+    # token issued before `channels:read`/`groups:read` were requested, must not blank the page.
+    @app.get("/api/slack/channels")
+    async def list_slack_channels():
+        try:
+            token, _origin = resolve_slack_token(store)
+            channels, reason, detail = await slack_mod.list_channels(token)
+        except Exception as e:                      # belt and braces — list_channels swallows too
+            return {"channels": [], "reason": "error",
+                    "detail": f"{type(e).__name__}: {e}"[:200]}
+        out = {"channels": channels, "reason": reason}
+        if detail:
+            out["detail"] = detail
+        return out
+
     # ── the Slack signing secret: the credential that makes inbound Slack safe ──
     # Same write-only contract as the bot token. Without it POST /api/slack/events answers 503:
     # there is no configuration in which accepting an unverified inbound request is correct.
