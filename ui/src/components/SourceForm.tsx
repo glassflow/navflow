@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
-import { Combo } from "./bits";
+import { Combo, Picker, ruleSummary } from "./bits";
 import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, TestResult } from "../types";
 
 // Structured push connectors know their entity shape, so a fresh source starts with sensible
@@ -697,7 +697,10 @@ function labelsToRows(arr: unknown): LabelRow[] {
     return { name: String(o.name ?? ""), kind, value: String(o[kind] ?? ""), primary: !!o.primary,
              type: o.type === "number" ? "number" as const : "string" as const,
              pattern: String(o.pattern ?? ""), replace: String(o.replace ?? ""), map,
-             normOpen: !!(o.pattern || map.length) };
+             // Collapsed on load. This used to open every label that had rules, because an
+             // expanded panel was the ONLY way to see a label carried any — the rules column now
+             // says so in a word, and each panel is a few hundred pixels that buried the form.
+             normOpen: false };
   });
   if (rows.length && !rows.some((r) => r.primary)) rows[0].primary = true;  // first is the key by default
   return rows;
@@ -717,6 +720,20 @@ function rowToSpec(r: LabelRow): Record<string, unknown> {
   return spec;
 }
 
+/** What this label does to its values — shared with the read-only tables on the source page, so
+ *  both name the same rule the same way. "" means it passes values through untouched, which the
+ *  caller also uses to decide the active styling. */
+function normSummary(row: LabelRow): string {
+  return ruleSummary(row.pattern, row.map.length);
+}
+
+function normTitle(row: LabelRow): string {
+  const bits: string[] = [];
+  if (row.pattern) bits.push(`pattern ${row.pattern} → ${row.replace ? `"${row.replace}"` : "(empty)"}`);
+  if (row.map.length) bits.push(`${row.map.length} value rename${row.map.length === 1 ? "" : "s"}`);
+  return bits.length ? `${bits.join(", ")}. Click to edit.` : "No rules. Click to normalize values.";
+}
+
 function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
   { rows: LabelRow[]; onChange: (r: LabelRow[]) => void; fields?: string[];
     fieldHints?: Record<string, string>; sourceName?: string }) {
@@ -729,37 +746,48 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
     if (next.length && !next.some((r) => r.primary)) next[0].primary = true;  // keep one key
     onChange(next);
   };
+  const keyIndex = Math.max(0, rows.findIndex((r) => r.primary));
   return (
     <div className="field">
+      {/* No blurb here. It used to explain const-vs-field and what the key is — both of which the
+          `from` column and the `entity key` picker now say on their own. */}
       <span className="lbl">labels &amp; key</span>
-      <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 8 }}>
-        the entity axes events carry — a fixed <code>const</code> value or read per-event from a{" "}
-        <code>field</code>. One is the <strong>key</strong> (the primary entity you read and alert by);
-        the rest are extra axes. Browse them all on the Entities page.
-      </span>
+      {/* The key is ONE decision about the source, so it gets ONE control. It used to be a radio
+          per row, which reads as "pick the row I'm editing" rather than "pick the key" — and its
+          consequence (the key's type is forced to string) then looked like a broken type select. */}
+      {rows.length > 0 && (
+        <div className="key-picker">
+          <span className="lbl" style={{ margin: 0 }}>entity key</span>
+          <Picker value={String(keyIndex)} ariaLabel="entity key"
+                  options={rows.map((_, i) => String(i))}
+                  labels={Object.fromEntries(rows.map((r, i) =>
+                    [String(i), r.name || `(unnamed label ${i + 1})`]))}
+                  onChange={(v) => makePrimary(Number(v))} />
+        </div>
+      )}
       {rows.length > 0 && (
         <div className="label-head">
-          <span className="help label-col-key">key</span>
+          <span className="help label-col-key" />
           <span className="help label-col-grow">name</span>
           <span className="help label-col-from">from</span>
           <span className="help label-col-grow">value</span>
-          <span className="help" style={{ width: 88, flexShrink: 0 }}>type</span>
+          <span className="help" style={{ width: 108, flexShrink: 0 }}>type</span>
+          <span className="help label-col-norm">rules</span>
           <span className="label-col-x" />
         </div>
       )}
       {rows.map((row, i) => (
         <div key={i}>
           <div className="label-row">
-            <span className="label-col-key" title="make this the primary key">
-              <input type="radio" checked={row.primary} onChange={() => makePrimary(i)} />
+            <span className="label-col-key">
+              {row.primary && <span className="badge key-chip" title="this label is the entity key">key</span>}
             </span>
             <input className="label-col-grow" placeholder="e.g. service" value={row.name}
                    onChange={(e) => set(i, { name: e.target.value })} />
-            <select className="label-col-from" value={row.kind}
-                    onChange={(e) => set(i, { kind: e.target.value as LabelRow["kind"] })}>
-              <option value="const">const (fixed)</option>
-              <option value="field">field (per event)</option>
-            </select>
+            <Picker className="label-col-from" value={row.kind} ariaLabel="value comes from"
+                    options={["const", "field"]}
+                    labels={{ const: "const (fixed)", field: "field (per event)" }}
+                    onChange={(v) => set(i, { kind: v as LabelRow["kind"] })} />
             {row.kind === "field" && fields.length ? (
               <Combo className="label-col-grow" value={row.value} options={fields}
                      hints={fieldHints} placeholder="field, e.g. service"
@@ -769,18 +797,24 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
                      placeholder={row.kind === "const" ? "value, e.g. api-server" : "field, e.g. service"}
                      value={row.value} onChange={(e) => set(i, { value: e.target.value })} />
             )}
-            <select style={{ width: 88, flexShrink: 0 }} value={row.primary ? "string" : row.type}
-                    disabled={row.primary}
+            <Picker style={{ width: 108, flexShrink: 0 }} ariaLabel="label type"
+                    value={row.primary ? "string" : row.type} disabled={row.primary}
+                    options={["string", "number"]}
                     title={row.primary ? "the key is always a string"
                                        : "number labels can be aggregated (avg/max/sum) in triggers"}
-                    onChange={(e) => set(i, { type: e.target.value as LabelRow["type"] })}>
-              <option value="string">string</option>
-              <option value="number">number</option>
-            </select>
-            {row.kind === "field" && (
-              <button type="button" title="normalize values (regex + aliases)"
-                      className={row.normOpen || row.pattern || row.map.length ? "active" : "dim"}
-                      onClick={() => set(i, { normOpen: !row.normOpen })}>≈</button>
+                    onChange={(v) => set(i, { type: v as LabelRow["type"] })} />
+            {/* Says WHAT the rule is, not just that the button exists. Reading the table used to
+                give no way to tell a pass-through field from one rewriting its values: the only
+                difference was `.dim` vs `.active`, and no CSS rule matched a bare `button.active`,
+                so both rendered identically. */}
+            {row.kind === "field" ? (
+              <button type="button" title={normTitle(row)}
+                      className={"label-col-norm norm" + (normSummary(row) ? " active" : "")}
+                      onClick={() => set(i, { normOpen: !row.normOpen })}>
+                {normSummary(row) ? `≈ ${normSummary(row)}` : "≈ none"}
+              </button>
+            ) : (
+              <span className="label-col-norm" />
             )}
             <button type="button" className="danger label-col-x" onClick={() => remove(i)}>×</button>
           </div>
@@ -834,11 +868,16 @@ function NormalizeEditor({ row, onChange, sourceName }:
   const fromHints = Object.fromEntries(observed.map((r2) => [r2.from, `${r2.events} events`]));
 
   const hasRules = !!row.pattern || row.map.length > 0;
+  // Which label this panel is editing. It is a full-width panel under a table row, so without the
+  // name in the heading there is nothing tying it to the row that opened it.
+  const label = row.name.trim();
 
   return (
     <div className="panel" style={{ margin: "2px 0 10px 28px", padding: 12 }}>
       <div className="pagehead" style={{ marginBottom: 6 }}>
-        <strong>Merge value variants</strong>
+        <strong>
+          Merge value variants{label && <>: <code>{label}</code></>}
+        </strong>
         <span className="btnrow">
           {hasRules && (
             <button type="button" className="danger"
@@ -851,10 +890,14 @@ function NormalizeEditor({ row, onChange, sourceName }:
         </span>
       </div>
       <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 8, whiteSpace: "normal" }}>
-        If the same thing appears under different names
-        (say <span className="mono">checkout</span> and <span className="mono">checkout-svc</span>),
-        they count as different entities and won&rsquo;t correlate. Rename the variants onto one
-        name here. Renaming never loses data — the original value stays in the stored event.
+        {/* Kept, unlike the paragraphs removed elsewhere on this page: both sentences carry a fact
+            the screen cannot show. The first is why merging matters at all; the second is what
+            makes someone willing to click. "Rename the variants onto one name here" went — the
+            controls below say that. */}
+        Variants of the same thing
+        (<span className="mono">checkout</span>, <span className="mono">checkout-svc</span>)
+        count as different entities and won&rsquo;t correlate. Renaming makes a copy and the
+        original stays in the stored event.
       </span>
 
       {pErr && <div className="alert error">{pErr}</div>}
@@ -862,8 +905,9 @@ function NormalizeEditor({ row, onChange, sourceName }:
       {sourceName && preview && (
         <div style={{ marginBottom: 10 }}>
           <span className="help">
-            This field has <strong>{preview.distinct_before}</strong> distinct value{preview.distinct_before === 1 ? "" : "s"} in
-            recent events{merges > 0 && <> — with your renames it becomes <strong>{preview.distinct_after}</strong></>}:
+            {label ? <code>{label}</code> : "This field"} has{" "}
+            <strong>{preview.distinct_before}</strong> distinct value{preview.distinct_before === 1 ? "" : "s"} in
+            recent events{merges > 0 && <>. With your rules it becomes <strong>{preview.distinct_after}</strong></>}:
           </span>
           <table style={{ marginTop: 6 }}>
             <thead><tr><th>value seen</th><th className="num">events</th><th>will become</th></tr></thead>
@@ -872,9 +916,16 @@ function NormalizeEditor({ row, onChange, sourceName }:
                 <tr key={k}>
                   <td className="mono">{r2.from}</td>
                   <td className="num">{r2.events}</td>
+                  {/* An empty target used to render as a green arrow followed by nothing, which is
+                      indistinguishable from a missing value — and `ok` styling on it reads as
+                      approval of the wrong thing. Blanking a value is a legitimate rule (a pattern
+                      that keeps only what matches), so it needs to be stated, not flagged. */}
                   <td className="mono">
                     {r2.from === r2.to
                       ? <span className="dim">unchanged</span>
+                      : r2.to === ""
+                      ? <><span className="badge blanked" style={{ marginRight: 6 }}>→</span>
+                          <span className="dim"><em>(empty)</em></span></>
                       : <><span className="badge ok" style={{ marginRight: 6 }}>→</span>{r2.to}</>}
                   </td>
                 </tr>

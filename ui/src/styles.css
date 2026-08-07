@@ -375,6 +375,11 @@ td .dim, .dim { color: var(--ink-faint); }
 .badge.error { background: var(--err-soft); color: var(--err); }
 .badge.paused { background: var(--warn-soft); color: var(--warn); }
 .badge.push { background: var(--slate-soft); color: var(--slate); }
+/* A value rewritten to nothing. Deliberately NOT `ok` — blanking is a legitimate rule, but it is
+   not a success to be congratulated, and it must not look like a target that failed to render.
+   NOT called `.empty`: that is the empty-state panel (32px padding, centred, bordered) and the bare
+   class name would win on the shared specificity and inflate the chip into a block. */
+.badge.blanked { background: var(--slate-soft); color: var(--slate); }
 .badge.agent { background: var(--accent-soft); color: var(--accent-deep); }
 .badge.starting { background: var(--starting-bg); color: var(--ink-soft); }
 
@@ -504,6 +509,11 @@ details.adv-group[open] > summary .caret { transform: rotate(90deg); }
 details.adv-group .fld-row:first-child { border-top: none; }
 
 /* One consistent data field: filled box, defined hairline, sand focus */
+/* `input:not([type])` matters: an <input> with no type attribute IS a text input, but the attribute
+   selectors below never matched one. Seven of them across the console rendered with no border at
+   all — survivable on the bone ground, invisible on the dark one (the Ask composer was the report).
+   Matching bare inputs here fixes them all, and the next one nobody remembers to type. */
+input:not([type]),
 input[type="text"], input[type="number"], input[type="password"], select, textarea {
   font: inherit;
   font-size: 13.5px;
@@ -515,6 +525,31 @@ input[type="text"], input[type="number"], input[type="password"], select, textar
   color: var(--ink);
 }
 input:hover, select:hover, textarea:hover { border-color: color-mix(in srgb, var(--ink) 50%, var(--panel)); }
+
+/* Selects are drawn by us, not by the OS. A native control ignores the palette, the square corners
+   and the hairline, so one macOS-chrome dropdown in a row of our own inputs is the only thing on
+   the page that doesn't belong to the design system. `appearance: none` keeps it a real <select>
+   — full keyboard and screen-reader behaviour, native menu on open — and only restyles the box. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7' fill='none'><path d='M1 1l4 4 4-4' stroke='%236f665a' stroke-width='1.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  cursor: pointer;
+}
+:root[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7' fill='none'><path d='M1 1l4 4 4-4' stroke='%23b3a99a' stroke-width='1.5'/></svg>");
+}
+/* Without appearance:none the OS greyed a disabled select for us. It doesn't any more, and the
+   key's type select is permanently disabled — it has to look it. */
+select:disabled {
+  cursor: not-allowed;
+  color: var(--ink-faint);
+  background-color: color-mix(in srgb, var(--input-bg) 70%, var(--panel));
+  background-image: none;
+}
 textarea.code { font-family: var(--mono); font-size: 12.5px; min-height: 110px; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; background: var(--input-bg); border-color: var(--accent); box-shadow: none; }
 button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; box-shadow: none; }
@@ -580,6 +615,40 @@ pre.payload {
 /* combobox */
 .combo { position: relative; }
 .combo input { width: 100%; font-family: var(--mono); }
+
+/* `Picker` — the pick-one dropdown. The trigger is a button dressed as one of our inputs so it
+   sits flush with the real inputs beside it; the menu is `.combo-list`, shared with `Combo`. */
+.picker-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; font: inherit; font-size: 13.5px; text-align: left;
+  padding: 9px 11px; border: 1px solid var(--border-strong); border-radius: 0;
+  background: var(--input-bg); color: var(--ink); cursor: pointer;
+}
+.picker-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--ink) 50%, var(--panel)); }
+.picker-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.picker-btn:disabled {
+  cursor: not-allowed; color: var(--ink-faint);
+  background: color-mix(in srgb, var(--input-bg) 70%, var(--panel));
+}
+.picker-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-caret { flex-shrink: 0; color: var(--ink-faint); }
+.picker-btn:disabled .picker-caret { display: none; }
+
+/* Label name + its badges on one line that never wraps. Inline, a long name pushed the badge to a
+   second row while a short one kept it alongside, so the badges staggered down the column. */
+.label-cell { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.label-cell-name { margin-right: 2px; }
+.rule-chip { background: var(--accent-soft); color: var(--accent-deep); }
+
+/* Section header that folds. The whole title is the hit target, not a lone chevron. */
+.disclosure {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.disclosure:hover h2 { color: var(--accent-deep); }
+.disclosure-caret { flex-shrink: 0; color: var(--ink-faint); transform: rotate(-90deg); transition: transform 0.12s ease; }
+.disclosure-caret.open { transform: rotate(0deg); }
 .combo-list {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
   min-width: 100%; width: max-content; max-width: min(560px, 85vw);
@@ -601,6 +670,27 @@ pre.payload {
 .label-col-from { width: 170px; flex-shrink: 0; }
 .label-col-grow { flex: 1; min-width: 0; }
 .label-col-x { width: 24px; flex-shrink: 0; }
+
+/* The key is one decision about the source, so it is one control above the table rather than a
+   radio on every row. The row keeps a quiet chip so you can still see where it landed. */
+.key-picker { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; flex-wrap: wrap; }
+/* Sized to the control, not to the row — a five-item picker as a full-width bar reads as a text
+   field. `.picker` is the themed replacement for the native select. */
+.key-picker select, .key-picker .picker { width: 200px; flex: 0 0 auto; }
+.key-chip { background: var(--accent-soft); color: var(--accent-deep); }
+
+/* Fixed width so rows stay aligned whether or not a label carries rules. Without the .norm.active
+   rule below there was NO visual difference between a pass-through label and one rewriting every
+   value: `.active` matched nothing here (every .active rule in this file is scoped to some other
+   component), so it fell through to default text — a shade off `.dim`. */
+.label-col-norm { width: 116px; flex-shrink: 0; }
+.label-row button.norm { width: 116px; font-size: 12px; color: var(--ink-faint); }
+.label-row button.norm.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
+}
 
 /* ── right-side slide-over sheet ── */
 .sheet-overlay { position: fixed; inset: 0; background: var(--overlay); z-index: 40; animation: sheet-fade 0.12s ease; }
@@ -858,25 +948,113 @@ pre.payload {
 .seg.small button { padding: 5px 10px; font-size: 12px; font-family: var(--mono); }
 
 /* Ask — in-app agent chat */
-.chat { min-height: 320px; max-height: 64vh; overflow-y: auto; padding: 4px 2px; }
+/* The transcript scrolls with the PAGE. It used to be a 64vh inner scroller inside a page that
+   didn't scroll, so a long answer was read through a slot half the window high while the rest of
+   the viewport sat frozen — and the wheel only did what you expected with the pointer inside it. */
+.askchat { position: relative; padding-bottom: 8px; }
+.chat { padding: 4px 2px 8px; }
+
 .starters { display: flex; gap: 24px; flex-wrap: wrap; padding: 10px 0; }
 .starter-group { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 6px; }
 .starter { text-align: left; padding: 9px 12px; font: inherit; border-radius: 0; cursor: pointer; }
-.bubble { margin: 12px 0; max-width: 100%; }
-.bubble.user .bubble-text {
-  display: inline-block; background: var(--accent); color: var(--on-accent); padding: 8px 12px;
-  border-radius: 0; white-space: pre-wrap;
+
+/* One turn, clearly bounded. Before, the question was a small right-aligned pill and the answer was
+   unstyled full-bleed text with no container, label or rule, so consecutive turns ran together into
+   one wall you couldn't scan back through. */
+.turn { padding: 14px 0; border-top: 1px solid var(--line); }
+.turn:first-of-type { border-top: 0; }
+.turn-who {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--pixel); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-faint); margin-bottom: 6px;
 }
-.bubble.user { text-align: right; }
-.bubble.assistant .bubble-text { white-space: pre-wrap; line-height: 1.5; }
-.toolcall { font-size: 12px; color: var(--ink-faint); margin: 2px 0; font-family: var(--mono); }
-.askbar { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
-.askbar input { flex: 1; padding: 0.55rem 0.7rem; font: inherit; }
+.turn-copy {
+  /* far right, not butted against the role label — inline it read as one word, "TARES COPY" */
+  margin-left: auto;
+  background: none; border: 0; padding: 0; font: inherit; font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-faint); cursor: pointer; opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.turn:hover .turn-copy { opacity: 1; }
+.turn-copy:hover { color: var(--accent-deep); }
+.turn.user .bubble-text {
+  white-space: pre-wrap; background: var(--accent-soft); color: var(--ink);
+  padding: 8px 12px; border-left: 2px solid var(--accent);
+}
+/* Prose caps at a readable measure; code, tables and cards still use the full width. */
+.turn.assistant .md > p, .turn.assistant .md > ul, .turn.assistant .md > ol { max-width: 78ch; }
+
+/* A run of tool calls drawn as a pipeline — one node per call on a hairline rail, each with a
+   state dot, the tool, its duration, and its input/output behind a click. Square dots and 1px
+   hairlines, not the prototype's circles and rounded cards. */
+.rail { position: relative; margin: 8px 0 10px; padding-left: 22px; }
+.rail::before {
+  content: ""; position: absolute; left: 3px; top: 10px; bottom: 12px; width: 1px;
+  background: var(--border-strong);
+}
+.node { position: relative; }
+.node::before {
+  content: ""; position: absolute; left: -22px; top: 10px; width: 7px; height: 7px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+}
+.node[data-state="running"]::before { background: var(--accent); border-color: var(--accent); animation: node-pulse 1.1s ease-in-out infinite; }
+.node[data-state="done"]::before { background: var(--ink-faint); border-color: var(--ink-faint); }
+.node[data-state="fail"]::before { background: var(--err); border-color: var(--err); }
+@keyframes node-pulse { 50% { box-shadow: 0 0 0 4px var(--accent-soft); } }
+/* Respect a reader who has asked the OS for less motion — this dot pulses for the whole run. */
+@media (prefers-reduced-motion: reduce) { .node[data-state="running"]::before { animation: none; } }
+
+.node-head {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
+  background: none; border: 0; padding: 4px 0; font: inherit; font-size: 12.5px;
+  color: var(--ink-faint); cursor: pointer;
+}
+.node-head:hover .node-label { color: var(--ink); }
+.node-tool { font-size: 12px; color: var(--accent-deep); }
+.node-label { color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-time { margin-left: auto; font-size: 11px; color: var(--ink-faint); flex: none; font-variant-numeric: tabular-nums; }
+.node-body { margin: 2px 0 8px; border-left: 2px solid var(--accent-soft); padding-left: 10px; }
+.kv { font-size: 11.5px; color: var(--ink-faint); white-space: pre-wrap; word-break: break-word; margin: 0 0 5px; }
+.kv b { color: var(--ink); font-weight: 500; }
+
+/* Pinned, and visibly a different surface from the transcript — the answer used to run straight
+   into the input with nothing between them, so there was no "here is where you reply". */
+.askbar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; gap: 8px; align-items: flex-end;
+  padding: 12px 0 10px; margin-top: 4px;
+  background: var(--bg);
+  border-top: 1px solid var(--border-strong);
+}
+/* A fade above the bar so text visibly passes UNDER it rather than stopping at a hard edge. */
+.askbar::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -24px; height: 24px;
+  background: linear-gradient(180deg, transparent, var(--bg));
+  pointer-events: none;
+}
+.askbar textarea {
+  flex: 1; padding: 0.55rem 0.7rem; font: inherit; resize: none; overflow-y: auto;
+  min-height: 38px; max-height: 160px; line-height: 1.45;
+}
+
+/* Only shown once the reader has scrolled away from the tail. The wrapper does the centring: a
+   sticky element stays in flow, so `left: 50%` on the button itself did nothing and it stretched
+   to the row's width instead of sitting as a pill above the composer. */
+.jump-latest-wrap {
+  position: sticky; bottom: 84px; z-index: 6;
+  display: flex; justify-content: center; height: 0; pointer-events: none;
+}
+/* Hidden, not unmounted. Inserting and removing a sticky element mid-scroll relayouts the page
+   under the reader. `visibility` keeps it out of the way without touching layout. */
+.jump-latest-wrap.hidden { visibility: hidden; }
+.jump-latest {
+  pointer-events: auto; font-size: 12px; padding: 5px 12px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  box-shadow: 0 6px 18px var(--sheet-shadow); cursor: pointer;
+}
 
 /* Ask chat shared shell (page + ⌘K overlay) */
 .askchat { display: flex; flex-direction: column; min-height: 0; }
-.chat-tools { display: flex; justify-content: flex-end; margin-bottom: 2px; }
-.chat-tools button { font-size: 12px; }
 
 /* nav ⌘K hint on the Ask link */
 .nav-kbd {

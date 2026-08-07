@@ -1087,17 +1087,19 @@ def make_app() -> FastAPI:
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
         from .agent import run_agent
-        # per-request header key wins (a user override); otherwise the same key Tares agents use
-        # (env, or the console-stored key) — so a key set once under Agents/Security works here too.
-        key = request.headers.get("x-anthropic-key", "").strip() or resolve_anthropic_key(store)[0]
+        # ONE key for the whole instance: env, else the console-stored one. There used to be an
+        # `X-Anthropic-Key` header override, which the console filled from localStorage — so a key
+        # added on the Ask page made Ask work while Slack and trigger-woken agents still reported
+        # none configured, having no browser to read it from (NF-125).
+        key = resolve_anthropic_key(store)[0]
         if not key:
             _err(ValueError("add your Anthropic API key to use the assistant"), 400)
         body = await request.json()
         # the daemon's own token, so the agent's tool self-calls clear the auth middleware
         self_headers = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
         return StreamingResponse(
-            run_agent(key, body.get("messages") or [], body.get("mode") or "explore",
-                      body.get("model"), self_headers),
+            run_agent(key, body.get("messages") or [],
+                      model=body.get("model"), self_headers=self_headers),
             media_type="text/event-stream")
 
     @app.get("/api/mcp/tools")
@@ -1439,7 +1441,7 @@ def make_app() -> FastAPI:
             async def _run():
                 nonlocal text, error
                 async for chunk in run_agent(key, [{"role": "user", "content": question}],
-                                             "explore", None, self_headers):
+                                             self_headers=self_headers):
                     for line in chunk.splitlines():
                         if not line.startswith("data: "):
                             continue

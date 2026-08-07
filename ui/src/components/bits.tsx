@@ -84,6 +84,74 @@ export function formatBytes(n: number | null | undefined): string {
   return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
 
+/** How a label rewrites its values, in as few characters as fit a table cell. "" when it passes
+ *  values straight through. One implementation so the editor and the read-only tables can never
+ *  describe the same rule differently. */
+export function ruleSummary(pattern?: string, renames = 0): string {
+  if (pattern && renames) return `regex +${renames}`;
+  if (pattern) return "regex";
+  if (renames) return `${renames} rename${renames === 1 ? "" : "s"}`;
+  return "";
+}
+
+/** Pick-one dropdown wearing the same menu as `Combo` — replaces native <select>, whose OPEN menu
+ *  is drawn by the OS and cannot be themed at all (restyling the closed box only makes the mismatch
+ *  more obvious the moment you click it). Unlike `Combo` there is no free text: the value is always
+ *  one of `options`.
+ *
+ *  Keeps what a native select gives you for free: full keyboard control, and `disabled`. */
+export function Picker({ value, onChange, options, labels, className, style, disabled, title, ariaLabel }: {
+  value: string; onChange: (v: string) => void; options: string[];
+  labels?: Record<string, string>;   // display text per option (defaults to the option itself)
+  className?: string; style?: React.CSSProperties;
+  disabled?: boolean; title?: string; ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(Math.max(0, options.indexOf(value)));
+  const text = (o: string) => labels?.[o] ?? o;
+
+  const pick = (o: string) => { onChange(o); setOpen(false); };
+
+  return (
+    <div className={"combo picker" + (className ? ` ${className}` : "")} style={style}>
+      <button type="button" className="picker-btn" disabled={disabled} title={title}
+              aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open}
+              onClick={() => { setHi(Math.max(0, options.indexOf(value))); setOpen((o) => !o); }}
+              onBlur={() => setOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { setOpen(false); return; }
+                if (!open) {
+                  // Enter/Space/arrows open it, matching a native select.
+                  if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(e.key)) {
+                    e.preventDefault(); setHi(Math.max(0, options.indexOf(value))); setOpen(true);
+                  }
+                  return;
+                }
+                if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => Math.min(h + 1, options.length - 1)); }
+                else if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+                else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(options[hi]); }
+              }}>
+        <span className="picker-value">{text(value)}</span>
+        <svg className="picker-caret" width="10" height="7" viewBox="0 0 10 7" fill="none" aria-hidden="true">
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="combo-list" role="listbox">
+          {options.map((o, i) => (
+            <div key={o} role="option" aria-selected={o === value}
+                 className={"combo-item" + (i === hi ? " active" : "")}
+                 onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+                 onMouseEnter={() => setHi(i)}>
+              {text(o)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Input with styled suggestions — replaces native <datalist> (which can't be themed).
  *  Free text stays allowed; suggestions filter as you type. */
 export function Combo({ value, onChange, options, placeholder, style, className, hints, hintClass }: {

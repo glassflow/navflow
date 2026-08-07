@@ -5,7 +5,7 @@ import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import IngestSetup from "../components/IngestSetup";
 import SourceForm from "../components/SourceForm";
-import { ErrorState, StatusBadge, TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, StatusBadge, TimeAgo, ruleSummary, usePolling } from "../components/bits";
 import type { ConnectorSpec, Source } from "../types";
 
 export default function SourceDetail() {
@@ -84,7 +84,7 @@ export default function SourceDetail() {
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
       </div>
 
-      {tab === "fields" && <FieldsPanel name={name} />}
+      {tab === "fields" && <FieldsPanel name={name} source={source} />}
 
       {tab === "config" && spec && (
         <div className="panel">
@@ -161,13 +161,29 @@ export default function SourceDetail() {
 function LabelsSummary({ source, onEdit }: { source: Source; onEdit: () => void }) {
   const labels = (source.config?.labels ?? []) as Array<{
     name: string; field?: string; const?: string; primary?: boolean }>;
+  // Collapsed by default: the Labels panel below says everything this one does and more (coverage,
+  // top values, rules), so on a source with many labels this was mostly page length. The header
+  // keeps the count and the Edit button, so nothing is lost while it is shut.
+  const [open, setOpen] = useState(false);
+  const key = labels.find((l) => l.primary)?.name;
   return (
     <div className="panel" style={{ marginTop: 14 }}>
-      <div className="pagehead" style={{ marginBottom: labels.length ? 8 : 0 }}>
-        <h2 style={{ margin: 0 }}>Labels &amp; key</h2>
+      <div className="pagehead" style={{ marginBottom: open && labels.length ? 8 : 0 }}>
+        <button className="disclosure" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <svg className={"disclosure-caret" + (open ? " open" : "")} width="10" height="7"
+               viewBox="0 0 10 7" fill="none" aria-hidden="true">
+            <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          <h2 style={{ margin: 0 }}>Labels &amp; key</h2>
+          {!open && labels.length > 0 && (
+            <small className="dim">
+              · {labels.length} label{labels.length === 1 ? "" : "s"}{key ? <> · key <span className="mono">{key}</span></> : null}
+            </small>
+          )}
+        </button>
         <button onClick={onEdit}>Edit</button>
       </div>
-      {labels.length ? (
+      {!open ? null : labels.length ? (
         <table>
           <thead><tr><th>label</th><th>from</th></tr></thead>
           <tbody>
@@ -199,17 +215,26 @@ function LabelsSummary({ source, onEdit }: { source: Source; onEdit: () => void 
 
 const FIELDS_PAGE = 12;
 
-function FieldsPanel({ name }: { name: string }) {
+function FieldsPanel({ name, source }: { name: string; source: Source }) {
+  // The rules live in the source config; the profile API only reports coverage and values. Cross
+  // referencing by name is what lets this table say WHICH labels are derived — it claims to include
+  // them and used to render a regex-rewritten label identically to a straight pass-through one.
+  const rules = Object.fromEntries(
+    ((source.config?.labels ?? []) as Array<{ name: string; pattern?: string; map?: object }>)
+      .map((l) => [l.name, ruleSummary(l.pattern, Object.keys(l.map ?? {}).length)]));
   const { data } = usePolling(() => api.sourceFields(name), 5000);
   const [showAll, setShowAll] = useState(false);
   if (!data || !data.fields.length) return null;
-  const allFull = data.fields.every((f) => f.coverage === data.sampled);
   const fmt = (v: string) => (v.length > 44 ? v.slice(0, 43) + "…" : v);
-  // keys and labels lead, then by how many events actually carry the field — the most
-  // promotable candidates come first, long tails of sparse fields fold behind "show all"
-  const sorted = [...data.fields].sort((a, b) =>
-    (a.is_key ? 0 : a.is_label ? 1 : 2) - (b.is_key ? 0 : b.is_label ? 1 : 2)
-    || b.coverage - a.coverage || a.name.localeCompare(b.name));
+  // ONLY the fields that are not already labels. Anything declared is listed — with more detail —
+  // in the Labels table directly above, so including it here printed every declared axis twice on
+  // one screen. What is left is exactly the useful question this table answers: what else is in the
+  // data that you could promote?
+  const candidates = data.fields.filter((f) => !f.is_label && !f.is_key);
+  const allFull = candidates.every((f) => f.coverage === data.sampled);
+  // Densest first — the best promotion candidates lead, long tails fold behind "show all".
+  const sorted = [...candidates].sort((a, b) =>
+    b.coverage - a.coverage || a.name.localeCompare(b.name));
   const shown = showAll ? sorted : sorted.slice(0, FIELDS_PAGE);
   const labels = data.labels ?? [];
   const allLabelsFull = labels.every((l) => l.coverage === data.sampled);
@@ -218,11 +243,10 @@ function FieldsPanel({ name }: { name: string }) {
     {labels.length > 0 && (
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Labels <small className="dim">· {data.sampled} events sampled</small></h2>
-        <p className="subtitle">
-          The curated axes you read and alert by — each label with its coverage and top values,
-          including derived ones (regex / const / map over a raw field). <span className="badge ok">key</span>{" "}
-          is the primary; <strong>0 coverage</strong> means the extraction matched nothing (e.g. a bad field or regex).
-        </p>
+        {/* No subtitle. It described the columns that are right underneath it — the badges, the
+            coverage bar and the values say the same thing without a paragraph. The one fact it
+            carried that the table doesn't is kept where it matters: the 0-coverage rows say so
+            inline, on the row it applies to. */}
         <table>
           <thead><tr>
             <th>label</th>
@@ -234,9 +258,19 @@ function FieldsPanel({ name }: { name: string }) {
             {labels.map((l) => (
               <tr key={l.name} style={l.coverage === 0 ? { opacity: 0.55 } : undefined}>
                 <td className="mono">
-                  {l.name}
-                  {l.is_key ? <span className="badge ok" style={{ marginLeft: 6 }}>key</span>
-                    : <span className="badge starting" style={{ marginLeft: 6 }}>label</span>}
+                  {/* One row, never wrapping. Inline, a long name pushed the badge onto a second
+                      line while short names kept it alongside, so badges staggered down the column
+                      by name length. A nowrap flex cell lines them all up. */}
+                  <div className="label-cell">
+                    <span className="label-cell-name">{l.name}</span>
+                    {l.is_key ? <span className="badge ok">key</span>
+                      : <span className="badge starting">label</span>}
+                    {rules[l.name] && (
+                      <span className="badge rule-chip" title="this label rewrites its values before they are stored">
+                        ≈ {rules[l.name]}
+                      </span>
+                    )}
+                  </div>
                   {l.coverage === 0 && (
                     <div className="help" style={{ fontFamily: "inherit" }}>
                       no sampled event carries this label — check the field mapping / regex
@@ -268,13 +302,15 @@ function FieldsPanel({ name }: { name: string }) {
       </div>
     )}
     <div className="panel">
-      <h2 style={{ marginTop: 0 }}>Fields <small className="dim">· {data.sampled} events sampled</small></h2>
-      <p className="subtitle">
-        The axes this connector can label events by, profiled from recent events (the full raw
-        payload is always stored regardless). <span className="badge ok">key</span> and{" "}
-        <span className="badge starting">label</span> mark what you read and alert by today; the
-        rest can be promoted to a label in <strong>Configuration</strong>.
-      </p>
+      {/* "not declared as labels" earns its place: without it the absence of `path` here reads as a
+          bug rather than as "it's a label, it's in the table above". */}
+      <h2 style={{ marginTop: 0 }}>Fields{" "}
+        <small className="dim">· not declared as labels · {data.sampled} events sampled</small></h2>
+      {sorted.length === 0 ? (
+        <p className="help" style={{ margin: 0, whiteSpace: "normal" }}>
+          Every field observed in the sample is already a label.
+        </p>
+      ) : (
       <table>
         <thead><tr>
           <th>field</th>
@@ -285,16 +321,11 @@ function FieldsPanel({ name }: { name: string }) {
         <tbody>
           {shown.map((f) => (
             <tr key={f.name} style={f.coverage === 0 ? { opacity: 0.55 } : undefined}>
+              {/* No key/label badge here any more — nothing in this table is one. */}
               <td className="mono">
                 {f.name}
-                {f.is_key ? <span className="badge ok" style={{ marginLeft: 6 }}>key</span>
-                  : f.is_label ? <span className="badge starting" style={{ marginLeft: 6 }}>label</span> : null}
                 {f.coverage === 0 && (
-                  <div className="help" style={{ fontFamily: "inherit" }}>
-                    not observed in the sample{(f.is_key || f.is_label)
-                      ? " — declared as a label but no event carries it; check the field mapping"
-                      : ""}
-                  </div>
+                  <div className="help" style={{ fontFamily: "inherit" }}>not observed in the sample</div>
                 )}
               </td>
               {!allFull && (
@@ -319,12 +350,15 @@ function FieldsPanel({ name }: { name: string }) {
           ))}
         </tbody>
       </table>
+      )}
       {sorted.length > FIELDS_PAGE && (
         <button style={{ marginTop: 10 }} onClick={() => setShowAll((s) => !s)}>
           {showAll ? "show fewer" : `show all ${sorted.length} fields`}
         </button>
       )}
-      {allFull && <p className="help" style={{ marginTop: 8 }}>Every field is present in all {data.sampled} sampled events.</p>}
+      {sorted.length > 0 && allFull && (
+        <p className="help" style={{ marginTop: 8 }}>Every field is present in all {data.sampled} sampled events.</p>
+      )}
     </div>
     </>
   );
