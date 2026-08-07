@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { api } from "../api";
+import { api, type SlackChannels } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
-import { ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 
 // The home of one trigger: condition, the agents it wakes (wire more here), recent firings.
 // Read-only by default; Edit swaps in the editor in place (?edit=1 opens it directly).
@@ -25,6 +25,27 @@ export default function TriggerDetail() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>();
   const { data: caps } = usePolling(() => api.capabilities(), 60000);
+  // Fetched once, not polled: a workspace's channel list doesn't move while you're on this page.
+  // It does move when you invite the bot to a channel in Slack, which is what Refresh below is for.
+  const [slack, setSlack] = useState<SlackChannels>();
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.slackChannels()
+      .then((r) => { if (live) setSlack(r); })
+      .catch(() => { if (live) setSlack({ channels: [], reason: "error" }); });
+    return () => { live = false; };
+  }, []);
+  // Re-lists channels without reloading the page — you're mid-way through wiring up a trigger and
+  // a reload would throw the rest of that away. A failed refresh keeps the list we already have,
+  // so trying is never worse than not trying; a *successful* one is followed even when it comes
+  // back worse (a token revoked meanwhile drops us to the text box, which is the truth).
+  const refreshChannels = async () => {
+    setRefreshing(true);
+    try { setSlack(await api.slackChannels()); } catch { /* keep the current list */ }
+    setRefreshing(false);
+  };
+  const channels = slack?.reason === null ? slack.channels : [];
 
   if (error) return <div className="alert error">{error}</div>;
   if (!triggers) return <div className="dim">loading…</div>;
@@ -156,19 +177,54 @@ export default function TriggerDetail() {
         other delivery:
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
-        <input type="text" className="mono" style={{ flex: 1 }}
-               placeholder="C0123456789 — the channel ID, from Slack's “Copy link”"
-               value={channel} onChange={(e) => setChannel(e.target.value)} />
+        {channels.length > 0 ? (
+          // One flex child, not two: .btnrow wraps, and a bare Refresh button beside the picker
+          // would drop the Subscribe button onto its own line at narrow widths.
+          <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center" }}>
+            {/* Shows the name but submits the ID: a channel renamed later keeps its ID, so the
+                subscription survives the rename instead of quietly pointing at nothing. */}
+            <Picker value={channel} onChange={setChannel} ariaLabel="Slack channel"
+                    style={{ flex: 1, minWidth: 0 }}
+                    options={channels.map((c) => c.id)}
+                    labels={{ "": "choose a channel…",
+                              ...Object.fromEntries(channels.map(
+                                (c) => [c.id, c.is_private ? `🔒 ${c.name}` : `#${c.name}`])) }} />
+            <button type="button" disabled={refreshing} onClick={refreshChannels}
+                    style={{ flexShrink: 0 }}>
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        ) : (
+          <input type="text" className="mono" style={{ flex: 1 }}
+                 placeholder="C0123456789 (the channel ID, from Slack's “Copy link”) or its lowercase name"
+                 value={channel} onChange={(e) => setChannel(e.target.value)} />
+        )}
         <button className="primary" disabled={!channel.trim() || busy} onClick={async () => {
           setBusy(true); setMsg(undefined);
+          // The picker already hands us a bare ID; only typed-in text can carry a leading "#".
+          const target = channels.length > 0 ? channel : channel.trim().replace(/^#/, "");
           try {
-            const r = await api.subscribe(name, `slack://channel/${channel.trim().replace(/^#/, "")}`);
+            const r = await api.subscribe(name, `slack://channel/${target}`);
             setMsg(`✓ subscribed (${r.subscription_id})`);
             setChannel("");
           } catch (e) { setMsg(`⚠️ ${String((e as Error).message ?? e)}`); }
           setBusy(false);
         }}>Subscribe channel</button>
       </div>
+      {/* The list only contains channels the bot has been invited to, so a missing one almost
+          always means exactly this — a 10-second fix in Slack, but only if we say so. */}
+      {channels.length > 0 && (
+        <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
+          not seeing a channel? add the bot to it in Slack, then hit Refresh.
+        </p>
+      )}
+      {slack?.reason === "missing_scope" && (
+        <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
+          this Slack token predates the <span className="mono">channels:read</span> and{" "}
+          <span className="mono">groups:read</span> scopes — reinstall the Slack app to pick a
+          channel from a list instead of typing one.
+        </p>
+      )}
       {caps && caps.slack_configured === false && (
         <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
           no Slack bot token is configured yet — add one under{" "}

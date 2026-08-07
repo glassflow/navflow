@@ -30,6 +30,16 @@ export function authHeader(): Record<string, string> {
 // carrying one (say, a release or two after 1.0.2).
 try { localStorage.removeItem("tares_anthropic_key"); } catch { /* private mode */ }
 
+// Only channels the bot is a member of are listed, so a private one appearing here is expected.
+// `is_private` exists because Slack never shows a private channel as "#name" — labelling it that
+// way would name something the user can't find by that name.
+export type SlackChannel = { id: string; name: string; is_private: boolean };
+export type SlackChannels = {
+  channels: SlackChannel[];
+  reason: null | "no_token" | "missing_scope" | "error";
+  detail?: string;
+};
+
 function unauthorized() {
   auth.clear();
   window.dispatchEvent(new Event("tares-auth-required"));
@@ -186,6 +196,11 @@ export const api = {
   clearSlackSigningSecret: () =>
     request<{ ok: boolean; configured: boolean }>("/api/settings/slack-signing-secret",
       { method: "DELETE" }),
+
+  // The channels the bot can post to, for picking one instead of pasting an ID. Answers 200 even
+  // when it can't list them — `reason` says why the list is empty — so a workspace we can't read
+  // stays a fallback to typing the channel in, not an error the console has to render.
+  slackChannels: () => request<SlackChannels>("/api/slack/channels"),
 
   agents: () => request<{ agents: AgentInfo[] }>("/api/agents"),
   unsubscribe: (subscription_id: string) =>
