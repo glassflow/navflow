@@ -54,7 +54,7 @@ class Dispatcher:
             channel = slack_channel_from_url(url)
             if channel is not None:
                 ok, error = await self._slack_post(channel, trigger.name, key, payload,
-                                                   body["fired_at"])
+                                                   body["fired_at"], dispatch_id)
             else:
                 ok, error = await self._post(url, body)
             self.store.log_delivery(dispatch_id, sid, url, ok, error)   # per-agent delivery history
@@ -88,7 +88,7 @@ class Dispatcher:
         return False, error
 
     async def _slack_post(self, channel: str, trigger: str, key: str, payload: str,
-                          fired_at: str | None = None,
+                          fired_at: str | None = None, dispatch_id: str | None = None,
                           attempts: int = 5) -> tuple[bool, str | None]:
         """Deliver one firing to a Slack channel. Same contract as `_post` — (ok, error), same
         five attempts and the same capped exponential backoff — so a Slack subscription's delivery
@@ -103,7 +103,8 @@ class Dispatcher:
         if not token:
             # Not retryable and not transient: nothing about waiting 30s makes a token appear.
             return False, "slack: no bot token configured (set TARES_SLACK_BOT_TOKEN or add one under Security)"
-        msg = {"channel": channel, **slack.build_message(trigger, key, payload, fired_at)}
+        msg = {"channel": channel,
+               **slack.build_message(trigger, key, payload, fired_at, dispatch_id)}
         headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
         delay = 1.0
         error = None

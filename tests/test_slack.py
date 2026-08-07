@@ -307,8 +307,14 @@ async def main():
                "incident" in str(call["body"].get("text", "")), str(call["body"].get("text")))
             ck("blocks name the trigger and the entity",
                "incident" in blocks and "checkout" in blocks, blocks[:300])
-            ck("blocks carry a deep link when TARES_PUBLIC_URL is set",
-               f"{PUBLIC_URL}/explore?key=checkout" in blocks, blocks[:400])
+            # The alert links the FIRING, not the entity: "what fired and what did it carry" is
+            # the question someone reading it in Slack has. Agent findings still link the entity.
+            ck("blocks link the dispatch when TARES_PUBLIC_URL is set",
+               f"{PUBLIC_URL}/dispatches/" in blocks, blocks[:400])
+            ck("the alert does not link the entity instead",
+               f"{PUBLIC_URL}/explore?key=" not in blocks, blocks[:400])
+            ck("the posted message does not unfurl",
+               call["body"].get("unfurl_links") is False, str(call["body"])[:200])
 
             async def _counted():
                 a = await _slack_row(cx)
@@ -382,6 +388,50 @@ async def main():
     finally:
         _stop(proc)
         stub.shutdown()
+
+    # ── NF-126: the message a human actually reads ────────────────────────────
+    import os as _os
+    from tares import slack as _s
+
+    _os.environ["TARES_PUBLIC_URL"] = "https://cell.example.com"
+    m = _s.build_message("t1", "svc-a", "[T-1734s] something happened",
+                         "2026-08-07T11:47:17.162746+00:00", "ab41d2bbfeec4319bf288abe607fa8ab")
+    ck("unfurling is off — a host label must not make Slack fetch the customer's site",
+       m.get("unfurl_links") is False and m.get("unfurl_media") is False, str(m)[:200])
+    ctx = m["blocks"][-1]["elements"][0]["text"]
+    ck("footer uses Slack's date token, not a raw ISO string",
+       "<!date^" in ctx and "{time}" in ctx, ctx)
+    ck("footer links the DISPATCH, not the entity",
+       "/dispatches/ab41d2bbfeec4319bf288abe607fa8ab" in ctx, ctx)
+    ck("event ages are readable in the Slack copy", "[29m ago]" in m["blocks"][1]["text"]["text"],
+       m["blocks"][1]["text"]["text"])
+
+    _os.environ["TARES_PUBLIC_URL"] = ""
+    ck("no link when the instance has no reachable address",
+       "Open in Tares" not in _s.build_message("t1", "k", "p", None, "abc")["blocks"][-1]
+       ["elements"][0]["text"])
+    ck("a firing with no dispatch id still builds",
+       "blocks" in _s.build_message("t1", "k", "p"))
+
+    md = ("You have **3 sources**:\n\n"
+          "| # | Name | Status |\n|---|------|--------|\n"
+          "| 1 | `docs-github` | ok |\n| 2 | `rius-prod` | push |\n\n"
+          "---\n\n- first\n- second\n")
+    out = _s.to_mrkdwn(md)
+    ck("a markdown table becomes a monospace block, not raw pipes",
+       "```" in out and "|---|" not in out and "| 1 |" not in out, out)
+    ck("table columns are aligned", "docs-github  ok" in out.replace("   ", "  "), out)
+    ck("backticks inside a cell are stripped — a code block renders them literally",
+       "`docs-github`" not in out, out)
+    ck("a horizontal rule does not survive as three dashes",
+       not any(l.strip() == "---" for l in out.splitlines()), out)
+    ck("bullets render as bullets", "•  first" in out, out)
+    ck("bold still converts", "*3 sources*" in out and "**" not in out, out)
+    ck("a lone pipe line is prose, not a table",
+       "```" not in _s.to_mrkdwn("use a | b to split"), _s.to_mrkdwn("use a | b to split"))
+    a = _s.build_answer("q", "answer")
+    ck("answers do not unfurl either",
+       a.get("unfurl_links") is False and a.get("unfurl_media") is False, str(a)[:160])
 
     print(f"\n{P} passed, {F} failed")
     raise SystemExit(1 if F else 0)
