@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api";
 import { Close, Search } from "../components/icons";
-import { usePolling } from "../components/bits";
+import { Picker, usePolling } from "../components/bits";
 import type { LabelFacet, TimelineEventRow, View } from "../types";
 
 // Explore — the hero, selector-first. Pick an entity on the left to start a selector, optionally
@@ -229,13 +229,17 @@ export default function Explore() {
                 </div>
 
                 <div className="tl-controls">
-                  <label className="tl-ctl">
+                  {/* A div, not a label — as the `window` control beside it already is. Picker
+                      renders a <button>, which IS labelable, so a wrapping <label> forwards clicks
+                      on the word "lens" into opening the menu. */}
+                  <div className="tl-ctl">
                     <span className="lbl">lens</span>
-                    <select value={effectiveLens} onChange={(e) => setLens(e.target.value)}>
-                      <option value={RAW}>All sources (raw)</option>
-                      {lensViews.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
-                    </select>
-                  </label>
+                    {/* Picker, not a native <select>: the OS draws a <select>'s open menu and won't
+                        let us theme it, so it lands as a light box in the dark console. */}
+                    <Picker value={effectiveLens} onChange={setLens} ariaLabel="lens"
+                            options={[RAW, ...lensViews.map((v) => v.name)]}
+                            labels={{ [RAW]: "All sources (raw)" }} />
+                  </div>
                   <div className="tl-ctl">
                     <span className="lbl">window</span>
                     <div className="seg small">
