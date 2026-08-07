@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, type SlackChannels } from "../api";
+import type { AgentInfo } from "../types";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
 import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 
-// The home of one trigger: condition, the agents it wakes (wire more here), recent firings.
+// The home of one trigger: condition, where it delivers (wire more here), recent firings.
 // Read-only by default; Edit swaps in the editor in place (?edit=1 opens it directly).
 export default function TriggerDetail() {
   const { name = "" } = useParams();
@@ -14,11 +15,14 @@ export default function TriggerDetail() {
   const [params] = useSearchParams();
   const [editing, setEditing] = useState(params.get("edit") === "1");
   const [confirmDel, setConfirmDel] = useState(false);
+  // The row awaiting an unsubscribe confirmation, or null. Holds the row rather than a
+  // boolean: the dialog names what it is about to disconnect.
+  const [unsub, setUnsub] = useState<AgentInfo | null>(null);
   const [delErr, setDelErr] = useState<string>();
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
   // Both errors are kept, not dropped: `agents` decides what the DELETE dialog tells you is at
   // stake, and a failed load would otherwise silently read as "nothing depends on this".
-  const { data: agents, error: agentsError } = usePolling(() => api.agents(), 10000);
+  const { data: agents, error: agentsError, reload: reloadAgents } = usePolling(() => api.agents(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
   const [url, setUrl] = useState("");
   const [channel, setChannel] = useState("");
@@ -58,6 +62,14 @@ export default function TriggerDetail() {
     );
   }
   const wired = (agents?.agents ?? []).filter((a) => a.triggers.includes(name));
+  /** A Slack row's identity is `#C0BNV121CRX` — Slack's id, which no human recognises. The channel
+   *  list is already loaded for the picker, so resolve it to `#alerts` when we can; falling back to
+   *  the id matters, because the bot may since have been removed from the channel. */
+  const channelLabel = (raw: string) => {
+    const id = raw.replace(/^#/, "");
+    const hit = (slack?.channels ?? []).find((c) => c.id === id);
+    return hit ? (hit.is_private ? `🔒 ${hit.name}` : `#${hit.name}`) : raw;
+  };
   const firings = (dispatches ?? []).filter((d) => d.trigger === name).slice(0, 10);
 
   return (
@@ -67,7 +79,7 @@ export default function TriggerDetail() {
           <h1><span className="mono">{trigger.name}</span></h1>
           <p className="subtitle">
             watches <Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
-            {" "}— fires when the condition trips, waking every subscribed agent
+            {" "}— fires when the condition trips, delivering to every subscriber
           </p>
         </div>
         {!editing && (
@@ -107,19 +119,24 @@ export default function TriggerDetail() {
       )}
 
       <div className="pagehead" style={{ marginTop: 20 }}>
-        <h2 style={{ margin: 0 }}>Agents woken by this trigger</h2>
+        <h2 style={{ margin: 0 }}>Where this trigger delivers</h2>
         <Link className="btn primary" to={`/agents/new?trigger=${encodeURIComponent(name)}`}>
           Add a Tares agent
         </Link>
       </div>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
-          <thead><tr><th>agent</th><th>kind</th><th>endpoint</th><th className="num">delivered (24h)</th><th className="num">failed (24h)</th><th>status</th></tr></thead>
+          <thead><tr><th>subscriber</th><th>kind</th><th>endpoint</th><th className="num">delivered (24h)</th><th className="num">failed (24h)</th><th>status</th><th aria-label="actions" /></tr></thead>
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
                 <td>{a.kind === "tares"
                   ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
+                  : a.kind === "slack"
+                  // A raw C0BNV121CRX is the identity Slack uses, not one a human recognises. The
+                  // channel list is already loaded on this page, so resolve it when we can and fall
+                  // back to the id when the bot has since been removed from the channel.
+                  ? <strong>{channelLabel(a.name)}</strong>
                   : <Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
                 <td>{a.kind === "tares"
                   ? <span className="badge">Tares</span>
@@ -142,6 +159,12 @@ export default function TriggerDetail() {
                     : a.unhealthy
                     ? <span className="badge error" title={a.last_error ?? "last delivery failed"}>failing{a.last_error ? `: ${a.last_error}` : ""}</span>
                     : a.delivered_ok_total > 0 ? <span className="badge ok">ok</span> : <span className="dim">—</span>}
+                </td>
+                <td>
+                  <div className="btnrow" style={{ justifyContent: "flex-end" }}>
+                    <button className="danger" disabled={busy}
+                            onClick={() => setUnsub(a)}>remove</button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -256,15 +279,38 @@ export default function TriggerDetail() {
         </table>
       )}
 
+      {unsub && (
+        <ConfirmDialog
+          title={`Stop delivering to ${unsub.kind === "slack" ? channelLabel(unsub.name) : unsub.name}?`}
+          // Names the trigger, because a subscriber can be wired to several: this removes ONE
+          // subscription, not the subscriber.
+          message={`This trigger stops delivering to it. Any other trigger it is subscribed to is `
+                   + `unaffected, and its delivery history is kept. You can wire it up again.`}
+          confirmLabel="Remove"
+          danger
+          onCancel={() => setUnsub(null)}
+          onConfirm={async () => {
+            // A subscriber may hold subscriptions to several triggers — remove only this trigger's.
+            const sub = unsub.subscriptions.find((x) => x.trigger === name);
+            setUnsub(null);
+            if (!sub) return;
+            setBusy(true);
+            try { await api.unsubscribe(sub.subscription_id); reloadAgents(); }
+            catch (e) { setMsg(`⚠️ ${String((e as Error).message ?? e)}`); }
+            setBusy(false);
+          }}
+        />
+      )}
+
       {confirmDel && (
         <ConfirmDialog
           title={`Delete trigger ${trigger.name}?`}
           message={agentsError
             // Never reassure from a failed load. "No agents use this" and "we couldn't find out"
             // are different facts, and only one of them is safe to delete on.
-            ? `Couldn’t check which agents this trigger wakes (${agentsError}) — deleting may break more than is shown here. This can’t be undone.`
+            ? `Couldn’t check what this trigger delivers to (${agentsError}) — deleting may break more than is shown here. This can’t be undone.`
             : wired.length
-              ? `${wired.length} agent(s) are woken by this trigger and will stop receiving it. This can't be undone.`
+              ? `${wired.length} subscriber(s) receive this trigger and will stop. This can't be undone.`
               : "This stops the condition from being evaluated. This can't be undone."}
           confirmLabel="Delete"
           danger
