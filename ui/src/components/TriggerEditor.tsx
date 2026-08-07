@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
-import { Combo } from "./bits";
+import { Combo, Picker } from "./bits";
 import type { Trigger } from "../types";
 
 // The one trigger editor — used in place on /triggers/new and /triggers/<name>.
@@ -85,12 +85,11 @@ export default function TriggerEditor({ initial, presetView, onSaved, onCancel }
         </div>
       </div>
       <div className="row2">
-        <label className="field">
+        <div className="field">
           <span className="lbl">aggregate</span>
-          <select value={t.condition.aggregate} onChange={(e) => cond({ aggregate: e.target.value })}>
-            {AGGREGATES.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        </label>
+          <Picker value={t.condition.aggregate} options={AGGREGATES} ariaLabel="aggregate"
+                  onChange={(v) => cond({ aggregate: v })} />
+        </div>
         <div className="field">
           <span className="lbl">field</span>
           <Combo value={t.condition.field ?? ""} options={fieldOpts}

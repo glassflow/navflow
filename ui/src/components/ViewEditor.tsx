@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
-import { Combo } from "./bits";
+import { Combo, Picker } from "./bits";
 import type { ConnectorSpec, View, ViewFilter } from "../types";
 
 // The one view editor, used in place: on /views/new (create) and on /views/<name> (edit).
@@ -165,10 +165,10 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
             <Combo value={r.field} options={fieldOpts} placeholder="field"
                    style={{ maxWidth: 200, flex: 1 }}
                    onChange={(v) => setFRows(fRows.map((x, j) => j === i ? { ...x, field: v } : x))} />
-            <select value={r.op} style={{ maxWidth: 130 }}
-                    onChange={(e) => setFRows(fRows.map((x, j) => j === i ? { ...x, op: e.target.value } : x))}>
-              {["eq", "neq", "contains", "gt", "lt", "gte", "lte"].map((o) => <option key={o} value={o}>{o}</option>)}
-            </select>
+            {/* Picker, not <select>: the native menu is drawn by the OS and can't take our theme. */}
+            <Picker value={r.op} style={{ maxWidth: 130 }} ariaLabel="filter operator"
+                    options={["eq", "neq", "contains", "gt", "lt", "gte", "lte"]}
+                    onChange={(v) => setFRows(fRows.map((x, j) => j === i ? { ...x, op: v } : x))} />
             <input type="text" className="mono" style={{ maxWidth: 180 }} placeholder="value" value={r.value}
                    onChange={(e) => setFRows(fRows.map((x, j) => j === i ? { ...x, value: e.target.value } : x))} />
             <button type="button" className="danger" onClick={() => setFRows(fRows.filter((_, j) => j !== i))}>×</button>
