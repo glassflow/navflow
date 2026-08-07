@@ -102,7 +102,24 @@ PROPOSAL_TOOLS = [
          "name": {"type": "string"},
          "key_field": {"type": "string"},
          "sources": {"type": "array", "items": {"type": "string"}},
-         "filters": {"type": "array", "items": {"type": "object"}},
+         # Left as a bare {"type": "object"} the model had to guess the shape, and guessed wrong
+         # twice in a row on the same view — a flat {"service": "x"}, then "==" for the operator.
+         # The schema is the only place a guess can be prevented; prose in the prompt is not.
+         "filters": {"type": "array",
+                     "description": "Optional. Restricts which events the view carries. Each entry "
+                                    "is an object with exactly field, op and value.",
+                     "items": {"type": "object", "properties": {
+                         "field": {"type": "string",
+                                   "description": "a label the chosen sources expose, or one of the "
+                                   "built-in columns event_type, source, text, key_value"},
+                         "op": {"type": "string",
+                                "enum": ["eq", "neq", "contains", "gt", "gte", "lt", "lte"],
+                                "description": "the operator NAME, never a symbol: 'eq' not '==', "
+                                "'neq' not '!=', 'gt' not '>'. `contains` is a case-insensitive "
+                                "substring match; gt/gte/lt/lte need a numeric value and only "
+                                "match events whose field parses as a number."},
+                         "value": {"type": ["string", "number"]}},
+                         "required": ["field", "op", "value"]}},
          "reasoning": {"type": "string"}},
          "required": ["name", "key_field", "sources", "reasoning"]}},
     {"name": "propose_trigger",
@@ -233,6 +250,12 @@ applies to its result). This is often the highest-value fix available.
 a label the chosen sources EXPOSE. To correlate on something that isn't a label yet, promote it \
 first, then build the view. When sources share nothing but belong together, propose const labels \
 (same name and value) on each and key by that.
+· A view FILTER is always {"field": …, "op": …, "value": …} — three keys, never a flat \
+{"service": "checkout"} pair — and `op` is a NAME from eq / neq / contains / gt / gte / lt / lte. \
+Symbols are not operators here: write "eq", not "==". `field` may also be one of the built-in \
+columns event_type, source, text, key_value. Example: to keep only ingress-nginx events, \
+{"field": "service", "op": "eq", "value": "ingress-nginx"}. A view that needs no restriction takes \
+no filters at all — don't invent one.
 · To match a label across sources, ADD a new label — there is no rename, and a source's label set \
 is declared whole. If source B should join A on `service`, propose a NEW label named `service` on \
 B reading B's matching field, keep B's other labels, and normalize B's values so they agree \
