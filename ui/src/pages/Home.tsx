@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { ErrorState, formatBytes, usePolling } from "../components/bits";
@@ -17,9 +18,22 @@ import type { Usage } from "../types";
 // Degraded state is NOT surfaced here — AuthGate already renders a global banner when /health is
 // anything but ok, and a second copy would just be one more thing to keep in sync.
 
+// An instance with no sources has nothing for Overview to say — every number is zero. On the
+// first landing of a page load we send that user to Sources, where the next step actually is.
+// Once per page load only (module flag, not state): clicking Overview in the nav afterwards must
+// still show the page, and polling must not bounce you away if sources later drop to zero.
+let emptyRedirectDone = false;
+
 export default function Home() {
   const { data: u, error: usageError, reload: reloadUsage } = usePolling(() => api.usage(), 30000);
   const { data: sources, error: sourcesError } = usePolling(() => api.sources(), 30000);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (emptyRedirectDone || !sources) return;   // a failed load never counts as "no sources"
+    emptyRedirectDone = true;
+    if (sources.length === 0) navigate("/sources", { replace: true });
+  }, [sources, navigate]);
 
   const onDisk = u ? u.db_bytes + u.wal_bytes : 0;
   // Both are null together, but it's the denominator that decides whether a percentage means
