@@ -90,7 +90,7 @@ Tares runs as a single daemon (`taresd`) with a thin MCP proxy (`tares-mcp`), st
 
 ## Feedback
 
-Bug reports and ideas are very welcome via [GitHub issues](https://github.com/glassflow/tares/issues) or `ashish@glassflow.dev`. **No telemetry** — Tares collects and sends no usage data.
+Bug reports and ideas are very welcome via [GitHub issues](https://github.com/glassflow/tares/issues) or `help@glassflow.ai`. **No telemetry** — Tares collects and sends no usage data.
 
 ## License
 
