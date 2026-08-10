@@ -3,6 +3,28 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-08-10
+
+### Added
+- **Connect → MCP is a client picker.** The tab showed three generic snippets (JSON, Claude Code,
+  stdio) and left the translation to the reader. It now asks which client you're connecting —
+  Claude Code, Codex CLI, Cursor, Claude Desktop, Other (JSON), stdio — and shows that client's
+  exact command with this instance's endpoint and token filled in, mirroring the docs page
+  (docs.glassflow.ai/tares/agents). A verify line says what to ask and which tool call to expect.
+- **A fresh instance lands on Sources.** Opening the console with zero sources showed an Overview
+  of zeros. The first landing of a page load now goes to Sources, where the next step actually is;
+  clicking Overview afterwards still works, and a failed source-list load never counts as empty.
+- **The trigger page links the webhook contract.** Wiring an external agent to a trigger now points
+  at Connect → Webhook (push) — which is deep-linkable as `/connect?tab=push` — for what the
+  endpoint receives and how to acknowledge. The webhook tab itself was tightened: a minimal
+  receiver example, and a note that built-in Tares agents need no endpoint at all.
+
+### Fixed
+- **The webhook tab stated the wrong acknowledge rule.** It said any response below 500 counts as
+  delivered; the dispatcher only counts 2xx. It now matches the code: 2xx acknowledges, 5xx and
+  transport errors are retried with backoff, a 4xx is recorded as failed and not retried.
+- The webhook tab's delivery-history link said "Agents" but pointed at Activity.
+
 ## [1.2.1] — 2026-08-07
 
 ### Fixed
