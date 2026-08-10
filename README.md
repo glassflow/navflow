@@ -28,19 +28,21 @@ Prefer not to run it yourself? **[Tares Cloud](https://console.tares-glassflow.c
 
 ## See it work
 
-The fastest way to have something in the timeline is the bundled [`demo/`](demo/): a small stack (api-server, Prometheus, traffic) with fault injection, so you can break something on purpose and watch Tares catch it.
+The fastest way to have something in the timeline is the [demo stack](demo/): a small stack (api-server, Prometheus, traffic) with fault injection, so you can break something on purpose and watch Tares catch it. No checkout needed — two files:
 
 ```bash
-cd demo && docker compose up -d && cd -   # start the stack to ingest from
+curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compose.yml
+docker compose up -d                      # start the stack to ingest from
 ```
 
 Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog — three sources, a correlated view, and two triggers:
 
 ```bash
-TARES_CATALOG=demo/catalog.demo.yaml tares up
+curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/catalog.demo.yaml
+TARES_CATALOG=catalog.demo.yaml tares up
 ```
 
-(The catalog imports only while your catalog is still empty. Already added a source? Restart on a fresh data directory instead: `TARES_CATALOG=demo/catalog.demo.yaml tares up --data-dir ~/tares-demo`.)
+(The catalog imports only while your catalog is still empty. Already added a source? Restart on a fresh data directory instead: `TARES_CATALOG=catalog.demo.yaml tares up --data-dir ~/tares-demo`.)
 
 Open **Explore** and pick `api-server`: request logs, latency and error-rate metrics, and alerts — three sources merged into one time-ordered timeline. That timeline is exactly what an agent gets, so connect one next and break the demo on purpose.
 
@@ -61,14 +63,15 @@ claude mcp add --transport http tares http://localhost:8788/mcp
 Running the demo? Now cause the incident, a 5xx storm, and give it ~30 seconds to be ingested:
 
 ```bash
-./demo/inject.sh error_spike
+curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/inject.sh && chmod +x inject.sh
+./inject.sh error_spike
 ```
 
 Then ask your agent:
 
 > Use tares: what happened to api-server in the last 15 minutes?
 
-The agent calls `read` and gets the incident correlated: the `HighErrorRate` alert Prometheus fired, the 5xx request logs, and the error-rate spike in one time-ordered response. It has nothing to stitch together across systems. (The `incident` trigger fires too, and the catalog ships a Tares agent that wakes on it and writes its diagnosis back as a **finding** on the timeline. Set `ANTHROPIC_API_KEY` first, or see [`demo/`](demo/). `./demo/inject.sh clear` rolls the fault back.)
+The agent calls `read` and gets the incident correlated: the `HighErrorRate` alert Prometheus fired, the 5xx request logs, and the error-rate spike in one time-ordered response. It has nothing to stitch together across systems. (The `incident` trigger fires too, and the catalog ships a Tares agent that wakes on it and writes its diagnosis back as a **finding** on the timeline. Set `ANTHROPIC_API_KEY` first, or see [`demo/`](demo/). `./inject.sh clear` rolls the fault back.)
 
 Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://docs.glassflow.ai/tares/agents).
 
