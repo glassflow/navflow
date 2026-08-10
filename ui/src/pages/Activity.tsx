@@ -13,8 +13,19 @@ const CONNECT_LABELS: Record<ConnectTab, string> = {
   mcp: "MCP (pull)", push: "Webhook (push)", rest: "REST", tools: "Tools",
 };
 
+// The MCP tab is a client picker, mirroring the docs page (docs.glassflow.ai/tares/agents): the
+// user picks their harness and gets the exact command with this instance's endpoint and token
+// filled in, instead of translating a generic snippet themselves.
+type McpClient = "Claude Code" | "Codex CLI" | "Cursor" | "Claude Desktop" | "Other (JSON)" | "stdio";
+const MCP_CLIENTS: McpClient[] = ["Claude Code", "Codex CLI", "Cursor", "Claude Desktop", "Other (JSON)", "stdio"];
+
 export function ConnectPage() {
-  const [tab, setTab] = useState<ConnectTab>("mcp");
+  // Deep-linkable: the trigger page links here as /connect?tab=push, straight to the webhook
+  // contract. State stays local after that; only the initial tab comes from the URL.
+  const [params] = useSearchParams();
+  const initial = params.get("tab");
+  const [tab, setTab] = useState<ConnectTab>(
+    initial && initial in CONNECT_LABELS ? (initial as ConnectTab) : "mcp");
 
   return (
     <>
@@ -113,6 +124,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
   const [trig, setTrig] = useState<string>();
   const [reveal, setReveal] = useState(false);
   const [toolQ, setToolQ] = useState("");
+  const [mcpClient, setMcpClient] = useState<McpClient>("Claude Code");
   const token = auth.get();
 
   useEffect(() => {
@@ -160,8 +172,15 @@ function Connect({ tab }: { tab: ConnectTab }) {
 
   const claudeCode = (t: string) =>
     `claude mcp add --transport http tares ${url}` + (authReq ? ` --header "Authorization: Bearer ${t}"` : "");
+  const codexCmd = (t: string) => authReq
+    ? `export TARES_API_KEY=${t}\ncodex mcp add tares --url ${url} --bearer-token-env-var TARES_API_KEY`
+    : `codex mcp add tares --url ${url}`;
   const httpJson = (t: string) => JSON.stringify({
     mcpServers: { tares: { type: "http", url, ...(authReq ? { headers: { Authorization: `Bearer ${t}` } } : {}) } },
+  }, null, 2);
+  // Cursor and Claude Desktop take the bare-url shape (no "type" field).
+  const urlJson = (t: string) => JSON.stringify({
+    mcpServers: { tares: { url, ...(authReq ? { headers: { Authorization: `Bearer ${t}` } } : {}) } },
   }, null, 2);
   const stdioJson = (t: string) => JSON.stringify({
     mcpServers: { tares: { command: "tares-mcp", env: { TARESD_URL: origin, ...(authReq ? { TARES_AUTH_TOKEN: t } : {}) } } },
@@ -217,16 +236,29 @@ function Connect({ tab }: { tab: ConnectTab }) {
           <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
             Flip the loop: Tares watches, the agent sleeps. When a trigger&rsquo;s condition
             trips, Tares POSTs the <strong>correlated timeline</strong> to a URL your agent
-            listens on — the investigation starts with the evidence already attached,{" "}
-            <strong>zero reads</strong>. (In our SRE incident benchmark the same diagnosis took 6
-            fan-out reads baseline, 1 correlated read over MCP, 0 when pushed.)
+            listens on, so the investigation starts with the evidence already attached.
           </p>
 
           <h3 style={{ marginBottom: 4 }}>1 · Give your agent an HTTP endpoint</h3>
           <p className="help" style={{ whiteSpace: "normal" }}>
-            Anything that accepts a POST and starts your agent with the request body as context — a
-            small FastAPI/Express route, a serverless function, a workflow-engine webhook. It must
-            be reachable <em>from this Tares server</em>. Every delivery is JSON shaped like:
+            This is for <strong>your own agent, running on your infrastructure</strong>. It needs
+            an HTTP endpoint that accepts a POST and starts the agent with the request body as
+            context, reachable <em>from this Tares server</em>. For example:
+          </p>
+          <CodeBlock title="a minimal receiver (FastAPI, runs on your side)" code={[
+            "from fastapi import FastAPI, Request",
+            "app = FastAPI()",
+            "",
+            "@app.post(\"/hook\")",
+            "async def hook(req: Request):",
+            "    dispatch = await req.json()",
+            "    run_my_agent(dispatch[\"payload\"])   # the correlated timeline",
+            "    return {\"ok\": True}",
+          ].join("\n")} />
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            (Don&rsquo;t have an agent of your own? A built-in{" "}
+            <Link to="/agents">Tares agent</Link> runs inside Tares on a trigger firing, no
+            endpoint needed.) Every delivery is JSON shaped like:
           </p>
           <CodeBlock title="what your endpoint receives on each firing" code={JSON.stringify({
             dispatch_id: "9f2c81d4…",
@@ -237,23 +269,20 @@ function Connect({ tab }: { tab: ConnectTab }) {
             payload: "…the correlated timeline for this entity, ready to hand to the model…",
           }, null, 2)} />
           <p className="help" style={{ whiteSpace: "normal" }}>
-            Delivery is <strong>at-least-once</strong> with retries — dedupe on{" "}
-            <span className="mono">dispatch_id</span>. Answer anything below 500 to acknowledge.
+            Delivery is <strong>at-least-once</strong> — dedupe on{" "}
+            <span className="mono">dispatch_id</span>. Answer <strong>2xx</strong> to acknowledge;
+            5xx and transport errors are retried with backoff, a 4xx is recorded as failed and not
+            retried.
           </p>
 
           <h3 style={{ marginBottom: 4 }}>2 · Subscribe that endpoint to a trigger</h3>
           {triggers && triggers.length > 0 ? (
             <>
               <p className="help" style={{ whiteSpace: "normal" }}>
-                A trigger is a condition Tares evaluates continuously over a view. Pick one,
-                replace the URL with your endpoint, and run (needs a{" "}
-                <span className="mono">read</span>-scoped <Link to="/security">API key</Link>;
-                revoking the key removes its subscriptions):
-              </p>
-              <p className="help" style={{ whiteSpace: "normal" }}>
-                Wiring happens on the trigger itself: open <Link to="/triggers">Triggers</Link>,
-                hit <strong>agents</strong> on the trigger, and paste your endpoint there. From a
-                script, the same action is:
+                Wire it on the trigger&rsquo;s page: open <Link to="/triggers">Triggers</Link>,
+                pick the trigger, and paste your endpoint there. From a script, the same action is
+                (needs a <span className="mono">read</span>-scoped{" "}
+                <Link to="/security">API key</Link>):
               </p>
               <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} />
             </>
@@ -265,16 +294,11 @@ function Connect({ tab }: { tab: ConnectTab }) {
             </p>
           )}
 
-          <h3 style={{ marginBottom: 4 }}>3 · That&rsquo;s the loop</h3>
           <p className="help" style={{ whiteSpace: "normal" }}>
-            From now on every firing wakes your agent with the timeline attached; it can query back
-            over MCP or REST if it needs more, and <span className="mono">remember</span> its
-            conclusion so the next dispatch arrives with prior findings included. Every wired
-            endpoint shows up under <Link to="/activity">Agents</Link> with its delivery history
-            (firings are logged even with no subscribers — useful to test a trigger before wiring
-            the agent). Full walkthrough and a runnable incident-response example:{" "}
-            <a href="https://docs.glassflow.ai/tares/agents" target="_blank" rel="noreferrer">
-              docs.glassflow.ai/tares/agents</a>.
+            Every wired endpoint shows up under <Link to="/agents">Agents</Link> with its delivery
+            history. Full walkthrough:{" "}
+            <a href="https://docs.glassflow.ai/tares/guides/triggers" target="_blank" rel="noreferrer">
+              docs.glassflow.ai/tares/guides/triggers</a>.
           </p>
 
         </>
@@ -298,20 +322,67 @@ function Connect({ tab }: { tab: ConnectTab }) {
         The agent connects as an MCP client and reads on demand: <span className="mono">read</span>,{" "}
         <span className="mono">query</span>, <span className="mono">catalog_*</span> — one correlated
         timeline per call instead of fanning out across your systems. Needs a{" "}
-        <span className="mono">read</span>-scoped key.
+        <span className="mono">read</span>-scoped key. Pick your client:
       </p>
 
-      <h3 style={{ marginBottom: 4 }}>Any MCP client (HTTP)</h3>
-      <CodeBlock title="add to the client's MCP config" code={httpJson(shownTok)} />
+      <div className="seg small" aria-label="MCP client" style={{ marginBottom: 10 }}>
+        {MCP_CLIENTS.map((c) => (
+          <button key={c} className={mcpClient === c ? "active" : ""} onClick={() => setMcpClient(c)}>{c}</button>
+        ))}
+      </div>
 
-      <h3 style={{ marginBottom: 4 }}>Claude Code</h3>
-      <CodeBlock title="run in your terminal" code={claudeCode(tok)} />
+      {mcpClient === "Claude Code" && (
+        <>
+          <CodeBlock title="run in your terminal" code={claudeCode(tok)} />
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            Or install the{" "}
+            <a href="https://docs.glassflow.ai/tares/connectors/claude-code" target="_blank" rel="noreferrer">
+              Tares plugin</a>{" "}
+            instead: same connection, plus session capture into the{" "}
+            <span className="mono">claude_code</span> source.
+          </p>
+          <CodeBlock title="plugin install (run inside Claude Code)"
+                     code={"/plugin marketplace add glassflow/tares\n/plugin install tares@tares"} />
+        </>
+      )}
+      {mcpClient === "Codex CLI" && (
+        <CodeBlock title="run in your terminal (keep --url; a bare URL registers a stdio server)"
+                   code={codexCmd(shownTok)} />
+      )}
+      {mcpClient === "Cursor" && (
+        <CodeBlock title="add to ~/.cursor/mcp.json (or .cursor/mcp.json per project), then approve under Settings → MCP"
+                   code={urlJson(shownTok)} />
+      )}
+      {mcpClient === "Claude Desktop" && (
+        <CodeBlock title="add to claude_desktop_config.json (Settings → Developer → Edit Config), then restart"
+                   code={urlJson(shownTok)} />
+      )}
+      {mcpClient === "Other (JSON)" && (
+        <>
+          <CodeBlock title="the generic shape most clients accept" code={httpJson(shownTok)} />
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            Per-client config files and field names (VS Code, Windsurf, Zed, Gemini CLI, …):{" "}
+            <a href="https://docs.glassflow.ai/tares/agents" target="_blank" rel="noreferrer">
+              docs.glassflow.ai/tares/agents</a>.
+          </p>
+        </>
+      )}
+      {mcpClient === "stdio" && (
+        <>
+          <p className="help" style={{ whiteSpace: "normal" }}>
+            For an agent on the same machine, or when no <span className="mono">/mcp</span> endpoint
+            is running. Requires <span className="mono">pip install tares</span> where the agent
+            runs; it proxies to this daemon.
+          </p>
+          <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} />
+        </>
+      )}
 
-      <h3 style={{ marginBottom: 4 }}>stdio (agent on the same machine, or no /mcp endpoint)</h3>
       <p className="help" style={{ whiteSpace: "normal" }}>
-        Requires <span className="mono">pip install tares</span> where the agent runs; it proxies to this daemon.
+        Then verify: ask the client <em>&ldquo;Use tares: what are you ingesting right
+        now?&rdquo;</em>. It should call <span className="mono">catalog_list</span> and answer with
+        your sources, views, and triggers.
       </p>
-      <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} />
         </>
       )}
 

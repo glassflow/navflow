@@ -175,8 +175,10 @@ export default function TriggerDetail() {
           none yet — add a Tares agent above, or connect an external agent's webhook below
         </p>
       )}
-      <p className="help" style={{ margin: "4px 0" }}>
-        or connect an external agent — its webhook gets POSTed the timeline on every firing:
+      <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
+        or connect an external agent — its webhook gets POSTed the timeline on every firing.
+        What your endpoint receives and how to acknowledge:{" "}
+        <Link to="/connect?tab=push">Connect → Webhook (push)</Link>.
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
         <input type="text" className="mono" style={{ flex: 1 }}
