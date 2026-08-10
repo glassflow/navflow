@@ -6,14 +6,15 @@ metrics, request logs, and a `/demo/inject` fault switch) plus **Prometheus** an
 from this stack, exactly as it would read from your real systems.
 
 ```
- demo stack (docker)                     Tares (uv install, on your machine)
- ┌───────────────┐  scrape   ┌────────┐
- │  api-server   │◄──────────│Promethe│◄─── metrics (:9090 PromQL)
- │  :8080        │           │ us     │
- │  /metrics     │──logs────────────────── docker logs
- │  /demo/inject │  (fault injection)      → one correlated timeline + triggers
- └───────────────┘
-        ▲ traffic-generator
+ demo stack (docker)                                Tares (on your machine)
+
+ traffic-generator ──▶ api-server ◄── scrape ── Prometheus
+                        :8080                    :9090
+                          │                        │
+                          │ container logs         │ metrics + fired alerts
+                          └───────────┬────────────┘
+                                      ▼
+                                    taresd ──▶ one correlated timeline + triggers
 ```
 
 Two files, no checkout needed: `docker-compose.yml` (the stack) and `catalog.demo.yaml` (Tares's
@@ -69,12 +70,14 @@ the agent to **diagnose** — it doesn't re-implement the thresholds.
 
 ## 4. Cause an incident
 
-Flip a fault (`./inject.sh <scenario>` from a checkout is the same call):
+Flip a fault:
 
 ```bash
 curl -s -XPOST localhost:8080/demo/inject -H 'content-type: application/json' \
   -d '{"scenario": "error_spike"}'
 ```
+
+(`inject.sh` in this directory wraps the same call: `./inject.sh error_spike`.)
 
 - `error_spike` — 5xx storm → Prometheus fires `HighErrorRate`
 - `latency` — p99 > 1s → Prometheus fires `HighLatency`
@@ -88,14 +91,19 @@ correlated timeline, and writes its diagnosis back as a **finding** on api-serve
 it appear in Explore, or under **Agents → `incident-first-look` → Runs & findings**). Any external
 agent you've subscribed is woken by the same firing.
 
-Prefer to drive it yourself? Connect over MCP and ask *"what's wrong with api-server?"* — it
-diagnoses from the same one correlated read.
+Prefer to drive it yourself? Connect an agent over MCP (see
+[connecting AI agents](https://docs.glassflow.ai/tares/agents), or the
+[root README](../README.md#connect-an-agent-over-mcp) for the two commands) and ask
+*"what's wrong with api-server?"*. It diagnoses from the same one correlated read.
 
 ## 5. Stop
 
 ```bash
 docker compose down              # from the directory with docker-compose.yml
 ```
+
+Stop Tares itself with Ctrl-C. Its data lives in `~/.tares` (or the `--data-dir` you passed);
+delete that directory for a clean slate next time.
 
 ## Files
 - `docker-compose.yml` — the whole stack, self-contained (Prometheus config inlined).
