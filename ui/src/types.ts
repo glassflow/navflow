@@ -235,6 +235,8 @@ export interface BuiltinAgent {
   slack_configured: boolean;   // the webhook URL itself is never sent to the client
   model: string;               // "" = the instance default
   slack_channel: string;       // workspace-bot channel id, "" = none
+  webhook_url: string;         // write-back target, "" = none
+  webhook_token_configured: boolean;   // the token itself is never sent to the client
   updated_at?: string;
   last_run?: AgentRun | null;
 }

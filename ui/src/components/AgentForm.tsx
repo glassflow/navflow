@@ -5,10 +5,51 @@ import type { SlackChannels } from "../api";
 import { Combo, Picker } from "./bits";
 import type { AgentPreset, BuiltinAgent } from "../types";
 
+/** One delivery option: a collapsed row whose title and description read before it is opened.
+ *  Opening the row shows an explicit on/off toggle; the fields appear only when it is on. */
+function OptionRow({ title, desc, on, disabled, disabledHint, onToggle, children }: {
+  title: string; desc: string; on: boolean;
+  disabled?: boolean; disabledHint?: string;
+  onToggle: (on: boolean) => void;
+  children?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(on);
+  return (
+    <div className="opt-row">
+      <button type="button" className="opt-head" onClick={() => setOpen((o) => !o)}>
+        <span className="opt-caret">{open ? "▾" : "▸"}</span>
+        <span>
+          <span className="opt-title">{title}</span>
+          <span className="opt-desc help">{desc}</span>
+        </span>
+        <span className={"badge" + (on ? " ok" : "")}>{on ? "on" : "off"}</span>
+      </button>
+      {open && (
+        <div className="opt-body">
+          {disabled
+            ? <span className="help">{disabledHint}</span>
+            : (
+              <label className="opt-toggle">
+                <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} />
+                <span>{on ? "enabled" : "enable"}</span>
+              </label>
+            )}
+          {on && !disabled && children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Create/edit a Tares agent. The prompt is the substance; the model is the one runtime choice an
-// agent may pin (default: follow the instance). Tools and budgets stay Tares's decisions — more
+// agent may pin (default: follow the instance). Tools and budgets stay Tares's decisions: more
 // knobs turn a data-plane feature into an agent builder (docs/design/tares-agents.md). The trigger
 // is chosen at creation and fixed thereafter (move an agent by deleting and recreating).
+//
+// Delivery is a list of collapsed option rows, each with an explicit toggle: the finding always
+// lands on the entity's timeline; these rows only deliver it elsewhere too. The write-back URL and
+// its bearer token render as one connected control (.hook-group): they are one credential pair,
+// not two settings.
 export default function AgentForm({ initial, presetTrigger, triggers, presets, models,
                                     defaultModel, slackWorkspace, onSaved, onCancel }: {
   initial?: BuiltinAgent;              // absent = create
@@ -26,12 +67,21 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
   const [trigger, setTrigger] = useState(initial?.trigger ?? presetTrigger ?? "");
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [model, setModel] = useState(initial?.model ?? "");
+
+  // Delivery options: each is a toggle plus its fields. Off at save time means off, even if the
+  // fields still hold text.
+  const [channelOn, setChannelOn] = useState(!!initial?.slack_channel);
   const [channel, setChannel] = useState(initial?.slack_channel ?? "");
+  const [hookOn, setHookOn] = useState(!!initial?.slack_configured);
   const [slack, setSlack] = useState("");
+  const [writebackOn, setWritebackOn] = useState(!!initial?.webhook_url);
+  const [webhookUrl, setWebhookUrl] = useState(initial?.webhook_url ?? "");
+  const [webhookToken, setWebhookToken] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
 
-  // "" is a real option — follow the instance default — so the picker always has one more entry
+  // "" is a real option (follow the instance default), so the picker always has one more entry
   // than the curated list, and the default reads as what it is rather than as a copy of a model.
   const modelOptions = ["", ...models.filter((m) => m !== defaultModel)];
   const modelLabels: Record<string, string> = { "": `${defaultModel} · instance default` };
@@ -47,13 +97,19 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
     return () => { live = false; };
   }, [slackWorkspace]);
   const chanList = channels?.reason === null ? channels.channels : [];
-  const chanLabels: Record<string, string> = { "": "no channel — don't post" };
+  const chanLabels: Record<string, string> = { "": "pick a channel…" };
   for (const c of chanList) chanLabels[c.id] = (c.is_private ? "🔒 " : "#") + c.name;
 
   const save = async () => {
     setBusy(true); setErr(undefined);
-    const body = { name: name.trim(), trigger, prompt: prompt.trim(), model,
-                   slack_channel: channel, slack_webhook: slack.trim() };
+    const body = {
+      name: name.trim(), trigger, prompt: prompt.trim(), model,
+      slack_channel: channelOn ? channel : "",
+      slack_webhook: hookOn ? slack.trim() : "",
+      slack_webhook_clear: !hookOn,
+      webhook_url: writebackOn ? webhookUrl.trim() : "",
+      webhook_token: writebackOn ? webhookToken.trim() : "",
+    };
     try {
       if (isNew) await api.createBuiltinAgent(body);
       else await api.updateBuiltinAgent(initial!.name, body);
@@ -80,14 +136,14 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
           </div>
         </div>
       ) : (
-        // Name and trigger are fixed after creation — shown as read-only facts, not fields, so it's
+        // Name and trigger are fixed after creation: shown as read-only facts, not fields, so it's
         // clear they can't be edited here (to move the agent, delete and recreate).
         <table style={{ marginBottom: 12 }}>
           <tbody>
             <tr><td className="help" style={{ width: 120 }}>name</td>
-                <td className="mono">{name} <span className="help">— fixed</span></td></tr>
+                <td className="mono">{name} <span className="help">fixed</span></td></tr>
             <tr><td className="help">trigger</td>
-                <td className="mono">{trigger} <span className="help">— fixed; delete and recreate to move</span></td></tr>
+                <td className="mono">{trigger} <span className="help">fixed; delete and recreate to move</span></td></tr>
           </tbody>
         </table>
       )}
@@ -112,43 +168,55 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
         <span className="lbl">model</span>
         <Picker value={model} onChange={setModel} options={modelOptions} labels={modelLabels}
                 ariaLabel="model" />
-        <span className="help">the model this agent runs on; leave on the default to follow the instance</span>
       </div>
-      {slackWorkspace ? (
-        <>
-          <div className="field">
-            <span className="lbl">post findings to Slack <span className="help">(optional)</span></span>
-            <Picker value={channel} onChange={setChannel}
-                    options={["", ...chanList.map((c) => c.id)]} labels={chanLabels}
-                    ariaLabel="Slack channel" />
-            <span className="help">
-              posted by the workspace bot; the full finding, not a link.
-              {channels?.reason === "missing_scope" && " (reconnect Slack to list channels)"}
-              {channels?.reason === null && chanList.length === 0 && " Add the bot to a channel in Slack first."}
-            </span>
-          </div>
-          <label className="field">
-            <span className="lbl">Slack webhook <span className="help">(legacy — used only when no channel is set)</span></span>
-            <input type="text" className="mono" placeholder={
-              initial?.slack_configured ? "•••• configured — leave blank to keep" : "https://hooks.slack.com/services/…"}
-                   value={slack} onChange={(e) => setSlack(e.target.value)} />
-          </label>
-        </>
-      ) : (
-        <label className="field">
-          <span className="lbl">Slack webhook <span className="help">(optional)</span></span>
-          <input type="text" className="mono" placeholder={
-            initial?.slack_configured ? "•••• configured — leave blank to keep" : "https://hooks.slack.com/services/…"}
-                 value={slack} onChange={(e) => setSlack(e.target.value)} />
+
+      <div className="field">
+        <h3 style={{ margin: "10px 0 2px", fontSize: 16 }}>Deliver findings</h3>
+        <span className="help" style={{ display: "block", margin: "0 0 10px" }}>
+          every finding lands on the entity's timeline; these options also deliver it elsewhere
+        </span>
+        <OptionRow title="Slack channel"
+                   desc="the workspace bot posts the full finding to a channel"
+                   on={channelOn} disabled={!slackWorkspace}
+                   disabledHint="connect a workspace bot under Security to enable this"
+                   onToggle={setChannelOn}>
+          <Picker value={channel} onChange={setChannel}
+                  options={["", ...chanList.map((c) => c.id)]} labels={chanLabels}
+                  ariaLabel="Slack channel" />
           <span className="help">
-            the full finding is posted there, not a link. Connect a workspace bot under Security to
-            pick a channel instead.
+            {channels?.reason === "missing_scope" && "reconnect Slack to list channels"}
+            {channels?.reason === null && chanList.length === 0 && "add the bot to a channel in Slack first"}
           </span>
-        </label>
-      )}
+        </OptionRow>
+        <OptionRow title="Slack incoming webhook"
+                   desc="legacy per-agent webhook; used only when no channel is set"
+                   on={hookOn} onToggle={setHookOn}>
+          <input type="text" className="mono" placeholder={
+            initial?.slack_configured ? "•••• configured, leave blank to keep" : "https://hooks.slack.com/services/…"}
+                 value={slack} onChange={(e) => setSlack(e.target.value)} />
+        </OptionRow>
+        <OptionRow title="Write-back webhook"
+                   desc="POST each finding as JSON with its run metadata to your own automation"
+                   on={writebackOn} onToggle={setWritebackOn}>
+          <div className="hook-group">
+            <input type="text" className="mono" placeholder="https://your-automation.example.com/findings"
+                   value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} />
+            <input type="password" className="mono" autoComplete="new-password" placeholder={
+              initial?.webhook_token_configured ? "bearer token: •••• configured, leave blank to keep" : "bearer token (optional)"}
+                   value={webhookToken} onChange={(e) => setWebhookToken(e.target.value)} />
+          </div>
+          <span className="help">
+            the payload carries the finding plus trigger, entity, model, rounds, tool calls and
+            timing; the token is sent as an Authorization header and never shown again
+          </span>
+        </OptionRow>
+      </div>
+
       <div className="btnrow">
         <button className="primary" onClick={save}
-                disabled={busy || !name.trim() || !trigger.trim() || !prompt.trim()}>
+                disabled={busy || !name.trim() || !trigger.trim() || !prompt.trim()
+                          || (writebackOn && !webhookUrl.trim())
+                          || (channelOn && !channel)}>
           {isNew ? "Create agent" : "Save changes"}
         </button>
         <button onClick={onCancel}>Cancel</button>

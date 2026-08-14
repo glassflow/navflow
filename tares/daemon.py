@@ -263,6 +263,9 @@ class AgentIn(BaseModel):
     slack_webhook: str = ""      # legacy per-agent notification path (blank-to-keep on update)
     model: str = ""              # "" = the instance default (TARES_AGENT_MODEL)
     slack_channel: str = ""      # workspace-bot channel; the primary notification path
+    webhook_url: str = ""        # write-back: findings + run metadata POSTed here
+    webhook_token: str = ""      # optional bearer for the write-back (secret; blank-to-keep)
+    slack_webhook_clear: bool = False   # blank means keep (it is a secret), so clearing is explicit
 
 
 class ImportReq(BaseModel):
@@ -1280,6 +1283,8 @@ def make_app() -> FastAPI:
                          "slack_configured": bool(a.get("slack_webhook")),
                          "model": a.get("model") or "",
                          "slack_channel": a.get("slack_channel") or "",
+                         "webhook_url": a.get("webhook_url") or "",
+                         "webhook_token_configured": bool(a.get("webhook_token")),
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
@@ -1293,7 +1298,8 @@ def make_app() -> FastAPI:
             _err(ValueError(f"agent {body.name!r} already exists"), 409)
         _agent_payload(body)
         store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
-                                   body.model, body.slack_channel)
+                                   body.model, body.slack_channel,
+                                   body.webhook_url, body.webhook_token)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled — enable it to run on the next firing"}
@@ -1308,11 +1314,15 @@ def make_app() -> FastAPI:
         _agent_payload(body)
         # blank-to-keep for the webhook, matching the connector-secret convention: the UI never
         # receives the stored URL back, so an unedited form must not wipe it.
-        hook = body.slack_webhook or existing.get("slack_webhook", "")
-        # model and channel are not secrets: the form always shows the stored value, so what the
-        # body says is what the user wants — including blank (default model / channel removed).
+        hook = "" if body.slack_webhook_clear else (body.slack_webhook or existing.get("slack_webhook", ""))
+        # blank-to-keep for the write-back token too (a secret the UI never gets back). Clearing
+        # it means clearing the URL: a webhook without its token is a delivery that 401s forever.
+        wtoken = body.webhook_token or (existing.get("webhook_token", "") if body.webhook_url else "")
+        # model, channel and webhook URL are not secrets: the form always shows the stored value,
+        # so what the body says is what the user wants — including blank (removed).
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
-                                   body.model, body.slack_channel)
+                                   body.model, body.slack_channel,
+                                   body.webhook_url, wtoken)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):

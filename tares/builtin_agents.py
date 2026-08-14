@@ -23,11 +23,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import time
 import uuid
 
 import httpx
 
 from .config import FINDINGS_SOURCE, agent_url
+from .envelope import now_utc
 from .slack import deep_link as _slack_deep_link
 from .views import resolve_query_full, resolve_read
 
@@ -192,7 +194,8 @@ class AgentRunner:
         self.store.start_agent_run(run_id, agent["name"], trigger_name, dispatch_id, key,
                                    prompt_hash(agent["prompt"]))
         try:
-            status, error = await self._run(agent, trigger_name, key, payload, run_id)
+            status, error = await self._run(agent, trigger_name, key, payload, run_id,
+                                            dispatch_id)
         except Exception as e:
             detail = f"{type(e).__name__}: {str(e) or repr(e)}"
             self.store.finish_agent_run(run_id, "failed", error=detail[:500])
@@ -207,7 +210,9 @@ class AgentRunner:
                                    None if status == "ok" else error)
 
     async def _run(self, agent: dict, trigger_name: str, key: str, payload: str,
-                   run_id: str) -> tuple[str, str | None]:
+                   run_id: str, dispatch_id: str | None = None) -> tuple[str, str | None]:
+        started_at = now_utc()
+        t0 = time.monotonic()
         api_key, _ = resolve_key(self.store)
         if not api_key:
             msg = "no Anthropic key: set ANTHROPIC_API_KEY or add one in the console"
@@ -230,6 +235,18 @@ class AgentRunner:
         await self._record(agent, trigger_name, key, finding)
         self.store.finish_agent_run(run_id, "ok", rounds=rounds, tool_calls=tool_calls,
                                     finding=finding)
+        if (agent.get("webhook_url") or "").strip():
+            await self._webhook(agent, {
+                "event": "finding",
+                "agent": agent["name"], "trigger": trigger_name, "key": key,
+                "finding": finding,
+                "run_id": run_id, "dispatch_id": dispatch_id,
+                "model": agent.get("model") or MODEL,
+                "rounds": rounds, "tool_calls": tool_calls,
+                "started_at": started_at.isoformat(), "finished_at": now_utc().isoformat(),
+                "duration_s": round(time.monotonic() - t0, 2),
+                "prompt_hash": prompt_hash(agent["prompt"]),
+            })
         return "ok", None
 
     # ── the bounded model loop ────────────────────────────────────────────────
@@ -344,6 +361,37 @@ class AgentRunner:
             await self._slack_channel(agent["name"], channel, trigger_name, key, finding)
         elif hook:
             await self._slack(agent["name"], hook, trigger_name, key, finding)
+
+    async def _webhook(self, agent: dict, body: dict, attempts: int = 3) -> None:
+        """POST the finding plus its run metadata to the agent's write-back webhook — the machine
+        counterpart of the Slack post, for feeding findings into the customer's own automation.
+
+        The body carries only what the customer may already read via the API: the finding, the
+        run's shape (rounds, tool calls, duration), the model name and a hash of the prompt —
+        never a key or token. Auth is an optional bearer token sent as a header; it is never
+        logged, and a delivery failing must never lose the finding (already stored)."""
+        url = agent["webhook_url"].strip()
+        headers = {"content-type": "application/json"}
+        token = (agent.get("webhook_token") or "").strip()
+        if token:
+            headers["authorization"] = f"Bearer {token}"
+        delay = 1.0
+        async with httpx.AsyncClient(timeout=15) as cx:
+            for attempt in range(attempts):
+                try:
+                    r = await cx.post(url, json=body, headers=headers)
+                    if 200 <= r.status_code < 300:
+                        return
+                    if r.status_code < 500:   # client error — won't self-heal, don't retry
+                        print(f"[agent {agent['name']}] webhook: HTTP {r.status_code}")
+                        return
+                    err = f"HTTP {r.status_code}"
+                except Exception as e:        # transport failure — unreachable / timeout / DNS
+                    err = f"{type(e).__name__}: {str(e)[:120]}"
+                if attempt < attempts - 1:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 10)
+        print(f"[agent {agent['name']}] webhook: giving up after {attempts} attempts ({err})")
 
     async def _slack_channel(self, agent_name: str, channel: str, trigger_name: str,
                              key: str, finding: str) -> None:

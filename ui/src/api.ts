@@ -152,10 +152,10 @@ export const api = {
     request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
               models: string[]; default_model: string; slack_workspace: boolean;
               presets: AgentPreset[] }>("/api/agents/builtin"),
-  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; model?: string; slack_channel?: string }) =>
+  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string }) =>
     request<{ ok: boolean; enabled: boolean }>("/api/agents/builtin",
       { method: "POST", body: JSON.stringify(body) }),
-  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; model?: string; slack_channel?: string }) =>
+  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string }) =>
     request(`/api/agents/builtin/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
   enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),

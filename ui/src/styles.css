@@ -449,12 +449,15 @@ button.linklike:hover { border: none; opacity: 0.8; }
 .menu-pop .menu-item:hover { background: var(--hover); }
 
 label.field { display: block; margin-bottom: 14px; }
-label.field .lbl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+/* div.field is the same thing for fields that hold interactive children (a Picker, option rows)
+   where nesting them in a <label> would misdirect clicks — the LOOK must not differ. */
+div.field { display: block; margin-bottom: 14px; }
+label.field .lbl, div.field > .lbl { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
 label.field .lbl .req { color: var(--accent-deep); }
 label.field.invalid input, label.field.invalid textarea, label.field.invalid select { border-color: var(--err); background: var(--err-soft); }
 label.field.invalid input:focus, label.field.invalid textarea:focus { box-shadow: 0 0 0 3px var(--err-soft); }
 label.field.invalid .help { color: var(--err); }
-label.field .help { display: block; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+label.field .help, div.field > .help { display: block; font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
 .help { color: var(--ink-soft); }
 
 /* two-column connector field rows */
@@ -1173,3 +1176,27 @@ pre.payload {
   .ask-side { position: static; width: 100%; height: auto; max-height: 220px; border-right: none; border-bottom: 1px solid var(--line); }
 }
 
+
+/* Delivery option rows on the agent form: collapsed rows that read before they open, an explicit
+   toggle inside, fields only when on. */
+.opt-row { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
+.opt-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 12px; background: none; border: none; cursor: pointer;
+  font: inherit; text-align: left;
+}
+.opt-head:hover { background: var(--wash); border-radius: 8px; }
+.opt-caret { color: var(--ink-faint); width: 12px; flex-shrink: 0; }
+.opt-title { font-weight: 600; margin-right: 10px; }
+.opt-desc { display: inline; }
+.opt-head .badge { margin-left: auto; flex-shrink: 0; }
+.opt-body { padding: 0 12px 12px 34px; display: flex; flex-direction: column; gap: 8px; }
+.opt-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px; }
+.opt-toggle input { accent-color: var(--accent); }
+
+/* URL + bearer token as ONE control: a shared border, an inner divider, no gap — they are a
+   credential pair, not two independent settings. */
+.hook-group { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.hook-group input { border: none; border-radius: 0; width: 100%; }
+.hook-group input + input { border-top: 1px solid var(--line); }
+.hook-group:focus-within { border-color: var(--accent); }

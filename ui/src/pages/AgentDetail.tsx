@@ -120,6 +120,13 @@ export default function AgentDetail() {
                       : agent.slack_configured
                         ? <><span className="badge ok">webhook</span> <span className="help">legacy per-agent webhook</span></>
                         : <span className="dim">—</span>}</td></tr>
+                <tr><td className="help">write-back</td>
+                    <td>{agent.webhook_url
+                      ? <><span className="mono">{agent.webhook_url}</span>
+                          {agent.webhook_token_configured
+                            ? <span className="badge ok" style={{ marginLeft: 8 }}>bearer auth</span>
+                            : <span className="help"> — no auth</span>}</>
+                      : <span className="dim">—</span>}</td></tr>
                 <tr><td className="help">prompt</td>
                     <td><pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{agent.prompt}</pre></td></tr>
               </tbody>
