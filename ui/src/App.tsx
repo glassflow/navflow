@@ -53,6 +53,7 @@ const SECTION_LABEL: Record<string, string> = {
   connect: "Connect",
   activity: "Activity",
   catalog: "Catalog",
+  "mcp-servers": "MCP servers",
   ask: "Ask",
   security: "Security",
   settings: "Settings",

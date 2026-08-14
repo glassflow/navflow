@@ -23,6 +23,7 @@ import SourceDiscover from "./pages/SourceDiscover";
 import SourceNew from "./pages/SourceNew";
 import Security from "./pages/Security";
 import Home from "./pages/Home";
+import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import "./styles.css";
@@ -54,6 +55,7 @@ const router = createBrowserRouter([
       { path: "activity", element: <AgentActivity /> },
       { path: "dispatches/:id", element: <DispatchDetail /> },
       { path: "agents", element: <Agents /> },
+      { path: "mcp-servers", element: <McpServers /> },
       { path: "agents/new", element: <AgentNew /> },
       { path: "agents/:name", element: <AgentDetail /> },
       { path: "ask", element: <Ask /> },

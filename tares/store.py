@@ -146,6 +146,14 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT,
   updated_at TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  name        TEXT PRIMARY KEY,
+  url         TEXT,
+  auth_header TEXT,
+  auth_value  TEXT,
+  created_at  TIMESTAMPTZ,
+  updated_at  TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS ask_sessions (
   id         TEXT PRIMARY KEY,
   title      TEXT,
@@ -190,6 +198,7 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS slack_channel TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_url TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_token TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS mcp_servers JSON",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -785,39 +794,43 @@ class Store:
             self.con.execute("DELETE FROM catalog_views")
             self.con.execute("DELETE FROM catalog_triggers")
             self.con.execute("DELETE FROM catalog_agents")
+            self.con.execute("DELETE FROM mcp_servers")
 
     # ── Tares agents (a prompt attached to a trigger; enabled ⟺ subscribed) ──
     def upsert_catalog_agent(self, name: str, trigger: str, prompt: str,
                              slack_webhook: str | None = None, model: str | None = None,
                              slack_channel: str | None = None, webhook_url: str | None = None,
-                             webhook_token: str | None = None) -> None:
+                             webhook_token: str | None = None,
+                             mcp_servers: list[str] | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO catalog_agents "
                 "(name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "webhook_url, webhook_token, mcp_servers, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
                 "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
                 "model = excluded.model, slack_channel = excluded.slack_channel, "
                 "webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token, "
-                "updated_at = excluded.updated_at",
+                "mcp_servers = excluded.mcp_servers, updated_at = excluded.updated_at",
                 [name, trigger, prompt, slack_webhook or "", model or "",
-                 slack_channel or "", webhook_url or "", webhook_token or "", ts, ts],
+                 slack_channel or "", webhook_url or "", webhook_token or "",
+                 json.dumps(mcp_servers or []), ts, ts],
             )
 
     def list_catalog_agents(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, updated_at "
+                "webhook_url, webhook_token, mcp_servers, updated_at "
                 "FROM catalog_agents ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "trigger": r[1], "prompt": r[2], "slack_webhook": r[3] or "",
              "model": r[4] or "", "slack_channel": r[5] or "",
-             "webhook_url": r[6] or "", "webhook_token": r[7] or "", "updated_at": r[8]}
+             "webhook_url": r[6] or "", "webhook_token": r[7] or "",
+             "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9]}
             for r in rows
         ]
 
@@ -930,6 +943,36 @@ class Store:
                     "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
                     "ON CONFLICT (key) DO UPDATE SET value = excluded.value, "
                     "updated_at = excluded.updated_at", [key, value, now_utc()])
+
+    # ── MCP connections (external tool servers a Tares agent may opt into) ─────
+    # `auth_value` is a secret (an API key or full header value); redaction is the API layer's
+    # job, the store holds it verbatim like connector secrets.
+    def list_mcp_servers(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT name, url, auth_header, auth_value, updated_at "
+                "FROM mcp_servers ORDER BY name").fetchall()
+        return [{"name": r[0], "url": r[1], "auth_header": r[2] or "",
+                 "auth_value": r[3] or "", "updated_at": r[4]} for r in rows]
+
+    def get_mcp_server(self, name: str) -> dict | None:
+        return next((m for m in self.list_mcp_servers() if m["name"] == name), None)
+
+    def upsert_mcp_server(self, name: str, url: str, auth_header: str | None = None,
+                          auth_value: str | None = None) -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO mcp_servers (name, url, auth_header, auth_value, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET url = excluded.url, "
+                "auth_header = excluded.auth_header, auth_value = excluded.auth_value, "
+                "updated_at = excluded.updated_at",
+                [name, url, auth_header or "", auth_value or "", ts, ts])
+
+    def delete_mcp_server(self, name: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM mcp_servers WHERE name = ?", [name])
 
     # ── ask sessions (the in-app agent's chat history) ────────────────────────
     # `state` is an opaque JSON blob owned by the console (messages, tool calls, proposal

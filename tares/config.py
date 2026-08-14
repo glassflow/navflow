@@ -128,6 +128,7 @@ class AgentCfg:
     slack_channel: str = ""   # workspace-bot channel id; wins over slack_webhook when both set
     webhook_url: str = ""     # write-back: findings + run metadata POSTed here
     webhook_token: str = ""   # optional bearer token for the write-back (a secret)
+    mcp_servers: list = dc_field(default_factory=list)   # registry names this agent may use
     enabled: bool = False
 
 
@@ -232,6 +233,7 @@ def _agent_from_dict(a: dict, enabled: bool = False) -> AgentCfg:
         slack_channel=a.get("slack_channel") or "",
         webhook_url=a.get("webhook_url") or "",
         webhook_token=a.get("webhook_token") or "",
+        mcp_servers=list(a.get("mcp_servers") or []),
         enabled=bool(a.get("enabled", enabled)),
     )
 
@@ -274,6 +276,21 @@ def catalog_from_db(store) -> Catalog:
     return Catalog(sources=sources, views=views, triggers=triggers, agents=agents)
 
 
+def validate_mcp_server_dict(m: dict) -> None:
+    for field in ("name", "url"):
+        if not str(m.get(field) or "").strip():
+            raise CatalogError(f"mcp_server is missing required field {field!r}")
+    if not _AGENT_NAME_RE.match(str(m["name"])):
+        raise CatalogError(f"mcp_server name {m['name']!r} must be alphanumeric/_/-")
+    url = str(m["url"]).strip()
+    if not url.startswith("https://") and not url.startswith("http://"):
+        raise CatalogError(f"mcp_server {m['name']!r}: url must be an http(s) URL "
+                           "(stdio servers are not supported)")
+    header = str(m.get("auth_header") or "").strip()
+    if header and not re.fullmatch(r"[A-Za-z0-9-]+", header):
+        raise CatalogError(f"mcp_server {m['name']!r}: auth_header must be a header name")
+
+
 def import_yaml_to_db(store, text: str) -> dict:
     """Validate and write a YAML catalog into the store. Returns counts."""
     raw = yaml.safe_load(text) or {}
@@ -281,6 +298,9 @@ def import_yaml_to_db(store, text: str) -> dict:
     views = raw.get("views", []) or []
     triggers = raw.get("triggers", []) or []
     agents = raw.get("agents", []) or []
+    mcp_servers = raw.get("mcp_servers", []) or []
+    for m in mcp_servers:
+        validate_mcp_server_dict(m)
 
     # validate the whole document before writing anything
     names = {s["name"] for s in sources}
@@ -296,8 +316,10 @@ def import_yaml_to_db(store, text: str) -> dict:
     all_views.update({v["name"]: v for v in views})
     all_triggers = {t["name"]: t for t in store.list_catalog_triggers()}
     all_triggers.update({t["name"]: t for t in triggers})
+    server_names = ({m["name"] for m in mcp_servers}
+                    | {m["name"] for m in store.list_mcp_servers()})
     for a in agents:
-        validate_agent_dict(a, trigger_names, all_triggers, all_views)
+        validate_agent_dict(a, trigger_names, all_triggers, all_views, server_names)
 
     from .connectors import normalize_config, source_type_for
     for s in sources:
@@ -319,7 +341,8 @@ def import_yaml_to_db(store, text: str) -> dict:
     for a in agents:
         store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"),
                                    a.get("model"), a.get("slack_channel"),
-                                   a.get("webhook_url"), a.get("webhook_token"))
+                                   a.get("webhook_url"), a.get("webhook_token"),
+                                   a.get("mcp_servers"))
         # enabled ⟺ a subscription to the trigger. Reflect the document's state so an enabled agent
         # round-trips: add the internal subscription if enabled, remove it if not.
         url = agent_url(a["name"])
@@ -330,8 +353,12 @@ def import_yaml_to_db(store, text: str) -> dict:
         else:
             store.remove_subscription_by_url(url)
 
+    for m in mcp_servers:
+        store.upsert_mcp_server(m["name"], str(m["url"]).strip(),
+                                m.get("auth_header"), m.get("auth_value"))
+
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
-            "agents": len(agents)}
+            "agents": len(agents), "mcp_servers": len(mcp_servers)}
 
 
 def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:
@@ -384,11 +411,22 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     # as connector secrets above; the operator re-enters it on the target. enabled is derived from
     # the presence of the agent's internal subscription.
     enabled_urls = {s["url"] for s in store.all_subscriptions()}
+    # MCP connections: the URL and header name are configuration, the value is a credential —
+    # same rule as every other secret here.
+    mcp_out = [
+        {"name": m["name"], "url": m["url"],
+         **({"auth_header": m["auth_header"]} if m.get("auth_header") else {}),
+         **({"auth_value": m["auth_value"]}
+            if include_secrets and m.get("auth_value") else {})}
+        for m in store.list_mcp_servers()
+    ]
+
     agent_out = [
         {"name": a["name"], "trigger": a["trigger"], "prompt": a["prompt"],
          **({"model": a["model"]} if a.get("model") else {}),
          **({"slack_channel": a["slack_channel"]} if a.get("slack_channel") else {}),
          **({"webhook_url": a["webhook_url"]} if a.get("webhook_url") else {}),
+         **({"mcp_servers": a["mcp_servers"]} if a.get("mcp_servers") else {}),
          **({"slack_webhook": a["slack_webhook"]}
             if include_secrets and a.get("slack_webhook") else {}),
          **({"webhook_token": a["webhook_token"]}
@@ -401,6 +439,8 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     doc = {"sources": src_out, "views": view_out, "triggers": trig_out}
     if agent_out:
         doc["agents"] = agent_out
+    if mcp_out:
+        doc["mcp_servers"] = mcp_out
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 
@@ -620,7 +660,8 @@ MAX_PROMPT_CHARS = 8000
 
 
 def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = None,
-                        views: dict | None = None) -> None:
+                        views: dict | None = None,
+                        mcp_server_names: set | None = None) -> None:
     for field in ("name", "trigger", "prompt"):
         if not str(a.get(field) or "").strip():
             raise CatalogError(f"agent is missing required field {field!r}")
@@ -647,6 +688,14 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
     wurl = str(a.get("webhook_url") or "").strip()
     if wurl and not wurl.startswith("https://") and not wurl.startswith("http://"):
         raise CatalogError(f"agent {a['name']!r}: webhook_url must be an http(s) URL")
+    servers = a.get("mcp_servers") or []
+    if not isinstance(servers, list) or not all(isinstance(x, str) for x in servers):
+        raise CatalogError(f"agent {a['name']!r}: mcp_servers must be a list of server names")
+    if mcp_server_names is not None:
+        for x in servers:
+            if x not in mcp_server_names:
+                raise CatalogError(f"agent {a['name']!r}: unknown mcp server {x!r} "
+                                   "(add it to the MCP servers registry first)")
 
     # Loop guard: a Tares agent writes a finding into the `findings` source. If its trigger
     # watches a view containing that source, the finding re-fires the trigger, which runs the agent
