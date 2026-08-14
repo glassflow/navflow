@@ -3,6 +3,37 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] — 2026-08-14
+
+### Added
+- **Tares agents can use external MCP servers.** Register a server once under **Agents → MCP
+  servers** (streamable-HTTP URL plus an optional auth header, stored as a secret; **Test** lists
+  its tools), then opt individual agents in on their form. At run time the server's tools are
+  offered alongside the built-in reads, prefixed by server name; every run records which external
+  tools it called. A down server is skipped, a verbose one truncated, and a failed call is
+  evidence for the model rather than a failed run. This moves the read-only boundary for the
+  agents you opt in: tools from an external server can act on whatever that server exposes.
+- **Per-agent model.** Pick a model per agent from a curated dropdown, or leave it following the
+  instance default (`TARES_AGENT_MODEL`). Catalog YAML accepts any `claude-*` id.
+- **Findings deliver where you already look.** The agent form's delivery options are toggled
+  rows: post to a **Slack channel** via the workspace bot (picked from the bot's own channel
+  list), or POST each finding to an **authenticated write-back webhook** as JSON with its run
+  metadata (trigger, entity, model, rounds, tool calls, timing; never a credential), with an
+  optional bearer token. The legacy per-agent Slack incoming webhook remains and can now actually
+  be turned off.
+- **Paste a catalog snippet.** The Add source page is a connector card grid with **Add via
+  YAML**: paste a snippet from the docs or a teammate and it merges into the live catalog,
+  validated first, upsert-only, nothing removed, no restart. One paste can carry sources, views,
+  triggers, agents and MCP servers; the result links to everything it created.
+
+### Fixed
+- **Delivery links on a dispatch page go where the story continues.** They all pointed at a page
+  that no longer shows agents. A Tares agent now links to its run for that exact firing (opened,
+  highlighted and scrolled to), an external agent to its roster row; a Slack delivery is plain
+  text, because the message's story continues in Slack.
+- Em dashes removed from every rendered string, and redundant help lines under form fields
+  trimmed.
+
 ## [1.4.0] — 2026-08-14
 
 ### Added
