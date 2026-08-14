@@ -237,6 +237,7 @@ export interface BuiltinAgent {
   slack_channel: string;       // workspace-bot channel id, "" = none
   webhook_url: string;         // write-back target, "" = none
   webhook_token_configured: boolean;   // the token itself is never sent to the client
+  mcp_servers: string[];       // registry names this agent may use
   updated_at?: string;
   last_run?: AgentRun | null;
 }
@@ -250,6 +251,7 @@ export interface AgentRun {
   status: "running" | "ok" | "empty" | "failed" | "capped";
   rounds: number;
   tool_calls: number;
+  external_tools?: string[];   // prefixed server__tool names this run called
   started_at: string;
   duration_ms: number | null;
   finding: string | null;

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { Link } from "react-router-dom";
+
 import { api } from "../api";
 import type { SlackChannels } from "../api";
 import { Combo, Picker } from "./bits";
@@ -77,6 +79,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
   const [writebackOn, setWritebackOn] = useState(!!initial?.webhook_url);
   const [webhookUrl, setWebhookUrl] = useState(initial?.webhook_url ?? "");
   const [webhookToken, setWebhookToken] = useState("");
+  const [mcpSel, setMcpSel] = useState<string[]>(initial?.mcp_servers ?? []);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -96,6 +99,17 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
       .catch(() => { if (live) setChannels({ channels: [], reason: "error" }); });
     return () => { live = false; };
   }, [slackWorkspace]);
+  // The MCP registry: which servers exist is managed on its own page; here the agent only picks
+  // from them.
+  const [mcpAvail, setMcpAvail] = useState<{ name: string; url: string }[]>();
+  useEffect(() => {
+    let live = true;
+    api.mcpServers().then((r) => { if (live) setMcpAvail(r.servers); }).catch(() => { if (live) setMcpAvail([]); });
+    return () => { live = false; };
+  }, []);
+  const toggleMcp = (name: string, on: boolean) =>
+    setMcpSel((cur) => (on ? [...cur, name] : cur.filter((n) => n !== name)));
+
   const chanList = channels?.reason === null ? channels.channels : [];
   const chanLabels: Record<string, string> = { "": "pick a channel…" };
   for (const c of chanList) chanLabels[c.id] = (c.is_private ? "🔒 " : "#") + c.name;
@@ -109,6 +123,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
       slack_webhook_clear: !hookOn,
       webhook_url: writebackOn ? webhookUrl.trim() : "",
       webhook_token: writebackOn ? webhookToken.trim() : "",
+      mcp_servers: mcpSel,
     };
     try {
       if (isNew) await api.createBuiltinAgent(body);
@@ -168,6 +183,44 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
         <span className="lbl">model</span>
         <Picker value={model} onChange={setModel} options={modelOptions} labels={modelLabels}
                 ariaLabel="model" />
+      </div>
+
+      <div className="field">
+        <h3 style={{ margin: "10px 0 2px", fontSize: 16 }}>External tools</h3>
+        <span className="help" style={{ display: "block", margin: "0 0 10px" }}>
+          MCP servers this agent may call, alongside its built-in reads. Tools from these servers
+          can act on your systems; enable only what this agent should touch.
+        </span>
+        {mcpAvail === undefined ? <span className="dim">loading…</span>
+          : mcpAvail.length === 0 ? (
+            <span className="help">
+              none connected yet. Add one under <Link to="/mcp-servers">MCP servers</Link>, then
+              pick it here.
+            </span>
+          ) : (
+            <>
+              {mcpSel.length > 0 && (
+                <div className="btnrow" style={{ marginBottom: 8, flexWrap: "wrap" }}>
+                  {mcpSel.map((name) => (
+                    <span key={name} className="chip mono" title={mcpAvail.find((m) => m.name === name)?.url}>
+                      {name}
+                      <button type="button" className="chip-x" aria-label={`remove ${name}`}
+                              onClick={() => toggleMcp(name, false)}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {mcpAvail.some((m) => !mcpSel.includes(m.name)) && (
+                <Picker value="" ariaLabel="add an MCP server"
+                        options={mcpAvail.filter((m) => !mcpSel.includes(m.name)).map((m) => m.name)}
+                        labels={{ "": "add a server…" }}
+                        onChange={(name) => { if (name) toggleMcp(name, true); }} />
+              )}
+              <span className="help">
+                manage connections under <Link to="/mcp-servers">MCP servers</Link>
+              </span>
+            </>
+          )}
       </div>
 
       <div className="field">

@@ -33,7 +33,10 @@ export default function Agents() {
             and <strong>connected agents</strong> reached over a webhook
           </p>
         </div>
-        <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
+        <div className="btnrow">
+          <button onClick={() => nav("/mcp-servers")}>MCP servers</button>
+          <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
+        </div>
       </div>
 
       {data && !data.key_configured && (
