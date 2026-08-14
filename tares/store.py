@@ -146,6 +146,13 @@ CREATE TABLE IF NOT EXISTS settings (
   value      TEXT,
   updated_at TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS ask_sessions (
+  id         TEXT PRIMARY KEY,
+  title      TEXT,
+  state      TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS query_log (
   id            TEXT PRIMARY KEY,
   view          TEXT,
@@ -911,6 +918,49 @@ class Store:
                     "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) "
                     "ON CONFLICT (key) DO UPDATE SET value = excluded.value, "
                     "updated_at = excluded.updated_at", [key, value, now_utc()])
+
+    # ── ask sessions (the in-app agent's chat history) ────────────────────────
+    # `state` is an opaque JSON blob owned by the console (messages, tool calls, proposal
+    # decisions). The daemon stores and returns it; it never interprets it — parsing it here
+    # would couple the store's schema to the UI's message shape for no reader's benefit.
+    ASK_SESSIONS_KEEP = 50   # bounded history: enough to scroll back, never a growth vector
+
+    def list_ask_sessions(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT id, title, created_at, updated_at FROM ask_sessions "
+                "ORDER BY updated_at DESC").fetchall()
+        return [{"id": r[0], "title": r[1], "created_at": r[2], "updated_at": r[3]} for r in rows]
+
+    def get_ask_session(self, sid: str) -> dict | None:
+        with self._lock:
+            row = self.con.execute(
+                "SELECT id, title, state, created_at, updated_at FROM ask_sessions WHERE id = ?",
+                [sid]).fetchone()
+        if row is None:
+            return None
+        return {"id": row[0], "title": row[1], "state": row[2],
+                "created_at": row[3], "updated_at": row[4]}
+
+    def upsert_ask_session(self, sid: str, title: str, state: str) -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO ask_sessions (id, title, state, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET title = excluded.title, "
+                "state = excluded.state, updated_at = excluded.updated_at",
+                [sid, title, state, ts, ts])
+            self.con.execute(
+                "DELETE FROM ask_sessions WHERE id NOT IN "
+                "(SELECT id FROM ask_sessions ORDER BY updated_at DESC LIMIT ?)",
+                [self.ASK_SESSIONS_KEEP])
+
+    def delete_ask_session(self, sid: str) -> bool:
+        with self._lock:
+            n = self.con.execute("DELETE FROM ask_sessions WHERE id = ?", [sid]).fetchone()
+            # DuckDB returns the deleted-row count as a result row
+        return bool(n and n[0])
 
     # ── activity logs (agent-facing observability) ────────────────────────────
     def log_query(self, qid: str, view: str, key: str, window: str,

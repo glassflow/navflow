@@ -3,8 +3,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { api, authHeader } from "../api";
+import { TimeAgo } from "./bits";
 import { applyProposal, ProposalCard } from "./proposals";
 import type { DecisionMap, Proposal } from "./proposals";
+
+type SessionMeta = { id: string; title: string; created_at: string; updated_at: string };
 
 // The Ask assistant. Backs both the /ask page and the global ⌘K palette — the page for long
 // sessions, the overlay to ask from anywhere without losing your place.
@@ -88,7 +91,7 @@ const scrollToEnd = () => {
   el.scrollTop = el.scrollHeight;
 };
 
-export default function AskChat() {
+export default function AskChat({ history = false }: { history?: boolean }) {
   const [ready, setReady] = useState<boolean>();      // is a key configured on the server?
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -109,6 +112,76 @@ export default function AskChat() {
   const refreshKey = () => api.capabilities()
     .then((c) => setReady(!!c.agent_key_configured)).catch(() => setReady(false));
   useEffect(() => { refreshKey(); }, []);
+
+  // ── server-side chat history ──────────────────────────────────────────────
+  // The conversation is saved to the daemon after every exchange, so navigating away (or closing
+  // the browser) loses nothing: on mount the latest session is resumed, and older ones are
+  // offered on the empty screen. The id is a ref, not state — nothing renders it, and a state
+  // update here would re-render the transcript for no reason.
+  const sessionId = useRef("");
+  const dirty = useRef(false);   // set by a sent message or a proposal decision, never by opening
+  const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const refreshSessions = () =>
+    api.askSessions().then((r) => setSessions(r.sessions)).catch(() => {});
+
+  const restore = (id: string, state: string) => {
+    try {
+      const st = JSON.parse(state || "{}");
+      sessionId.current = id;
+      dirty.current = false;
+      setMsgs(st.msgs ?? []);
+      setDecisions(st.decisions ?? {});
+      stick.current = true;
+      setShowJump(false);
+    } catch { /* an unreadable blob is a fresh start, not an error screen */ }
+  };
+
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;   // resume once per mount, never after the user pressed New
+    booted.current = true;
+    api.askSessions().then(async (r) => {
+      setSessions(r.sessions);
+      if (!r.sessions.length) return;
+      const full = await api.askSession(r.sessions[0].id);
+      restore(full.id, full.state);
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save when a turn settles (stream finished, or a proposal decided) — never per token. The
+  // debounce coalesces the decision clicks that land in a burst.
+  const saveTimer = useRef<number>();
+  useEffect(() => {
+    if (busy || msgs.length === 0 || !dirty.current) return;
+    if (!sessionId.current) sessionId.current = crypto.randomUUID().replace(/-/g, "");
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      const first = msgs.find((m) => m.role === "user");
+      const title = (first ? textOf(first).trim() : "conversation").slice(0, 80);
+      api.saveAskSession(sessionId.current, title, JSON.stringify({ msgs, decisions }))
+        .then(() => { dirty.current = false; refreshSessions(); })
+        .catch(() => {});   // a failed save must not disturb the conversation
+    }, 600);
+    return () => window.clearTimeout(saveTimer.current);
+  }, [busy, msgs, decisions]);
+
+  const openSession = async (id: string) => {
+    try {
+      const full = await api.askSession(id);
+      restore(full.id, full.state);
+    } catch { refreshSessions(); }   // deleted meanwhile — drop it from the list
+  };
+  const newConversation = () => {
+    sessionId.current = "";
+    dirty.current = false;
+    setMsgs([]); setDecisions({});
+    stick.current = true; setShowJump(false);
+  };
+  const removeSession = async (id: string) => {
+    try { await api.deleteAskSession(id); } catch { /* already gone */ }
+    if (sessionId.current === id) { sessionId.current = ""; setMsgs([]); setDecisions({}); }
+    refreshSessions();
+  };
 
   // One layout read per animation frame, never per scroll event, and no React state unless the
   // button's visibility actually changes.
@@ -173,6 +246,7 @@ export default function AskChat() {
 
   async function send(text: string) {
     if (!text.trim() || busy) return;
+    dirty.current = true;
     setInput("");
     if (taRef.current) { taRef.current.style.height = "auto"; }
     stick.current = true;
@@ -225,15 +299,38 @@ export default function AskChat() {
     }
   }
 
-  const decide = (id: string, status: "applied" | "skipped" | "error", detail?: string) =>
+  const decide = (id: string, status: "applied" | "skipped" | "error", detail?: string) => {
+    dirty.current = true;
     setDecisions((d) => ({ ...d, [id]: { status, detail } }));
+  };
   const apply = async (p: Proposal) => {
     try { await applyProposal(p); decide(p.id, "applied"); }
     catch (e) { decide(p.id, "error", String((e as Error).message ?? e)); }
   };
 
   return (
-    <div className="askchat">
+    <div className={"askchat" + (history ? " with-rail" : "")}>
+      {history && (
+        <aside className="ask-side">
+          <button type="button" className="primary ask-rail-new" onClick={newConversation}
+                  disabled={busy}>+ New conversation</button>
+          <div className="help" style={{ margin: "14px 0 4px" }}>Recents</div>
+          <div className="ask-rail-list">
+            {sessions.map((sess) => (
+              <div key={sess.id}
+                   className={"ask-rail-item" + (sess.id === sessionId.current ? " active" : "")}
+                   onClick={() => { if (!busy) openSession(sess.id); }}>
+                <span className="t" title={sess.title}>{sess.title || "conversation"}</span>
+                <span className="help when"><TimeAgo ts={sess.updated_at} /></span>
+                <button type="button" className="x" title="delete this conversation"
+                        onClick={(e) => { e.stopPropagation(); removeSession(sess.id); }}>×</button>
+              </div>
+            ))}
+            {sessions.length === 0 && <div className="help">no conversations yet</div>}
+          </div>
+        </aside>
+      )}
+      <div className="ask-main">
       <div className="chat">
         {msgs.length === 0 && (
           <div className="starters">
@@ -276,11 +373,12 @@ export default function AskChat() {
         {busy
           ? <button type="button" className="danger" onClick={() => abortRef.current?.abort()}>Stop</button>
           : <button className="primary" disabled={!input.trim()}>Send</button>}
-        {msgs.length > 0 && !busy && (
+        {!history && msgs.length > 0 && !busy && (
           <button type="button" className="dim" title="start a new conversation"
-                  onClick={() => { setMsgs([]); setDecisions({}); stick.current = true; setShowJump(false); }}>New</button>
+                  onClick={newConversation}>New</button>
         )}
       </form>
+      </div>
     </div>
   );
 }
