@@ -199,6 +199,7 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_url TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_token TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS mcp_servers JSON",
+    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS external_tools JSON",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -854,19 +855,21 @@ class Store:
             )
 
     def finish_agent_run(self, run_id: str, status: str, rounds: int = 0, tool_calls: int = 0,
-                         finding: str | None = None, error: str | None = None) -> None:
+                         finding: str | None = None, error: str | None = None,
+                         external_tools: list[str] | None = None) -> None:
         with self._lock:
             self.con.execute(
                 "UPDATE agent_runs SET status = ?, rounds = ?, tool_calls = ?, finding = ?, "
-                "error = ?, finished_at = ?, "
+                "error = ?, external_tools = ?, finished_at = ?, "
                 "duration_ms = CAST(date_diff('millisecond', started_at, ?) AS INTEGER) "
                 "WHERE id = ?",
-                [status, rounds, tool_calls, finding, error, now_utc(), now_utc(), run_id],
+                [status, rounds, tool_calls, finding, error,
+                 json.dumps(external_tools or []), now_utc(), now_utc(), run_id],
             )
 
     def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
-               "started_at, duration_ms, finding, error FROM agent_runs ")
+               "started_at, duration_ms, finding, error, external_tools FROM agent_runs ")
         params: list = []
         if agent:
             sql += "WHERE agent = ? "
@@ -878,7 +881,8 @@ class Store:
         return [
             {"id": r[0], "agent": r[1], "trigger": r[2], "dispatch_id": r[3], "key": r[4],
              "status": r[5], "rounds": r[6], "tool_calls": r[7], "started_at": r[8],
-             "duration_ms": r[9], "finding": r[10], "error": r[11]}
+             "duration_ms": r[9], "finding": r[10], "error": r[11],
+             "external_tools": json.loads(r[12]) if r[12] else []}
             for r in rows
         ]
 

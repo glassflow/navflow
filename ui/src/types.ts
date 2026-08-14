@@ -251,6 +251,7 @@ export interface AgentRun {
   status: "running" | "ok" | "empty" | "failed" | "capped";
   rounds: number;
   tool_calls: number;
+  external_tools?: string[];   // prefixed server__tool names this run called
   started_at: string;
   duration_ms: number | null;
   finding: string | null;
