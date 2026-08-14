@@ -32,6 +32,11 @@ from .slack import deep_link as _slack_deep_link
 from .views import resolve_query_full, resolve_read
 
 MODEL = os.getenv("TARES_AGENT_MODEL", "claude-sonnet-4-6")
+# The model choices the console offers per agent. The instance default (TARES_AGENT_MODEL) is
+# always first; an agent stores "" to mean "follow the instance default", so changing the
+# instance default moves every agent that never chose one.
+AGENT_MODELS = list(dict.fromkeys(
+    [MODEL, "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]))
 # Overridable so the end-to-end test can point at a stub instead of the real API.
 API_BASE = os.getenv("TARES_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
 MAX_ROUNDS = 6            # model-call rounds per run
@@ -244,7 +249,8 @@ class AgentRunner:
                 r = await cx.post(
                     f"{API_BASE}/v1/messages",
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                    json={"model": MODEL, "max_tokens": MAX_TOKENS, "system": agent["prompt"],
+                    json={"model": agent.get("model") or MODEL,
+                          "max_tokens": MAX_TOKENS, "system": agent["prompt"],
                           "tools": TOOL_DEFS, "messages": messages})
                 if r.status_code >= 400:
                     raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
@@ -329,9 +335,45 @@ class AgentRunner:
             "prompt_hash": prompt_hash(agent["prompt"]),
             "labels": {label: key} if label else {},
         })
+        # Notification: the workspace bot posting to a channel is the primary path (one token,
+        # picked from a list, no credential per agent); the per-agent incoming webhook stays as
+        # the secondary/legacy path. An agent uses one — channel wins when both are set.
+        channel = (agent.get("slack_channel") or "").strip()
         hook = agent.get("slack_webhook")
-        if hook:
+        if channel:
+            await self._slack_channel(agent["name"], channel, trigger_name, key, finding)
+        elif hook:
             await self._slack(agent["name"], hook, trigger_name, key, finding)
+
+    async def _slack_channel(self, agent_name: str, channel: str, trigger_name: str,
+                             key: str, finding: str) -> None:
+        """Post the finding through the workspace bot (`chat.postMessage`). Same message shape as
+        the webhook path — the full finding, standing alone — but the credential is the one bot
+        token the instance already holds, and the target is a channel picked from a list.
+
+        One attempt, verdict from `slack.classify` (Slack answers HTTP 200 with ok:false), failure
+        printed — a notification failing must never lose the finding, which is already stored."""
+        from . import slack as _slack_mod
+        token, _origin = _slack_mod.resolve_token(self.store)
+        if not token:
+            print(f"[agent {agent_name}] slack: no bot token configured, channel post skipped")
+            return
+        link = _slack_deep_link(key)
+        text = f"*{agent_name}* · `{trigger_name}` fired for *{key}*\n\n{finding}{link}"
+        try:
+            async with httpx.AsyncClient(timeout=15) as cx:
+                r = await cx.post(f"{_slack_mod.API_BASE}/chat.postMessage",
+                                  json={"channel": channel, "text": text},
+                                  headers={"authorization": f"Bearer {token}"})
+                try:
+                    data = r.json()
+                except Exception:
+                    data = None
+                ok, error, _retry = _slack_mod.classify(r.status_code, data)
+                if not ok:
+                    print(f"[agent {agent_name}] slack: {error}")
+        except Exception as e:   # notification failing must never lose the finding
+            print(f"[agent {agent_name}] slack: {type(e).__name__}: {e}")
 
     async def _slack(self, agent_name: str, hook: str, trigger_name: str, key: str,
                      finding: str) -> None:

@@ -14,14 +14,20 @@ export default function AgentNew() {
 
   const [triggers, setTriggers] = useState<string[]>();
   const [presets, setPresets] = useState<AgentPreset[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [slackWorkspace, setSlackWorkspace] = useState(false);
   const [keyOk, setKeyOk] = useState(true);
   const [err, setErr] = useState<string>();
 
   useEffect(() => {
     api.triggers().then((ts) => setTriggers(ts.map((t) => t.name)))
       .catch((e) => setErr(String((e as Error).message ?? e)));
-    api.builtinAgents().then((d) => { setPresets(d.presets); setKeyOk(d.key_configured); })
-      .catch(() => {});
+    api.builtinAgents().then((d) => {
+      setPresets(d.presets); setKeyOk(d.key_configured);
+      setModels(d.models); setDefaultModel(d.default_model);
+      setSlackWorkspace(d.slack_workspace);
+    }).catch(() => {});
   }, []);
 
   return (
@@ -51,6 +57,9 @@ export default function AgentNew() {
             presetTrigger={presetTrigger}
             triggers={triggers}
             presets={presets}
+            models={models}
+            defaultModel={defaultModel}
+            slackWorkspace={slackWorkspace}
             onSaved={(name) => nav(`/agents/${encodeURIComponent(name)}`)}
             onCancel={() => nav(presetTrigger ? `/triggers/${encodeURIComponent(presetTrigger)}` : "/agents")}
           />

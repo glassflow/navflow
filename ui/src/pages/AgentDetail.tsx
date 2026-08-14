@@ -80,6 +80,9 @@ export default function AgentDetail() {
           initial={agent}
           triggers={(triggers ?? []).map((t) => t.name)}
           presets={data.presets}
+          models={data.models}
+          defaultModel={data.default_model}
+          slackWorkspace={data.slack_workspace}
           onSaved={() => { setEditing(false); reload(); }}
           onCancel={() => setEditing(false)}
         />
@@ -108,8 +111,15 @@ export default function AgentDetail() {
                       ? <><TimeAgo ts={lastRun.started_at} /> for <span className="mono">{lastRun.key}</span>
                           {lastRun.dispatch_id && <> · <Link to={`/dispatches/${encodeURIComponent(lastRun.dispatch_id)}`}>the firing</Link></>}</>
                       : <span className="dim">never</span>}</td></tr>
+                <tr><td className="help">model</td>
+                    <td><span className="mono">{agent.model || data.default_model}</span>
+                        {!agent.model && <span className="help"> — instance default</span>}</td></tr>
                 <tr><td className="help">Slack</td>
-                    <td>{agent.slack_configured ? <span className="badge ok">configured</span> : <span className="dim">—</span>}</td></tr>
+                    <td>{agent.slack_channel
+                      ? <><span className="badge ok">channel</span> <span className="help">posted by the workspace bot</span></>
+                      : agent.slack_configured
+                        ? <><span className="badge ok">webhook</span> <span className="help">legacy per-agent webhook</span></>
+                        : <span className="dim">—</span>}</td></tr>
                 <tr><td className="help">prompt</td>
                     <td><pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{agent.prompt}</pre></td></tr>
               </tbody>

@@ -34,7 +34,8 @@ from .connectors import (SPECS, normalize_config, redact_config, restore_secrets
                          source_type_for)
 from .dispatch import Dispatcher
 from .envelope import now_utc
-from .builtin_agents import (PRESETS as AGENT_PRESETS, AgentRunner,
+from .builtin_agents import (AGENT_MODELS, MODEL as AGENT_DEFAULT_MODEL,
+                             PRESETS as AGENT_PRESETS, AgentRunner,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
 from . import slack as slack_mod
@@ -258,8 +259,10 @@ class TriggerIn(BaseModel):
 class AgentIn(BaseModel):
     name: str
     trigger: str
-    prompt: str                  # the only field a user edits — see docs/design/navflow-agents.md
-    slack_webhook: str = ""
+    prompt: str
+    slack_webhook: str = ""      # legacy per-agent notification path (blank-to-keep on update)
+    model: str = ""              # "" = the instance default (TARES_AGENT_MODEL)
+    slack_channel: str = ""      # workspace-bot channel; the primary notification path
 
 
 class ImportReq(BaseModel):
@@ -1275,9 +1278,13 @@ def make_app() -> FastAPI:
             runs = store.list_agent_runs(a["name"], limit=1)
             rows.append({"name": a["name"], "trigger": a["trigger"], "prompt": a["prompt"],
                          "slack_configured": bool(a.get("slack_webhook")),
+                         "model": a.get("model") or "",
+                         "slack_channel": a.get("slack_channel") or "",
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
+                "models": AGENT_MODELS, "default_model": AGENT_DEFAULT_MODEL,
+                "slack_workspace": bool(resolve_slack_token(store)[0]),
                 "presets": [{"id": k, **v} for k, v in AGENT_PRESETS.items()]}
 
     @app.post("/api/agents/builtin", status_code=201)
@@ -1285,7 +1292,8 @@ def make_app() -> FastAPI:
         if store.get_catalog_agent(body.name) is not None:
             _err(ValueError(f"agent {body.name!r} already exists"), 409)
         _agent_payload(body)
-        store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook)
+        store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
+                                   body.model, body.slack_channel)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled — enable it to run on the next firing"}
@@ -1301,7 +1309,10 @@ def make_app() -> FastAPI:
         # blank-to-keep for the webhook, matching the connector-secret convention: the UI never
         # receives the stored URL back, so an unedited form must not wipe it.
         hook = body.slack_webhook or existing.get("slack_webhook", "")
-        store.upsert_catalog_agent(name, body.trigger, body.prompt, hook)
+        # model and channel are not secrets: the form always shows the stored value, so what the
+        # body says is what the user wants — including blank (default model / channel removed).
+        store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
+                                   body.model, body.slack_channel)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):
