@@ -102,7 +102,11 @@ export default function Explore() {
     };
     run(true);
     const id = setInterval(() => run(false), 10000);
-    return () => { live = false; clearInterval(id); };
+    // run() skips while the tab is hidden, so a read that was due then must fire the moment the
+    // tab becomes visible — otherwise "reading timeline…" sits there until the next interval tick.
+    const onVisible = () => { if (!document.hidden) run(true); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { live = false; clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
   }, [selector, effectiveLens, window_]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const needle = q.trim().toLowerCase();

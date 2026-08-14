@@ -105,10 +105,13 @@ function Copy({ text, label = "copy" }: { text: string; label?: string }) {
   );
 }
 
-function CodeBlock({ title, code }: { title: string; code: string }) {
+// `copyText` lets a snippet DISPLAY the masked token (••••••••) while the copy button carries the
+// real one. Without it, a credentialed snippet either exposes the token on screen or copies the
+// mask — both wrong.
+function CodeBlock({ title, code, copyText }: { title: string; code: string; copyText?: string }) {
   return (
     <div className="codeblock">
-      <div className="codeblock-head"><span>{title}</span><Copy text={code} /></div>
+      <div className="codeblock-head"><span>{title}</span><Copy text={copyText ?? code} /></div>
       <pre className="payload">{code}</pre>
     </div>
   );
@@ -284,7 +287,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
                 (needs a <span className="mono">read</span>-scoped{" "}
                 <Link to="/security">API key</Link>):
               </p>
-              <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} />
+              <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} copyText={subscribeCurl(tok)} />
             </>
           ) : (
             <p className="help" style={{ whiteSpace: "normal" }}>
@@ -312,7 +315,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             <span className="mono">POST /remember</span> (needs <span className="mono">ingest</span>),
             so the next timeline arrives with prior findings attached.
           </p>
-          <CodeBlock title="read a correlated timeline" code={queryCurl(shownTok)} />
+          <CodeBlock title="read a correlated timeline" code={queryCurl(shownTok)} copyText={queryCurl(tok)} />
         </>
       )}
 
@@ -333,7 +336,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
 
       {mcpClient === "Claude Code" && (
         <>
-          <CodeBlock title="run in your terminal" code={claudeCode(tok)} />
+          <CodeBlock title="run in your terminal" code={claudeCode(shownTok)} copyText={claudeCode(tok)} />
           <p className="help" style={{ whiteSpace: "normal" }}>
             Or install the{" "}
             <a href="https://docs.glassflow.ai/tares/connectors/claude-code" target="_blank" rel="noreferrer">
@@ -347,19 +350,19 @@ function Connect({ tab }: { tab: ConnectTab }) {
       )}
       {mcpClient === "Codex CLI" && (
         <CodeBlock title="run in your terminal (keep --url; a bare URL registers a stdio server)"
-                   code={codexCmd(shownTok)} />
+                   code={codexCmd(shownTok)} copyText={codexCmd(tok)} />
       )}
       {mcpClient === "Cursor" && (
         <CodeBlock title="add to ~/.cursor/mcp.json (or .cursor/mcp.json per project), then approve under Settings → MCP"
-                   code={urlJson(shownTok)} />
+                   code={urlJson(shownTok)} copyText={urlJson(tok)} />
       )}
       {mcpClient === "Claude Desktop" && (
         <CodeBlock title="add to claude_desktop_config.json (Settings → Developer → Edit Config), then restart"
-                   code={urlJson(shownTok)} />
+                   code={urlJson(shownTok)} copyText={urlJson(tok)} />
       )}
       {mcpClient === "Other (JSON)" && (
         <>
-          <CodeBlock title="the generic shape most clients accept" code={httpJson(shownTok)} />
+          <CodeBlock title="the generic shape most clients accept" code={httpJson(shownTok)} copyText={httpJson(tok)} />
           <p className="help" style={{ whiteSpace: "normal" }}>
             Per-client config files and field names (VS Code, Windsurf, Zed, Gemini CLI, …):{" "}
             <a href="https://docs.glassflow.ai/tares/agents" target="_blank" rel="noreferrer">
@@ -374,7 +377,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             is running. Requires <span className="mono">pip install tares</span> where the agent
             runs; it proxies to this daemon.
           </p>
-          <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} />
+          <CodeBlock title="MCP config (stdio)" code={stdioJson(shownTok)} copyText={stdioJson(tok)} />
         </>
       )}
 
