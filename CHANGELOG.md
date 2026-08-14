@@ -3,6 +3,18 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-08-14
+
+### Added
+- **Ask keeps your conversations.** Every conversation is saved on the instance and the Ask page
+  is now the familiar AI-chat shell: a sidebar of conversations next to the chat, newest resumed
+  automatically when you come back — navigating away, refreshing, or closing the browser loses
+  nothing. Start another with **+ New conversation**; delete one from the sidebar. Resumed
+  conversations carry their full transcript back into the agent's context. The instance keeps the
+  newest 50; the ⌘K palette stays a single column and picks up the same latest conversation.
+  Opening an old conversation just reads it — only a sent message or an applied proposal moves it
+  to the top.
+
 ## [1.3.1] — 2026-08-14
 
 ### Fixed
