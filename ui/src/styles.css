@@ -1134,3 +1134,42 @@ pre.payload {
 .codeblock-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--th-bg); font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-soft); }
 .codeblock pre { margin: 0; border: 0; border-radius: 0; }
 .copybtn { font-size: 12px; padding: 2px 10px; }
+
+/* Ask as the familiar AI-chat shell: a second, full-height sidebar of conversations flush
+   against the app nav, the active chat beside it. Only /ask gets this; the page container drops
+   its padding for it (the :has() below) and the ⌘K overlay stays a single column. */
+.main:has(> .askchat.with-rail) { padding: 0; max-width: none; display: flex; }
+.askchat.with-rail { flex: 1; display: flex; flex-direction: row; align-items: stretch; min-width: 0; }
+.askchat.with-rail .ask-main {
+  flex: 1; min-width: 0;
+  padding: 24px 36px 64px;
+  max-width: 980px; margin: 0 auto;
+}
+.ask-side {
+  width: 240px; flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  padding: 16px 12px;
+  position: sticky; top: 46px;                 /* below the breadcrumb bar */
+  height: calc(100vh - 46px);
+  overflow-y: auto;
+}
+.ask-rail-new { width: 100%; }
+.ask-rail-list { display: flex; flex-direction: column; gap: 2px; }
+.ask-rail-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 9px; border-radius: 6px; cursor: pointer;
+  border: 1px solid transparent; font-size: 13.5px;
+}
+.ask-rail-item:hover { background: var(--wash); }
+.ask-rail-item.active { background: var(--accent-soft); }
+.ask-rail-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-rail-item .when { font-size: 11.5px; white-space: nowrap; }
+.ask-rail-item .x { visibility: hidden; background: none; border: none; cursor: pointer; color: var(--ink-faint); padding: 0 2px; }
+.ask-rail-item:hover .x { visibility: visible; }
+/* On a narrow window the second sidebar would crush the chat: stack it above instead. */
+@media (max-width: 900px) {
+  .askchat.with-rail { flex-direction: column; }
+  .ask-side { position: static; width: 100%; height: auto; max-height: 220px; border-right: none; border-bottom: 1px solid var(--line); }
+}
+

@@ -267,6 +267,11 @@ class ImportReq(BaseModel):
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
 
 
+class AskSessionIn(BaseModel):
+    title: str = ""
+    state: str             # opaque JSON blob owned by the console (messages + decisions)
+
+
 class AnthropicKeyIn(BaseModel):
     key: str    # blank-to-keep is not offered here: the only edits are "set a new one" or DELETE
 
@@ -1101,6 +1106,36 @@ def make_app() -> FastAPI:
             run_agent(key, body.get("messages") or [],
                       model=body.get("model"), self_headers=self_headers),
             media_type="text/event-stream")
+
+    # ── Ask sessions — server-side chat history, so a conversation survives navigation and a
+    # console reopened tomorrow can pick up where it left off. The console PUTs the whole session
+    # after each exchange; the store keeps the newest 50.
+    @app.get("/api/ask/sessions")
+    async def ask_sessions():
+        return {"sessions": store.list_ask_sessions()}
+
+    @app.get("/api/ask/sessions/{sid}")
+    async def ask_session(sid: str):
+        row = store.get_ask_session(sid)
+        if row is None:
+            _err(KeyError(f"unknown session {sid!r}"), 404)
+        return row
+
+    @app.put("/api/ask/sessions/{sid}")
+    async def save_ask_session(sid: str, body: AskSessionIn):
+        if not re.fullmatch(r"[0-9a-f]{16,64}", sid):
+            _err(ValueError("session id must be a hex id"), 400)
+        # a runaway transcript should degrade the one session, not the instance
+        if len(body.state) > 2_000_000:
+            _err(ValueError("session too large to save (2 MB cap)"), 413)
+        store.upsert_ask_session(sid, body.title[:120], body.state)
+        return {"ok": True}
+
+    @app.delete("/api/ask/sessions/{sid}")
+    async def remove_ask_session(sid: str):
+        if not store.delete_ask_session(sid):
+            _err(KeyError(f"unknown session {sid!r}"), 404)
+        return {"ok": True}
 
     @app.get("/api/mcp/tools")
     async def mcp_tool_list():

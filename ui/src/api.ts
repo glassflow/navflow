@@ -210,6 +210,18 @@ export const api = {
     request<{ subscription_id: string }>("/subscribe",
       { method: "POST", body: JSON.stringify({ trigger, url }) }),
 
+  // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──
+  askSessions: () =>
+    request<{ sessions: { id: string; title: string; created_at: string; updated_at: string }[] }>(
+      "/api/ask/sessions"),
+  askSession: (id: string) =>
+    request<{ id: string; title: string; state: string }>(`/api/ask/sessions/${id}`),
+  saveAskSession: (id: string, title: string, state: string) =>
+    request<{ ok: boolean }>(`/api/ask/sessions/${id}`,
+      { method: "PUT", body: JSON.stringify({ title, state }) }),
+  deleteAskSession: (id: string) =>
+    request<{ ok: boolean }>(`/api/ask/sessions/${id}`, { method: "DELETE" }),
+
   queries: (limit = 100) => request<QueryLogEntry[]>(`/api/activity/queries?limit=${limit}`),
   dispatches: (limit = 100) =>
     request<DispatchLogEntry[]>(`/api/activity/dispatches?limit=${limit}`),
