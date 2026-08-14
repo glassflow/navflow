@@ -152,10 +152,10 @@ export const api = {
     request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
               models: string[]; default_model: string; slack_workspace: boolean;
               presets: AgentPreset[] }>("/api/agents/builtin"),
-  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string }) =>
+  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
     request<{ ok: boolean; enabled: boolean }>("/api/agents/builtin",
       { method: "POST", body: JSON.stringify(body) }),
-  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string }) =>
+  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
     request(`/api/agents/builtin/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
   enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),
@@ -210,6 +210,21 @@ export const api = {
   subscribe: (trigger: string, url: string) =>
     request<{ subscription_id: string }>("/subscribe",
       { method: "POST", body: JSON.stringify({ trigger, url }) }),
+
+  // ── MCP connections: external tool servers agents can opt into ──
+  mcpServers: () =>
+    request<{ servers: { name: string; url: string; auth_header: string;
+                         auth_value_configured: boolean; updated_at: string }[] }>("/api/mcp-servers"),
+  createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+    request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
+  updateMcpServer: (name: string, body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+    request<{ ok: boolean }>(`/api/mcp-servers/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  deleteMcpServer: (name: string) =>
+    request<{ ok: boolean }>(`/api/mcp-servers/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  testMcpServer: (name: string) =>
+    request<{ ok: boolean; error?: string; tools: { name: string; description: string }[] }>(
+      `/api/mcp-servers/${encodeURIComponent(name)}/test`, { method: "POST" }),
 
   // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──
   askSessions: () =>

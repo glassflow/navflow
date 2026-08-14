@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from pydantic import BaseModel
 
 from .config import (SLACK_URL_PREFIX, CatalogError, agent_url, export_db_to_yaml,
+                     validate_mcp_server_dict,
                      import_yaml_to_db, slack_channel_from_url, slack_url,
                      validate_agent_dict, validate_slack_channel, validate_source_dict,
                      validate_trigger_dict, validate_view_dict, _source_from_dict)
@@ -266,11 +267,19 @@ class AgentIn(BaseModel):
     webhook_url: str = ""        # write-back: findings + run metadata POSTed here
     webhook_token: str = ""      # optional bearer for the write-back (secret; blank-to-keep)
     slack_webhook_clear: bool = False   # blank means keep (it is a secret), so clearing is explicit
+    mcp_servers: list[str] = []  # registry names this agent may use
 
 
 class ImportReq(BaseModel):
     yaml: str
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
+
+
+class McpServerIn(BaseModel):
+    name: str
+    url: str
+    auth_header: str = ""        # header name; empty means Authorization when a value is set
+    auth_value: str = ""         # the credential (secret; blank-to-keep on update)
 
 
 class AskSessionIn(BaseModel):
@@ -1113,6 +1122,66 @@ def make_app() -> FastAPI:
                       model=body.get("model"), self_headers=self_headers),
             media_type="text/event-stream")
 
+    # ── MCP connections — external tool servers a Tares agent can opt into ─────
+    # The registry: URL + optional auth header. The auth value is a secret: never returned,
+    # blank-to-keep on update, exported only with secrets included.
+    def _mcp_row(m: dict) -> dict:
+        return {"name": m["name"], "url": m["url"], "auth_header": m["auth_header"],
+                "auth_value_configured": bool(m["auth_value"]), "updated_at": m["updated_at"]}
+
+    @app.get("/api/mcp-servers")
+    async def list_mcp_servers():
+        return {"servers": [_mcp_row(m) for m in store.list_mcp_servers()]}
+
+    @app.post("/api/mcp-servers", status_code=201)
+    async def create_mcp_server(body: McpServerIn):
+        if store.get_mcp_server(body.name) is not None:
+            _err(ValueError(f"mcp server {body.name!r} already exists"), 409)
+        try:
+            validate_mcp_server_dict(body.model_dump())
+        except CatalogError as e:
+            _err(e)
+        store.upsert_mcp_server(body.name, body.url.strip(), body.auth_header.strip(),
+                                body.auth_value)
+        return {"ok": True}
+
+    @app.put("/api/mcp-servers/{name}")
+    async def update_mcp_server(name: str, body: McpServerIn):
+        existing = store.get_mcp_server(name)
+        if existing is None:
+            _err(KeyError(f"unknown mcp server {name!r}"), 404)
+        if body.name != name:
+            _err(ValueError("renaming a server is not supported; delete and recreate"), 400)
+        try:
+            validate_mcp_server_dict(body.model_dump())
+        except CatalogError as e:
+            _err(e)
+        value = body.auth_value or existing.get("auth_value", "")   # blank-to-keep
+        store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(), value)
+        return {"ok": True}
+
+    @app.delete("/api/mcp-servers/{name}")
+    async def delete_mcp_server(name: str):
+        if store.get_mcp_server(name) is None:
+            _err(KeyError(f"unknown mcp server {name!r}"), 404)
+        store.delete_mcp_server(name)
+        return {"ok": True}
+
+    @app.post("/api/mcp-servers/{name}/test")
+    async def test_mcp_server(name: str):
+        """Connect with the stored config and list the server's tools — the proof a connection
+        works, and the tool list the agent form will offer."""
+        server = store.get_mcp_server(name)
+        if server is None:
+            _err(KeyError(f"unknown mcp server {name!r}"), 404)
+        from .mcp_client import list_remote_tools
+        try:
+            tools = await asyncio.wait_for(list_remote_tools(server), timeout=20)
+        except Exception as e:
+            detail = f"{type(e).__name__}: {str(e)[:200]}" if str(e).strip() else type(e).__name__
+            return {"ok": False, "error": detail, "tools": []}
+        return {"ok": True, "tools": tools}
+
     # ── Ask sessions — server-side chat history, so a conversation survives navigation and a
     # console reopened tomorrow can pick up where it left off. The console PUTs the whole session
     # after each exchange; the store keeps the newest 50.
@@ -1265,7 +1334,8 @@ def make_app() -> FastAPI:
         views = {v["name"]: v for v in store.list_catalog_views()}
         raw = body.model_dump()
         try:
-            validate_agent_dict(raw, set(triggers), triggers, views)
+            validate_agent_dict(raw, set(triggers), triggers, views,
+                                {m["name"] for m in store.list_mcp_servers()})
         except CatalogError as e:
             _err(e)
         return raw
@@ -1285,6 +1355,7 @@ def make_app() -> FastAPI:
                          "slack_channel": a.get("slack_channel") or "",
                          "webhook_url": a.get("webhook_url") or "",
                          "webhook_token_configured": bool(a.get("webhook_token")),
+                         "mcp_servers": a.get("mcp_servers") or [],
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
@@ -1299,7 +1370,7 @@ def make_app() -> FastAPI:
         _agent_payload(body)
         store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, body.webhook_token)
+                                   body.webhook_url, body.webhook_token, body.mcp_servers)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled — enable it to run on the next firing"}
@@ -1322,7 +1393,7 @@ def make_app() -> FastAPI:
         # so what the body says is what the user wants — including blank (removed).
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, wtoken)
+                                   body.webhook_url, wtoken, body.mcp_servers)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):

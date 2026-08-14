@@ -1200,3 +1200,10 @@ pre.payload {
 .hook-group input { border: none; border-radius: 0; width: 100%; }
 .hook-group input + input { border-top: 1px solid var(--line); }
 .hook-group:focus-within { border-color: var(--accent); }
+
+/* Removable chip: the x rides inside the chip, appearing as part of the same tag. */
+.chip .chip-x {
+  background: none; border: none; cursor: pointer; padding: 0 0 0 6px;
+  color: var(--ink-faint); font-size: 13px; line-height: 1;
+}
+.chip .chip-x:hover { color: var(--err); }
