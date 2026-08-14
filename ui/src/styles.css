@@ -1207,3 +1207,19 @@ pre.payload {
   color: var(--ink-faint); font-size: 13px; line-height: 1;
 }
 .chip .chip-x:hover { color: var(--err); }
+
+/* Add-source connector cards: a scannable grid instead of a table — the description reads as a
+   card, and click targets are the whole card. */
+.connector-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+.connector-card {
+  text-align: left; font: inherit; cursor: pointer;
+  background: var(--bg); border: 1.5px solid var(--border-strong); border-radius: 8px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: 0 1px 3px oklch(0.2 0.04 65 / 0.10);
+}
+.connector-card:hover { border-color: var(--accent); box-shadow: 0 2px 6px oklch(0.2 0.04 65 / 0.16); }
+.connector-card.unavailable { cursor: default; opacity: 0.6; box-shadow: none; }
+.connector-card.unavailable:hover { border-color: var(--border-strong); }
+.connector-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.connector-card-head .name { font-weight: 600; }
+.connector-card .desc { white-space: normal; }

@@ -14,7 +14,8 @@ export default function CatalogImport() {
     setBusy(true); setMsg(undefined);
     try {
       const r = await api.importYaml(text, mode);
-      setMsg({ ok: true, text: `imported ${r.sources} sources, ${r.views} views, ${r.triggers} triggers (${mode})` });
+      setMsg({ ok: true, text: `imported ${r.sources} sources, ${r.views} views, ${r.triggers} triggers, `
+        + `${r.agents} agents, ${r.mcp_servers} mcp servers (${mode})` });
       setText("");
     } catch (e) {
       setMsg({ ok: false, text: String((e as Error).message ?? e) });

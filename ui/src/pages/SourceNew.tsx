@@ -8,6 +8,65 @@ import type { ConnectorSpec } from "../types";
 
 type Created = { name: string; key: string; authKey?: string; keyErr?: string };
 
+/** Paste a catalog snippet (from the docs, a tutorial, a teammate) and merge it in. Always merge,
+ *  never replace: this door is for ADDING deterministically, and it must be impossible to wipe a
+ *  catalog from here. The full import/export (including replace) stays under Sources → Import. */
+function YamlQuickAdd() {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const [done, setDone] = useState<{ label: string; to?: string }[]>();
+
+  const run = async () => {
+    setBusy(true); setErr(undefined); setDone(undefined);
+    try {
+      const r = await api.importYaml(text, "merge");
+      const links = [
+        ...r.names.sources.map((n) => ({ label: `source ${n}`, to: `/sources/${encodeURIComponent(n)}` })),
+        ...r.names.views.map((n) => ({ label: `view ${n}`, to: `/views/${encodeURIComponent(n)}` })),
+        ...r.names.triggers.map((n) => ({ label: `trigger ${n}`, to: `/triggers/${encodeURIComponent(n)}` })),
+        ...r.names.agents.map((n) => ({ label: `agent ${n}`, to: `/agents/${encodeURIComponent(n)}` })),
+        ...r.names.mcp_servers.map((n) => ({ label: `mcp server ${n}`, to: "/mcp-servers" })),
+      ];
+      if (!links.length) { setErr("nothing in that YAML — expected sources:, views:, triggers:, agents: or mcp_servers:"); }
+      else { setDone(links); setText(""); }
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel" style={{ marginBottom: 18 }}>
+      <h2 style={{ marginTop: 0 }}>Paste a catalog snippet</h2>
+      <p className="help" style={{ whiteSpace: "normal", marginTop: 0 }}>
+        the YAML from a docs page or tutorial, added as-is: validated first, then <strong>merged</strong>{" "}
+        into your catalog — nothing existing is removed. Works for sources, views, triggers, agents
+        and MCP servers.
+      </p>
+      {err && <div className="alert error">{err}</div>}
+      {done && (
+        <div className="alert ok">
+          added{" "}
+          {done.map((d, i) => (
+            <span key={d.label}>
+              {i > 0 && ", "}
+              {d.to ? <Link to={d.to} className="mono">{d.label}</Link> : <span className="mono">{d.label}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      <textarea className="code mono" style={{ minHeight: 120, width: "100%" }} value={text}
+                placeholder={"sources:\n  - name: metrics\n    connector: prometheus\n    config: ..."}
+                onChange={(e) => setText(e.target.value)} />
+      <div className="btnrow" style={{ marginTop: 8 }}>
+        <button className="primary" onClick={run} disabled={busy || !text.trim()}>
+          {busy ? "Adding…" : "Add to catalog"}
+        </button>
+        <Link className="btn" to="/sources/import">full import / export</Link>
+      </div>
+    </div>
+  );
+}
+
 export default function SourceNew() {
   const nav = useNavigate();
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>();
@@ -20,6 +79,7 @@ export default function SourceNew() {
   // Auth mode. When ON, a push producer needs an ingest credential in the header, so we mint one for
   // the source at creation (show-once). When OFF, the ingest URL alone is enough — no key.
   const [authOn, setAuthOn] = useState(false);
+  const [showYaml, setShowYaml] = useState(false);
 
   useEffect(() => {
     api.connectors().then(setSpecs);
@@ -33,35 +93,46 @@ export default function SourceNew() {
 
   return (
     <>
-      <h1>Add source</h1>
-      <p className="subtitle">pick a connector, configure it, save — <em>no restart needed</em></p>
+      <div className="pagehead">
+        <div>
+          <h1>Add source</h1>
+          <p className="subtitle">pick a connector, configure it, save — <em>no restart needed</em></p>
+        </div>
+        {!connector && !created && (
+          <button className={showYaml ? "" : "dim"} onClick={() => setShowYaml((v) => !v)}>
+            Add via YAML
+          </button>
+        )}
+      </div>
+
+      {!connector && !created && showYaml && <YamlQuickAdd />}
 
       {!specs && <div className="dim">loading connectors…</div>}
 
       {specs && !connector && (
-        <table>
-          <thead><tr><th>connector</th><th>mode</th><th>what it does</th></tr></thead>
-          <tbody>
+        <>
+          <div className="connector-cards">
             {/* `internal` connectors are provisioned by Tares itself (the agent findings
                 source) — nothing to configure, so they're not offered here. */}
             {Object.entries(specs).filter(([, s]) => !s.internal).map(([key, s]) => (
-              unavailable(key) ? (
-                <tr key={key} className="dim">
-                  <td className="mono">{key}</td>
-                  <td><span className="badge starting">unavailable</span></td>
-                  <td>{s.description} <em>Needs Docker on the Tares host — not available on this deployment.</em></td>
-                </tr>
-              ) : (
-                <tr key={key} className="clickable"
-                    onClick={() => key === "claude_code" ? nav("/sources/claude-code") : setConnector(key)}>
-                  <td className="mono">{key}</td>
-                  <td><span className={`badge ${s.mode === "push" ? "push" : "ok"}`}>{s.mode}</span></td>
-                  <td>{s.description}</td>
-                </tr>
-              )
+              <button key={key} type="button"
+                      className={"connector-card" + (unavailable(key) ? " unavailable" : "")}
+                      disabled={unavailable(key)}
+                      onClick={() => key === "claude_code" ? nav("/sources/claude-code") : setConnector(key)}>
+                <div className="connector-card-head">
+                  <span className="mono name">{key}</span>
+                  <span className={`badge ${unavailable(key) ? "starting" : s.mode === "push" ? "push" : "ok"}`}>
+                    {unavailable(key) ? "unavailable" : s.mode}
+                  </span>
+                </div>
+                <div className="help desc">
+                  {s.description}
+                  {unavailable(key) && <em> Needs Docker on the Tares host — not available on this deployment.</em>}
+                </div>
+              </button>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </>
       )}
 
       {/* a push source just got created: show its ingest URL right here so it can be pasted into
