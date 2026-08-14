@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -22,7 +22,12 @@ function statusBadge(r: AgentRun) {
 }
 
 export default function AgentDetail() {
+  // A dispatch page links here as ?dispatch=<id>: that run opens, highlights, and scrolls into
+  // view, so "what did the agent do with this firing" is one click.
+
   const { name = "" } = useParams();
+  const [search] = useSearchParams();
+  const focusDispatch = search.get("dispatch") ?? undefined;
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -166,8 +171,11 @@ export default function AgentDetail() {
                 </p>;
             // Newest run expanded by default; older ones collapse so the page stays readable as
             // runs accumulate. <details> keeps it dependency-free and keyboard-accessible.
+            const focused = !!focusDispatch && r.dispatch_id === focusDispatch;
             return (
-              <details className="panel" key={r.id} open={i === 0}>
+              <details className="panel" key={r.id} open={i === 0 || focused}
+                       style={focused ? { outline: "2px solid var(--accent)" } : undefined}
+                       ref={(el) => { if (el && focused) el.scrollIntoView({ block: "center" }); }}>
                 <summary style={{ cursor: "pointer", listStyle: "revert" }}>{header}</summary>
                 {body}
               </details>

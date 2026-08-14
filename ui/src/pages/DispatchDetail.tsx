@@ -62,9 +62,16 @@ export default function DispatchDetail() {
         <table style={{ marginBottom: 18 }}>
           <thead><tr><th>agent</th><th>endpoint</th><th>status</th><th>when</th></tr></thead>
           <tbody>
+            {/* Each kind links to where its story continues: a Tares agent to its run for THIS
+                firing, an external agent to its roster row. A Slack channel gets no link — the
+                message went to Slack; there is nothing more to show here. */}
             {d.deliveries.map((dv, i) => (
               <tr key={i}>
-                <td><Link to={`/activity?agent=${encodeURIComponent(dv.agent)}`}><strong>{dv.agent}</strong></Link></td>
+                <td>{dv.kind === "tares"
+                  ? <Link to={`/agents/${encodeURIComponent(dv.agent)}?dispatch=${encodeURIComponent(d.dispatch_id)}`}><strong>{dv.agent}</strong></Link>
+                  : dv.kind === "webhook"
+                  ? <Link to={`/agents?agent=${encodeURIComponent(dv.agent)}`}><strong>{dv.agent}</strong></Link>
+                  : <strong>{dv.agent}</strong>}</td>
                 <td className="mono">{dv.endpoint}</td>
                 <td>
                   {dv.ok
