@@ -225,16 +225,17 @@ class AgentRunner:
             self.store.finish_agent_run(run_id, "capped", error=msg)
             return "capped", msg
 
-        finding, rounds, tool_calls = await self._loop(agent, trigger_name, key, payload, api_key)
+        finding, rounds, tool_calls, external_used = await self._loop(
+            agent, trigger_name, key, payload, api_key)
         if not finding:
             msg = "the model returned no conclusion"
             self.store.finish_agent_run(run_id, "empty", rounds=rounds, tool_calls=tool_calls,
-                                        error=msg)
+                                        error=msg, external_tools=external_used)
             return "empty", msg
 
         await self._record(agent, trigger_name, key, finding)
         self.store.finish_agent_run(run_id, "ok", rounds=rounds, tool_calls=tool_calls,
-                                    finding=finding)
+                                    finding=finding, external_tools=external_used)
         if (agent.get("webhook_url") or "").strip():
             await self._webhook(agent, {
                 "event": "finding",
@@ -251,7 +252,22 @@ class AgentRunner:
 
     # ── the bounded model loop ────────────────────────────────────────────────
     async def _loop(self, agent: dict, trigger_name: str, key: str, payload: str,
-                    api_key: str) -> tuple[str, int, int]:
+                    api_key: str) -> tuple[str, int, int, list[str]]:
+        # External tools: the agent's selected MCP servers, connected for the duration of this
+        # run. A server that fails to connect is skipped (recorded below) — losing a tool server
+        # must not lose the run.
+        from .mcp_client import RemoteToolbox
+        selected = set(agent.get("mcp_servers") or [])
+        servers = [m for m in self.store.list_mcp_servers() if m["name"] in selected]
+        async with RemoteToolbox(servers) as toolbox:
+            for failure in toolbox.failures:
+                print(f"[agent {agent['name']}] mcp connect failed — {failure}")
+            return await self._loop_with(agent, trigger_name, key, payload, api_key, toolbox)
+
+    async def _loop_with(self, agent: dict, trigger_name: str, key: str, payload: str,
+                         api_key: str, toolbox) -> tuple[str, int, int, list[str]]:
+        tools = TOOL_DEFS + toolbox.tool_defs
+        external_used: list[str] = []
         messages = [{
             "role": "user",
             "content": (
@@ -268,7 +284,7 @@ class AgentRunner:
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
                     json={"model": agent.get("model") or MODEL,
                           "max_tokens": MAX_TOKENS, "system": agent["prompt"],
-                          "tools": TOOL_DEFS, "messages": messages})
+                          "tools": tools, "messages": messages})
                 if r.status_code >= 400:
                     raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
                 msg = r.json()
@@ -278,19 +294,24 @@ class AgentRunner:
                 if not uses:
                     text = "\n".join(b.get("text", "") for b in msg["content"]
                                      if b.get("type") == "text")
-                    return text.strip(), rounds, tool_calls
+                    return text.strip(), rounds, tool_calls, external_used
 
                 results = []
                 for u in uses:
                     tool_calls += 1
+                    name = str(u["name"])
                     try:
-                        out = self._tool(agent["name"], str(u["name"]), u.get("input") or {})
+                        if toolbox.owns(name):
+                            external_used.append(name)
+                            out = await toolbox.call(name, u.get("input") or {})
+                        else:
+                            out = self._tool(agent["name"], name, u.get("input") or {})
                     except Exception as e:   # a tool error is evidence, not a crash
                         out = f"tool error: {type(e).__name__}: {e}"
                     results.append({"type": "tool_result", "tool_use_id": u["id"], "content": out})
                 messages.append({"role": "user", "content": results})
 
-        return "", rounds, tool_calls   # round budget exhausted without a conclusion
+        return "", rounds, tool_calls, external_used   # round budget exhausted without a conclusion
 
     def _tool(self, agent_name: str, name: str, args: dict) -> str:
         """The two reads, in-process. No HTTP hop and no credential: a Tares agent IS Tares, so

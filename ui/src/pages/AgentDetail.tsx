@@ -147,6 +147,14 @@ export default function AgentDetail() {
                   {r.rounds ? ` · ${r.rounds} round${r.rounds === 1 ? "" : "s"}` : ""}
                   {r.duration_ms != null ? ` · ${(r.duration_ms / 1000).toFixed(1)}s` : ""}
                 </span>
+                {(r.external_tools ?? []).length > 0 && (
+                  <span style={{ marginLeft: 8 }}>
+                    {[...new Set(r.external_tools)].map((t) => (
+                      <span key={t} className="chip mono" title="external MCP tool this run called"
+                            style={{ marginRight: 4 }}>{t}</span>
+                    ))}
+                  </span>
+                )}
               </>
             );
             const body = r.finding
