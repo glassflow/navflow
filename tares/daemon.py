@@ -1698,10 +1698,14 @@ def make_app() -> FastAPI:
         d = store.get_dispatch(dispatch_id)
         if d is None:
             _err(KeyError(f"unknown dispatch {dispatch_id!r}"), 404)
+        from .config import agent_name_from_url
         deliveries = []
         for dv in store.deliveries_for(dispatch_id):
-            name, masked = _agent_identity(dv["url"].rstrip("/"))
-            deliveries.append({"agent": name, "endpoint": masked, "ok": dv["ok"],
+            url = dv["url"].rstrip("/")
+            name, masked = _agent_identity(url)
+            kind = ("tares" if agent_name_from_url(url) is not None
+                    else "slack" if slack_channel_from_url(url) is not None else "webhook")
+            deliveries.append({"agent": name, "endpoint": masked, "kind": kind, "ok": dv["ok"],
                                "error": dv["error"], "delivered_at": dv["delivered_at"]})
         return {**d, "deliveries": deliveries}
 

@@ -147,7 +147,6 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
             <span className="lbl">trigger</span>
             <Combo value={trigger} options={triggers}
                    placeholder="the trigger that wakes this agent" onChange={setTrigger} />
-            <span className="help">the agent runs when this trigger fires</span>
           </div>
         </div>
       ) : (
@@ -167,8 +166,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
         <textarea rows={12} className="mono" value={prompt}
                   onChange={(e) => setPrompt(e.target.value)} />
         <span className="help">
-          what to look for and what to write. The correlated timeline at firing time is supplied
-          automatically; the agent's final message becomes the finding.
+          the correlated timeline is supplied at firing time; the final message becomes the finding
         </span>
       </label>
       {isNew && presets.length > 0 && (
@@ -259,8 +257,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
                    value={webhookToken} onChange={(e) => setWebhookToken(e.target.value)} />
           </div>
           <span className="help">
-            the payload carries the finding plus trigger, entity, model, rounds, tool calls and
-            timing; the token is sent as an Authorization header and never shown again
+            finding + run metadata as JSON; the token is sent as a bearer header
           </span>
         </OptionRow>
       </div>

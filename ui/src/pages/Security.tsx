@@ -46,12 +46,12 @@ function AccessPanel() {
             <span className="help">
               the console and API require a login. You signed in with the root token printed by{" "}
               <code>tares up --auth</code>. Hand machines their own scoped <strong>API keys</strong>{" "}
-              below — never the root token.
+              below; never the root token.
             </span>
           </p>
         ) : (
           <div className="alert">
-            <span className="badge">auth off</span> — this instance is <strong>open</strong>: anyone
+            <span className="badge">auth off</span> · this instance is <strong>open</strong>: anyone
             who can reach it can read and write, and API keys are not enforced. Restart with{" "}
             <code>tares up --auth</code> to require a login.
           </div>
@@ -89,7 +89,7 @@ function AnthropicKeyPanel() {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Anthropic key</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        What <strong>Tares agents</strong> run on — their first look at an entity when a trigger
+        What <strong>Tares agents</strong> run on; their first look at an entity when a trigger
         fires. Set <code>ANTHROPIC_API_KEY</code> in the daemon's environment, or store one here.
         It is never returned by the API and never included in a catalog export.
       </p>
@@ -108,7 +108,7 @@ function AnthropicKeyPanel() {
           </p>
           {st.env_overrides && st.stored && (
             <div className="alert">
-              A key is set in the environment and takes precedence — the one stored here is not in
+              A key is set in the environment and takes precedence; the one stored here is not in
               use. Remove the environment variable, or clear the stored key to avoid confusion.
             </div>
           )}
@@ -182,7 +182,7 @@ function SlackTokenPanel() {
           </p>
           {st.env_overrides && st.stored && (
             <div className="alert">
-              A token is set in the environment and takes precedence — the one stored here is not in
+              A token is set in the environment and takes precedence; the one stored here is not in
               use. Remove the environment variable, or clear the stored token to avoid confusion.
             </div>
           )}
@@ -257,7 +257,7 @@ function SlackSigningSecretPanel() {
           </p>
           {st.env_overrides && st.stored && (
             <div className="alert">
-              A signing secret is set in the environment and takes precedence — the one stored here
+              A signing secret is set in the environment and takes precedence; the one stored here
               is not in use. Remove the environment variable, or clear the stored secret.
             </div>
           )}
@@ -283,9 +283,9 @@ function SlackSigningSecretPanel() {
 // Scope semantics (docs/design/api-keys.md): read = consume (queries, catalog reads, an agent's
 // own derive/subscribe) · ingest = contribute events · admin = configure the instance.
 const SCOPE_HELP: Record<string, string> = {
-  read: "consume — queries, timelines, catalog; agents' own views & subscriptions",
-  ingest: "contribute — POST events to /ingest and /v1/*, write memories",
-  admin: "configure — sources/views/triggers, credentials, keys (implies the rest)",
+  read: "consume: queries, timelines, catalog; agents' own views & subscriptions",
+  ingest: "contribute: POST events to /ingest and /v1/*, write memories",
+  admin: "configure: sources/views/triggers, credentials, keys (implies the rest)",
 };
 
 function ApiKeysPanel() {
@@ -307,7 +307,7 @@ function ApiKeysPanel() {
         <button className="primary" onClick={() => setCreating(true)}>Create key</button>
       </div>
       <p className="help" style={{ marginTop: 0 }}>
-        Scoped, revocable credentials — hand each producer and agent its own key instead of a
+        Scoped, revocable credentials; hand each producer and agent its own key instead of a
         shared token. <strong>read</strong>: agents over MCP · <strong>ingest</strong>: producers ·{" "}
         <strong>read + ingest</strong>: the Claude Code plugin · <strong>admin</strong>: full control.
       </p>
@@ -321,7 +321,7 @@ function ApiKeysPanel() {
 
       {minted && (
         <div className="alert ok">
-          Key <strong>{minted.name}</strong> created — copy the secret now; it is not shown again:
+          Key <strong>{minted.name}</strong> created; copy the secret now; it is not shown again:
           <div className="ingest-url" style={{ marginTop: 8 }}>
             <code className="mono">{minted.secret}</code>
             <CopySecret text={minted.secret} />
@@ -351,7 +351,7 @@ function ApiKeysPanel() {
           </tbody>
         </table>
       ) : (
-        <p className="help">no keys yet — <strong>Create key</strong> to issue one for a producer or agent.</p>
+        <p className="help">no keys yet; <strong>Create key</strong> to issue one for a producer or agent.</p>
       )}
 
       {creating && (
@@ -418,7 +418,7 @@ function KeyModal({ onClose, onCreated }: {
             <span className="lbl">name</span>
             <input type="text" placeholder="e.g. otel-prod, my-agent" value={name} autoFocus
                    onChange={(e) => setName(e.target.value)} />
-            <span className="help">who holds it — one key per producer or agent</span>
+            <span className="help">who holds it; one key per producer or agent</span>
           </label>
           <div className="field">
             <span className="lbl">scopes</span>

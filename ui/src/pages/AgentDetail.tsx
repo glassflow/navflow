@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -22,7 +22,12 @@ function statusBadge(r: AgentRun) {
 }
 
 export default function AgentDetail() {
+  // A dispatch page links here as ?dispatch=<id>: that run opens, highlights, and scrolls into
+  // view, so "what did the agent do with this firing" is one click.
+
   const { name = "" } = useParams();
+  const [search] = useSearchParams();
+  const focusDispatch = search.get("dispatch") ?? undefined;
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -96,16 +101,16 @@ export default function AgentDetail() {
                   <td>
                     {agent.enabled ? <span className="badge ok">enabled</span> : <span className="badge">disabled</span>}
                     {!data.key_configured
-                      ? <span className="help"> — no Anthropic key: set one under <Link to="/security">Security</Link> to run</span>
-                      : <span className="help"> — key from <span className="mono">{data.key_source}</span></span>}
+                      ? <span className="help"> · no Anthropic key: set one under <Link to="/security">Security</Link> to run</span>
+                      : <span className="help"> · key from <span className="mono">{data.key_source}</span></span>}
                   </td>
                 </tr>
                 <tr><td className="help">wakes on</td>
                     <td><Link to={`/triggers/${encodeURIComponent(agent.trigger)}`} className="mono">{agent.trigger}</Link>
-                        <span className="help"> — the trigger that runs this agent</span></td></tr>
+                        <span className="help"> · the trigger that runs this agent</span></td></tr>
                 <tr><td className="help">writes to</td>
                     <td><Link to="/sources/findings" className="mono">findings</Link>
-                        <span className="help"> — one finding per run, on the entity's timeline</span></td></tr>
+                        <span className="help"> · one finding per run, on the entity's timeline</span></td></tr>
                 <tr><td className="help">last woken</td>
                     <td>{lastRun
                       ? <><TimeAgo ts={lastRun.started_at} /> for <span className="mono">{lastRun.key}</span>
@@ -113,7 +118,7 @@ export default function AgentDetail() {
                       : <span className="dim">never</span>}</td></tr>
                 <tr><td className="help">model</td>
                     <td><span className="mono">{agent.model || data.default_model}</span>
-                        {!agent.model && <span className="help"> — instance default</span>}</td></tr>
+                        {!agent.model && <span className="help"> · instance default</span>}</td></tr>
                 <tr><td className="help">Slack</td>
                     <td>{agent.slack_channel
                       ? <><span className="badge ok">channel</span> <span className="help">posted by the workspace bot</span></>
@@ -125,7 +130,7 @@ export default function AgentDetail() {
                       ? <><span className="mono">{agent.webhook_url}</span>
                           {agent.webhook_token_configured
                             ? <span className="badge ok" style={{ marginLeft: 8 }}>bearer auth</span>
-                            : <span className="help"> — no auth</span>}</>
+                            : <span className="help"> · no auth</span>}</>
                       : <span className="dim">—</span>}</td></tr>
                 <tr><td className="help">prompt</td>
                     <td><pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{agent.prompt}</pre></td></tr>
@@ -135,7 +140,7 @@ export default function AgentDetail() {
 
           <h2>Runs &amp; findings</h2>
           {runsError && <ErrorState error={runsError} what="this agent’s runs" />}
-          {!runsError && !runs?.length && <p className="help">none yet — this agent runs when <span className="mono">{agent.trigger}</span> fires</p>}
+          {!runsError && !runs?.length && <p className="help">none yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</p>}
           {runs?.map((r, i) => {
             const header = (
               <>
@@ -166,8 +171,11 @@ export default function AgentDetail() {
                 </p>;
             // Newest run expanded by default; older ones collapse so the page stays readable as
             // runs accumulate. <details> keeps it dependency-free and keyboard-accessible.
+            const focused = !!focusDispatch && r.dispatch_id === focusDispatch;
             return (
-              <details className="panel" key={r.id} open={i === 0}>
+              <details className="panel" key={r.id} open={i === 0 || focused}
+                       style={focused ? { outline: "2px solid var(--accent)" } : undefined}
+                       ref={(el) => { if (el && focused) el.scrollIntoView({ block: "center" }); }}>
                 <summary style={{ cursor: "pointer", listStyle: "revert" }}>{header}</summary>
                 {body}
               </details>

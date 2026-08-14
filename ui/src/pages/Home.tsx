@@ -47,7 +47,7 @@ export default function Home() {
         <div>
           <h1>Overview</h1>
           <p className="subtitle">
-            what this instance holds — <em>and how much room is left</em>
+            what this instance holds; <em>and how much room is left</em>
           </p>
         </div>
       </div>
@@ -96,7 +96,7 @@ export default function Home() {
 
       {sources && sources.length === 0 && !sourcesError && (
         <div className="empty">
-          Nothing is being ingested yet — <Link to="/sources/new">add a source</Link> to start
+          Nothing is being ingested yet; <Link to="/sources/new">add a source</Link> to start
           filling the timeline.
         </div>
       )}
@@ -126,7 +126,7 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Storage</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        What this instance is using on disk — the DuckDB file plus its write-ahead log. Nothing is
+        What this instance is using on disk; the DuckDB file plus its write-ahead log. Nothing is
         pruned today, so agent runs and dispatch deliveries grow with every firing.
       </p>
 
@@ -137,7 +137,7 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
         <>
           {pct !== null && pct >= 80 && (
             <div className="alert warn">
-              <strong>Storage {pct}% full</strong> — {formatBytes(onDisk)} of the{" "}
+              <strong>Storage {pct}% full</strong> · {formatBytes(onDisk)} of the{" "}
               {formatBytes(u.max_bytes)} limit for this instance. Ingest keeps working until it
               runs out; free space or raise <code>TARES_MAX_DB_SIZE</code> before it does.
             </div>

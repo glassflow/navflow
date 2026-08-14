@@ -50,7 +50,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       if (!alive) return;
 
       if (!h) {
-        setBanner("Can’t reach the Tares daemon — it may be starting, stopped, or blocked "
+        setBanner("Can’t reach the Tares daemon; it may be starting, stopped, or blocked "
                   + "between this browser and the server. Pages will keep retrying.");
       } else if (h.status && h.status !== "ok") {
         setBanner(h.detail

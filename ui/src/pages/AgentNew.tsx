@@ -34,14 +34,14 @@ export default function AgentNew() {
     <>
       <h1>Create Tares agent</h1>
       <p className="subtitle">
-        a prompt on a trigger — it reads the correlated timeline when the trigger fires and writes a
+        a prompt on a trigger; it reads the correlated timeline when the trigger fires and writes a
         finding back onto the entity's timeline
       </p>
 
       {err && <div className="alert error">{err}</div>}
       {!keyOk && (
         <div className="alert">
-          No Anthropic key configured — you can create the agent now, but it won't run until a key
+          No Anthropic key configured; you can create the agent now, but it won't run until a key
           is set under <Link to="/security">Security</Link>. It also starts disabled.
         </div>
       )}
@@ -49,7 +49,7 @@ export default function AgentNew() {
       {!triggers ? <div className="dim">loading…</div>
         : triggers.length === 0 ? (
           <div className="alert">
-            No triggers yet — an agent runs on a trigger. Create one under{" "}
+            No triggers yet; an agent runs on a trigger. Create one under{" "}
             <Link to="/triggers">Triggers</Link> first.
           </div>
         ) : (

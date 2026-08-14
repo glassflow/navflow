@@ -22,9 +22,9 @@ const NAME_PLACEHOLDER: Record<string, string> = {
 const DISCOVER_HINT: Record<string, string> = {
   docker_logs: "list the containers taresd can see, then pick one to fill this form",
   github: "enter the repo above, then Discover its default branch + author labels",
-  postgres: "enter the DSN above, then Discover — it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
-  prometheus: "enter the URL (+ any auth) above, then Discover — it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
-  prometheus_alerts: "enter the URL (+ any auth) above, then Discover — it lists the alerting rules Prometheus already has, and you ingest them as they fire (optionally filtered by severity).",
+  postgres: "enter the DSN above, then Discover; it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
+  prometheus: "enter the URL (+ any auth) above, then Discover; it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
+  prometheus_alerts: "enter the URL (+ any auth) above, then Discover; it lists the alerting rules Prometheus already has, and you ingest them as they fire (optionally filtered by severity).",
 };
 
 // Postgres form: plain-language field labels + grouping (main poll settings vs collapsed advanced),
@@ -373,7 +373,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         ? pgColumns : [values[f.name], ...pgColumns];   // keep a stale value selectable
       return (
         <select value={values[f.name] ?? ""} onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}>
-          <option value="">{f.required ? "— select —" : "— none —"}</option>
+          <option value="">{f.required ? "select…" : "none"}</option>
           {opts.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       );
@@ -396,9 +396,9 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     secretSet(f) ? (
       <span className="help">
         {cleared[f.name]
-          ? <>will be removed on save — <button type="button" className="linklike"
+          ? <>will be removed on save; <button type="button" className="linklike"
                 onClick={() => setCleared({ ...cleared, [f.name]: false })}>undo</button></>
-          : <>a value is set — type to replace, or leave blank to keep ·{" "}
+          : <>a value is set; type to replace, or leave blank to keep ·{" "}
               <button type="button" className="linklike"
                 onClick={() => { setCleared({ ...cleared, [f.name]: true }); setValues({ ...values, [f.name]: "" }); }}>remove</button></>}
       </span>
@@ -465,7 +465,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
           <div className="fld-group-head">
             <h3>{found ? <>What we read from <code>{values.table || "the table"}</code></> : "How to poll the table"}</h3>
             <p className="help">{found
-              ? "Discover picked these from the columns — adjust any that aren't right."
+              ? "Discover picked these from the columns; adjust any that aren't right."
               : "Run Discover above to fill these from the table, or set them by hand."}</p>
           </div>
           {main.map(renderField)}
@@ -486,7 +486,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       {test && (
         <div className={`alert ${test.ok ? "ok" : "error"}`}>
           {test.ok
-            ? <>connection ok — {test.note ?? `${test.events} event(s) on a test poll`}
+            ? <>connection ok; {test.note ?? `${test.events} event(s) on a test poll`}
                 {test.sample?.length ? <pre className="payload">{test.sample.join("\n")}</pre> : null}</>
             : <>test failed: {test.error}</>}
         </div>
@@ -497,7 +497,6 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         <input type="text" value={name} disabled={lockName}
                placeholder={NAME_PLACEHOLDER[connector] ?? "e.g. metrics"}
                onChange={(e) => setName(e.target.value)} />
-        <span className="help">logical source name; events carry it forever</span>
       </label>
 
       {spec.mode === "poll" && (() => {
@@ -517,7 +516,6 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
                       options={["s", "m", "h"]}
                       labels={{ s: "seconds", m: "minutes", h: "hours" }} />
             </div>
-            <span className="help">how often to poll the source</span>
           </div>
         );
       })()}
@@ -555,7 +553,7 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
               </button>
               <span className="help" style={{ margin: 0 }}>
                 {DISCOVER_HINT[connector]
-                  ?? "fill the URL above, then let Tares introspect the source and propose what to ingest — no PromQL to write by hand"}
+                  ?? "fill the URL above, then let Tares introspect the source and propose what to ingest; no PromQL to write by hand"}
               </span>
             </div>
           )}
@@ -752,7 +750,7 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
           `from` column and the `entity key` picker now say on their own. */}
       <span className="lbl">labels &amp; key</span>
       {/* The key is ONE decision about the source, so it gets ONE control. It used to be a radio
-          per row, which reads as "pick the row I'm editing" rather than "pick the key" — and its
+          per row, which reads as "pick the row I'm editing" rather than "pick the key"; and its
           consequence (the key's type is forced to string) then looked like a broken type select. */}
       {rows.length > 0 && (
         <div className="key-picker">
@@ -831,7 +829,7 @@ function LabelsEditor({ rows, onChange, fields = [], fieldHints, sourceName }:
         <>
           <div className="help" style={{ marginTop: 6 }}>
             this connector provides: {fields.map((f, i) => <span key={f}><code>{f}</code>{i < fields.length - 1 ? ", " : ""}</span>)}
-            {" "}— pick a <code>field</code> from these (the source's page shows each field's coverage once data flows).
+            {" "}· pick a <code>field</code> from these (the source's page shows each field's coverage once data flows).
           </div>
         </>
       )}
@@ -891,7 +889,7 @@ function NormalizeEditor({ row, onChange, sourceName }:
       <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 8, whiteSpace: "normal" }}>
         {/* Kept, unlike the paragraphs removed elsewhere on this page: both sentences carry a fact
             the screen cannot show. The first is why merging matters at all; the second is what
-            makes someone willing to click. "Rename the variants onto one name here" went — the
+            makes someone willing to click. "Rename the variants onto one name here" went; the
             controls below say that. */}
         Variants of the same thing
         (<span className="mono">checkout</span>, <span className="mono">checkout-svc</span>)
@@ -916,7 +914,7 @@ function NormalizeEditor({ row, onChange, sourceName }:
                   <td className="mono">{r2.from}</td>
                   <td className="num">{r2.events}</td>
                   {/* An empty target used to render as a green arrow followed by nothing, which is
-                      indistinguishable from a missing value — and `ok` styling on it reads as
+                      indistinguishable from a missing value; and `ok` styling on it reads as
                       approval of the wrong thing. Blanking a value is a legitimate rule (a pattern
                       that keeps only what matches), so it needs to be stated, not flagged. */}
                   <td className="mono">
@@ -1040,7 +1038,7 @@ function ListFieldEditor({ field, rows, onChange }:
     <div className="field">
       <span className="lbl">{field.name} {field.required && <span className="req">*</span>}</span>
       <span className="help" style={{ marginTop: 0, marginBottom: 6 }}>{field.help}</span>
-      {rows.length === 0 && <div className="empty" style={{ padding: 10 }}>no rows yet — add one below</div>}
+      {rows.length === 0 && <div className="empty" style={{ padding: 10 }}>no rows yet; add one below</div>}
       {rows.map((row, i) => (
         <div key={i} className="panel" style={{ padding: 10, marginBottom: 8 }}>
           <div className="btnrow" style={{ justifyContent: "space-between", marginBottom: 4 }}>
@@ -1098,7 +1096,7 @@ function FamilyPicker({ groups, sel, q, setQ, onToggle, onSelect, onIntrospect, 
   return (
     <div style={{ marginTop: 10 }}>
       <p className="subtitle" style={{ marginTop: 0 }}>
-        {totalMetrics.toLocaleString()} metrics across {groups.length} systems — each is one exporter
+        {totalMetrics.toLocaleString()} metrics across {groups.length} systems; each is one exporter
         or app. Tick the ones you want to ingest.
       </p>
       <div className="btnrow" style={{ marginBottom: 6, alignItems: "center", gap: 8 }}>
@@ -1185,7 +1183,7 @@ function ReferenceForm({ attachments, setAttachments }: {
       <p className="help" style={{ marginTop: 2, marginBottom: 10 }}>
         Upload json / csv / md / txt files and tag each with the entity's labels (e.g.{" "}
         <span className="mono">service=tares</span>). Those labels become real Tares labels you
-        can correlate on — and the doc is always attached to that entity, no time window.
+        can correlate on; and the doc is always attached to that entity, no time window.
       </p>
 
       {attachments.length === 0 ? (
@@ -1258,7 +1256,7 @@ function AlertRulesCuration({ rules, severities, sev, onSevToggle, includePendin
   return (
     <div style={{ marginTop: 4 }}>
       <p className="subtitle" style={{ marginTop: 0 }}>
-        {summary} — you'll ingest these as they fire. Optionally narrow by severity.
+        {summary}; you'll ingest these as they fire. Optionally narrow by severity.
       </p>
       <div className="btnrow" style={{ marginBottom: 8, alignItems: "center", flexWrap: "wrap", gap: 6 }}>
         <span className="help" style={{ margin: 0 }}>severity:</span>
@@ -1341,7 +1339,7 @@ function MetricBasket({ catalog, basket, onAdd, onRemove, fetchLabelMetrics, onC
           add all {items.length}
         </button>
         <span className="help" style={{ margin: 0 }}>{items.length} match{items.length === 1 ? "" : "es"}
-          {items.length === 500 ? " (showing first 500 — narrow the pattern)" : ""}</span>
+          {items.length === 500 ? " (showing first 500; narrow the pattern)" : ""}</span>
       </div>
       <div className="fam-list" style={{ maxHeight: 240 }}>
         {items.map((m) => (
@@ -1359,7 +1357,7 @@ function MetricBasket({ catalog, basket, onAdd, onRemove, fetchLabelMetrics, onC
   return (
     <div style={{ marginTop: 4 }}>
       <p className="subtitle" style={{ marginTop: 0 }}>
-        Choose the metrics to ingest — by name, or by a label they carry. No PromQL to write.
+        Choose the metrics to ingest; by name, or by a label they carry. No PromQL to write.
       </p>
       <div className="btnrow" style={{ gap: 6, marginBottom: 8 }}>
         <button type="button" className={tab === "name" ? "primary" : ""} onClick={() => setTab("name")}>
@@ -1372,17 +1370,17 @@ function MetricBasket({ catalog, basket, onAdd, onRemove, fetchLabelMetrics, onC
 
       {tab === "name" && (
         <div>
-          <input type="text" placeholder="type a metric name or prefix — e.g. node_* or clickhouse"
+          <input type="text" placeholder="type a metric name or prefix; e.g. node_* or clickhouse"
                  value={nameQ} onChange={(e) => setNameQ(e.target.value)} />
           {nameQ.trim()
             ? <ResultList items={nameMatches} />
-            : <p className="help">{catalog.metrics.length.toLocaleString()} metrics available — start typing to filter (append <span className="mono">*</span> for a prefix match)</p>}
+            : <p className="help">{catalog.metrics.length.toLocaleString()} metrics available; start typing to filter (append <span className="mono">*</span> for a prefix match)</p>}
         </div>
       )}
 
       {tab === "label" && (
         <div>
-          <input type="text" placeholder="filter labels — e.g. namespace, service, clickhouse_org"
+          <input type="text" placeholder="filter labels; e.g. namespace, service, clickhouse_org"
                  value={labelQ} onChange={(e) => setLabelQ(e.target.value)} />
           <div className="fam-list" style={{ maxHeight: 150, marginTop: 6 }}>
             {labelMatches.map((l) => (
@@ -1459,7 +1457,7 @@ function PromQueriesView({ rows, onChange }:
         the metrics this source will ingest. Remove anything you don't want, or “change metrics” above.
       </span>
       {rows.length === 0 && (
-        <div className="empty" style={{ padding: 10 }}>none yet — run Discover above and pick metrics</div>
+        <div className="empty" style={{ padding: 10 }}>none yet; run Discover above and pick metrics</div>
       )}
       {rows.map((q, i) => {
         const s = summarize(q);
@@ -1506,7 +1504,7 @@ function ColumnPicker({ columns, value, mandatory, onChange }: {
         <button type="button" onClick={() => onChange("")}>All</button>
         <button type="button" onClick={() => emit(new Set())}>None</button>
         <span className="help">
-          {nChecked}/{columns.length} selected{nChecked >= columns.length ? " — pulls every column" : ""}
+          {nChecked}/{columns.length} selected{nChecked >= columns.length ? "; pulls every column" : ""}
         </span>
       </div>
       {columns.length > 8 && (
@@ -1520,7 +1518,7 @@ function ColumnPicker({ columns, value, mandatory, onChange }: {
             <input type="checkbox" checked={isChecked(c)} disabled={mandatory.has(c)}
                    onChange={() => toggle(c)} style={{ marginRight: 8 }} />
             <span className="mono">{c}</span>
-            {mandatory.has(c) && <span className="badge push" style={{ marginLeft: 8 }} title="cursor/key/time — always pulled">always</span>}
+            {mandatory.has(c) && <span className="badge push" style={{ marginLeft: 8 }} title="cursor/key/time; always pulled">always</span>}
           </label>
         ))}
       </div>
@@ -1556,7 +1554,7 @@ function ColumnsProposalView({ proposal, onApply }: { proposal: ColumnsProposal;
         Apply to form
       </button>
       <span className="help" style={{ marginLeft: 10 }}>
-        fills the fields below — review, Test connection, then Create
+        fills the fields below; review, Test connection, then Create
       </span>
     </div>
   );
@@ -1582,7 +1580,7 @@ function ProposalView({ proposal, onApply }: { proposal: DiscoverProposal; onApp
           <span className="help" style={{ marginLeft: 8 }}>
             {proposal.summary.total_metrics} metrics
             {families.length > 1 ? ` · ${families.length} families` : ""}
-            {" "}— each family is one query (histogram buckets excluded)
+            {" "}· each family is one query (histogram buckets excluded)
           </span>
         </div>
       </div>
@@ -1613,7 +1611,7 @@ function ProposalView({ proposal, onApply }: { proposal: DiscoverProposal; onApp
           {[...byFamily].map(([f, ms]) => (
             <details key={f} style={{ marginBottom: 4 }}>
               <summary className="help" style={{ cursor: "pointer", padding: "2px 0" }}>
-                <span className="mono">{f}_*</span> — {ms.length} sampled
+                <span className="mono">{f}_*</span> · {ms.length} sampled
               </summary>
               <div style={{ maxHeight: 220, overflowY: "auto", margin: "6px 0 6px 16px" }}>
                 <table>
@@ -1658,7 +1656,7 @@ function ProposalView({ proposal, onApply }: { proposal: DiscoverProposal; onApp
 
       <button type="button" className="primary" onClick={onApply}>Apply to form</button>
       <span className="help" style={{ marginLeft: 10 }}>
-        fills the fields below — review, Test connection, then Create
+        fills the fields below; review, Test connection, then Create
       </span>
     </div>
   );

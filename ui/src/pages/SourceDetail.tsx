@@ -204,7 +204,7 @@ function LabelsSummary({ source, onEdit }: { source: Source; onEdit: () => void 
         </table>
       ) : (
         <p className="help" style={{ margin: 0, whiteSpace: "normal" }}>
-          No labels declared — events fall back to the connector&rsquo;s default key, and agents
+          No labels declared; events fall back to the connector&rsquo;s default key, and agents
           can&rsquo;t slice this source by any axis. Check <strong>Fields</strong> below for the
           candidates observed in your data, then declare them here.
         </p>
@@ -273,7 +273,7 @@ function FieldsPanel({ name, source }: { name: string; source: Source }) {
                   </div>
                   {l.coverage === 0 && (
                     <div className="help" style={{ fontFamily: "inherit" }}>
-                      no sampled event carries this label — check the field mapping / regex
+                      no sampled event carries this label; check the field mapping / regex
                     </div>
                   )}
                 </td>

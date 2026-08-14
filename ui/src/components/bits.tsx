@@ -53,12 +53,12 @@ export function usePolling<T>(fn: () => Promise<T>, intervalMs = 5000): {
  *  `error` (which keeps the last good `data`, so this sits above stale rows). */
 export function ErrorState({ error, what, onRetry }: {
   error: string;
-  what?: string;          // what failed to load, e.g. "views" — omit for the generic wording
+  what?: string;          // what failed to load, e.g. "views"; omit for the generic wording
   onRetry?: () => void;   // usually usePolling's reload
 }) {
   return (
     <div className="alert error">
-      <strong>{what ? `Couldn’t load ${what}` : "Couldn’t load this page"}</strong> — {error}
+      <strong>{what ? `Couldn’t load ${what}` : "Couldn’t load this page"}</strong> · {error}
       {onRetry && (
         <button className="btn" style={{ marginLeft: 10 }} onClick={onRetry}>Retry</button>
       )}

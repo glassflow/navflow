@@ -14,7 +14,7 @@ export default function DispatchDetail() {
     return (
       <div className="alert error">
         {/unknown dispatch/i.test(error) ? <>no dispatch <span className="mono">{id}</span></> : error}
-        {" "}— see <Link to="/activity?tab=dispatches">Trigger dispatches</Link>
+        {" "}· see <Link to="/activity?tab=dispatches">Trigger dispatches</Link>
       </div>
     );
   }
@@ -55,16 +55,23 @@ export default function DispatchDetail() {
       <h2>Deliveries</h2>
       {d.deliveries.length === 0 ? (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          no subscribers were attached when this fired — nothing was delivered (the firing is still
+          no subscribers were attached when this fired; nothing was delivered (the firing is still
           logged; wire an agent on the <Link to={`/triggers/${encodeURIComponent(d.trigger)}`}>trigger</Link>).
         </p>
       ) : (
         <table style={{ marginBottom: 18 }}>
           <thead><tr><th>agent</th><th>endpoint</th><th>status</th><th>when</th></tr></thead>
           <tbody>
+            {/* Each kind links to where its story continues: a Tares agent to its run for THIS
+                firing, an external agent to its roster row. A Slack channel gets no link — the
+                message went to Slack; there is nothing more to show here. */}
             {d.deliveries.map((dv, i) => (
               <tr key={i}>
-                <td><Link to={`/activity?agent=${encodeURIComponent(dv.agent)}`}><strong>{dv.agent}</strong></Link></td>
+                <td>{dv.kind === "tares"
+                  ? <Link to={`/agents/${encodeURIComponent(dv.agent)}?dispatch=${encodeURIComponent(d.dispatch_id)}`}><strong>{dv.agent}</strong></Link>
+                  : dv.kind === "webhook"
+                  ? <Link to={`/agents?agent=${encodeURIComponent(dv.agent)}`}><strong>{dv.agent}</strong></Link>
+                  : <strong>{dv.agent}</strong>}</td>
                 <td className="mono">{dv.endpoint}</td>
                 <td>
                   {dv.ok
@@ -80,7 +87,7 @@ export default function DispatchDetail() {
 
       <h2>Payload</h2>
       <p className="help" style={{ margin: "0 0 6px", whiteSpace: "normal" }}>
-        the timeline POSTed to each subscriber — the agent boots holding this.
+        the timeline POSTed to each subscriber; the agent boots holding this.
       </p>
       <pre className="payload">{payload}</pre>
     </>

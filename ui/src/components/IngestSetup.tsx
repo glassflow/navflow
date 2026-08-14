@@ -40,7 +40,7 @@ export default function IngestSetup({ connector, url, authKey }: {
     );
   }
 
-  if (!authRequired) return null;   // open instance — the URL alone accepts events
+  if (!authRequired) return null;   // open instance; the URL alone accepts events
 
   const snippet = connector === "otlp"
     ? [
@@ -60,7 +60,7 @@ export default function IngestSetup({ connector, url, authKey }: {
       <KeyNote authKey={authKey} />
       <p className="muted" style={{ marginTop: 12 }}>
         {connector === "otlp"
-          ? <>Exporter setup — Tares accepts OTLP/HTTP <strong>JSON</strong> (not protobuf); use a
+          ? <>Exporter setup; Tares accepts OTLP/HTTP <strong>JSON</strong> (not protobuf); use a
               JSON-capable exporter, e.g. the OTel Collector's <span className="mono">otlphttp</span>{" "}
               exporter with <span className="mono">encoding: json</span>:</>
           : <>Test it right away:</>}
@@ -78,13 +78,13 @@ export default function IngestSetup({ connector, url, authKey }: {
 function KeyNote({ authKey }: { authKey?: string }) {
   return authKey ? (
     <p className="muted">
-      This instance requires auth — send this source's <strong>ingest key</strong> as{" "}
+      This instance requires auth; send this source's <strong>ingest key</strong> as{" "}
       <span className="mono">Authorization: Bearer …</span>. Copy it now; it's shown once and listed
       under <Link to="/security">Security</Link>.
     </p>
   ) : (
     <p className="muted">
-      This instance requires auth — the producer needs this source's <strong>ingest key</strong> in{" "}
+      This instance requires auth; the producer needs this source's <strong>ingest key</strong> in{" "}
       <span className="mono">Authorization: Bearer …</span>. Use the key shown when you created the
       source, or mint one under <Link to="/security">Security</Link> (scope <span className="mono">ingest</span>).
     </p>

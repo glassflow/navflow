@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { Source } from "../types";
 
-const REDACTED = "••••••••";   // matches connectors.REDACTED_SECRET — a set secret comes back as this
+const REDACTED = "••••••••";   // matches connectors.REDACTED_SECRET; a set secret comes back as this
 const hasSecret = (s: Source) => Object.values(s.config ?? {}).includes(REDACTED);
 
 // Export the catalog to portable YAML. Defaults mirror the API/agent call (all sources, no secrets);
@@ -58,7 +58,7 @@ export default function CatalogExport() {
         <div>
           <p className="subtitle" style={{ marginBottom: 4 }}><Link to="/sources">Sources</Link> ›</p>
           <h1>Export catalog</h1>
-          <p className="subtitle">the portable form of your catalog — sources, views and triggers as YAML</p>
+          <p className="subtitle">the portable form of your catalog; sources, views and triggers as YAML</p>
         </div>
       </div>
 
@@ -94,7 +94,7 @@ export default function CatalogExport() {
             </label>
             <p className="help" style={{ margin: "6px 0 0" }}>
               {includeSecrets
-                ? <span style={{ color: "var(--err)" }}>⚠️ The YAML will contain credentials in plaintext — don't commit or share it.</span>
+                ? <span style={{ color: "var(--err)" }}>⚠️ The YAML will contain credentials in plaintext; don't commit or share it.</span>
                 : <>Secrets are left out (empty); re-enter them on the target when importing. {anySecret && "Some selected sources carry a secret."}</>}
             </p>
           </div>

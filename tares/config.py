@@ -358,7 +358,12 @@ def import_yaml_to_db(store, text: str) -> dict:
                                 m.get("auth_header"), m.get("auth_value"))
 
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
-            "agents": len(agents), "mcp_servers": len(mcp_servers)}
+            "agents": len(agents), "mcp_servers": len(mcp_servers),
+            "names": {"sources": [s["name"] for s in sources],
+                      "views": [v["name"] for v in views],
+                      "triggers": [t["name"] for t in triggers],
+                      "agents": [a["name"] for a in agents],
+                      "mcp_servers": [m["name"] for m in mcp_servers]}}
 
 
 def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:

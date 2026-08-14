@@ -289,6 +289,7 @@ export interface DispatchLogEntry {
 // One delivery attempt to a specific subscriber, for the dispatch detail page.
 export interface DispatchDelivery {
   agent: string;
+  kind: "tares" | "slack" | "webhook";
   endpoint: string;   // masked
   ok: boolean;
   error?: string | null;

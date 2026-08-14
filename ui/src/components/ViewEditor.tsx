@@ -127,7 +127,7 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
                  hints={srcTypes} hintClass="chip"
                  onChange={(v) => (remaining.includes(v) ? addSource(v) : setPick(v))} />
         ) : sourceNames.length === 0 ? (
-          <span className="help">no sources yet — add one under Sources first</span>
+          <span className="help">no sources yet; add one under Sources first</span>
         ) : (
           <span className="help">all sources selected</span>
         )}
@@ -136,7 +136,7 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
       <div className="field" style={{ marginTop: 14 }}>
         <span className="lbl">key field</span>
         <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 6 }}>
-          the label agents look an entity up by — pick one the selected sources share
+          the label agents look an entity up by; pick one the selected sources share
         </span>
         <Combo value={keyField} options={labelOpts} style={{ maxWidth: 340 }}
                placeholder={labelOpts.length ? `e.g. ${labelOpts[0]}` : "e.g. service"}
@@ -158,7 +158,7 @@ export default function ViewEditor({ initial, sourceNames, onSaved, onCancel }: 
       <div className="field">
         <span className="lbl">filters (optional)</span>
         <span className="help" style={{ display: "block", marginTop: 0, marginBottom: 6 }}>
-          narrow what the view returns — applied on reads and trigger evaluation
+          applied on reads and trigger evaluation
         </span>
         {fRows.map((r, i) => (
           <div key={i} className="btnrow" style={{ marginBottom: 6, alignItems: "center" }}>

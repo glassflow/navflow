@@ -290,7 +290,10 @@ export const api = {
     return res.text();
   },
   importYaml: (yaml: string, mode: "merge" | "replace") =>
-    request<{ sources: number; views: number; triggers: number }>("/api/catalog/import", {
+    request<{ sources: number; views: number; triggers: number; agents: number;
+              mcp_servers: number;
+              names: { sources: string[]; views: string[]; triggers: string[];
+                       agents: string[]; mcp_servers: string[] } }>("/api/catalog/import", {
       method: "POST",
       body: JSON.stringify({ yaml, mode }),
     }),

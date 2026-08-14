@@ -29,7 +29,7 @@ export default function Agents() {
         <div>
           <h1>Agents</h1>
           <p className="subtitle">
-            everything your triggers can wake — <strong>Tares agents</strong> that run in-process,
+            everything your triggers can wake; <strong>Tares agents</strong> that run in-process,
             and <strong>connected agents</strong> reached over a webhook
           </p>
         </div>
@@ -41,7 +41,7 @@ export default function Agents() {
 
       {data && !data.key_configured && (
         <div className="alert">
-          No Anthropic key configured — agents can be created but not enabled. Set one under{" "}
+          No Anthropic key configured; agents can be created but not enabled. Set one under{" "}
           <Link to="/security">Security</Link>.
         </div>
       )}
@@ -51,7 +51,7 @@ export default function Agents() {
         : data.agents.length === 0 ? (
           <div className="panel">
             <p className="help" style={{ whiteSpace: "normal", marginTop: 0 }}>
-              No Tares agents yet. Create one here, or from a trigger's page — it reads the same
+              No Tares agents yet. Create one here, or from a trigger's page; it reads the same
               correlated timeline your external agents receive and writes what it found back into
               Tares, so the next agent to read that entity already has the conclusion.
             </p>

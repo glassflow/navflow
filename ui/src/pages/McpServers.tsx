@@ -50,7 +50,7 @@ function ServerForm({ initial, onSaved, onCancel }: {
           <input type="text" className="mono" value={url}
                  placeholder="https://mcp.example.com/mcp"
                  onChange={(e) => setUrl(e.target.value)} />
-          <span className="help">streamable HTTP endpoint; stdio servers are not supported</span>
+          <span className="help">stdio servers are not supported</span>
         </label>
       </div>
       <div className="field">
@@ -64,9 +64,7 @@ function ServerForm({ initial, onSaved, onCancel }: {
               : "header value, e.g. Bearer sk-…"}
                  value={value} onChange={(e) => setValue(e.target.value)} />
         </div>
-        <span className="help">
-          sent on every request to this server; the value is stored as a secret and never shown again
-        </span>
+        <span className="help">stored as a secret, never shown again</span>
       </div>
       <div className="btnrow">
         <button className="primary" onClick={save}

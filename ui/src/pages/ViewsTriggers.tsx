@@ -16,7 +16,7 @@ export function ViewsPage() {
   return (
     <>
       <h1>Views</h1>
-      <p className="subtitle">saved reads — <em>the queries you hand agents</em></p>
+      <p className="subtitle">saved reads; <em>the queries you hand agents</em></p>
       <ViewsSection views={views ?? []} loadError={error} onChange={reload} />
     </>
   );
@@ -95,7 +95,7 @@ function ViewsSection({ views, loadError, onChange }:
       {loadError && <ErrorState error={loadError} what="views" onRetry={onChange} />}
 
       {!views.length && !loadError && (
-        <EmptyState>no views — agents have nothing to query yet</EmptyState>
+        <EmptyState>no views; agents have nothing to query yet</EmptyState>
       )}
       {!!views.length && (
         <>
@@ -183,7 +183,7 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
         <span />
         <Link className="btn primary" to="/triggers/new"
               style={!viewNames.length ? { pointerEvents: "none", opacity: 0.5 } : undefined}
-              title={viewNames.length ? undefined : "a trigger watches a view — create a view first"}>
+              title={viewNames.length ? undefined : "a trigger watches a view; create a view first"}>
           Add trigger
         </Link>
       </div>
@@ -193,12 +193,12 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
       {!viewNames.length && !loadError && (
         <div className="alert">
           A trigger is a condition evaluated over a <strong>view</strong>, and this instance has no
-          views yet — <Link to="/views/new">create a view</Link> first (pick the sources and the
+          views yet; <Link to="/views/new">create a view</Link> first (pick the sources and the
           entity key it correlates by), then come back and add a trigger on it.
         </div>
       )}
       {!triggers.length && !!viewNames.length && !loadError && (
-        <EmptyState>no triggers — nothing wakes agents yet</EmptyState>
+        <EmptyState>no triggers; nothing wakes agents yet</EmptyState>
       )}
       {!!triggers.length && (
         <>
@@ -210,7 +210,7 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
                 <tr key={t.name} style={t.paused ? { opacity: 0.55 } : undefined}>
                   <td className="mono">
                     <Link to={`/triggers/${encodeURIComponent(t.name)}`}>{t.name}</Link>
-                    {t.paused && <span className="badge starting" style={{ marginLeft: 8 }} title="paused — not evaluated, never fires until resumed">paused</span>}
+                    {t.paused && <span className="badge starting" style={{ marginLeft: 8 }} title="paused; not evaluated, never fires until resumed">paused</span>}
                   </td>
                   <td className="mono"><Link to={`/views/${encodeURIComponent(t.view)}`}>{t.view}</Link></td>
                   <td className="mono">

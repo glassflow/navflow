@@ -39,7 +39,7 @@ export default function SourceClaudeCode() {
     <>
       <h1>Connect Claude Code</h1>
       <p className="subtitle">
-        Install the Tares plugin for Claude Code — it streams your sessions into the{" "}
+        Install the Tares plugin for Claude Code; it streams your sessions into the{" "}
         <span className="mono">claude_code</span> source (keyed by session, with project / branch /
         model labels; secrets redacted server-side) and adds MCP read-back. Same steps local or remote.
       </p>
@@ -51,7 +51,7 @@ export default function SourceClaudeCode() {
             <span className="badge ok">connected</span>
           </div>
           <p className="help" style={{ marginTop: 8 }}>
-            A <span className="mono">claude_code</span> source exists — sessions are streaming in.{" "}
+            A <span className="mono">claude_code</span> source exists; sessions are streaming in.{" "}
             <Link to="/sources/claude_code">Manage source</Link>.
           </p>
         </div>
@@ -89,12 +89,12 @@ export default function SourceClaudeCode() {
             <span className="help">
               Create an API key with the <span className="mono">read</span> +{" "}
               <span className="mono">ingest</span> scopes on the{" "}
-              <Link to="/security">Security page</Link> and paste it here — it lets the plugin
+              <Link to="/security">Security page</Link> and paste it here; it lets the plugin
               stream sessions <em>and</em> query Tares over MCP, without full admin rights.
             </span>
           ) : (
             <span className="help">
-              This instance is open (no auth configured) — leave it blank.
+              This instance is open (no auth configured); leave it blank.
             </span>
           )}
         </label>
