@@ -3,6 +3,19 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] — 2026-08-14
+
+### Fixed
+- **Explore no longer sticks at "reading timeline…" in a background tab.** The read is skipped
+  while the tab is hidden (deliberately, to save load), but nothing re-fired it when the tab
+  became visible — you stared at the spinner until the next 10-second tick. The read now fires
+  the moment the tab becomes visible.
+- **The Connect page no longer shows the access token in clear text.** The Claude Code snippet
+  rendered the real token unmasked the moment the page opened; on a secured instance that is the
+  root token on screen. Every credentialed snippet now displays the masked token while the copy
+  button carries the real one — which also fixes the other tabs, where copying without hitting
+  reveal first copied the mask.
+
 ## [1.3.0] — 2026-08-10
 
 ### Added
