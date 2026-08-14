@@ -73,6 +73,10 @@ Then ask your agent:
 
 The agent calls `read` and gets the incident correlated: the `HighErrorRate` alert Prometheus fired, the 5xx request logs, and the error-rate spike in one time-ordered response. It has nothing to stitch together across systems. (The `incident` trigger fires too, and the catalog ships a Tares agent that wakes on it and writes its diagnosis back as a **finding** on the timeline. Set `ANTHROPIC_API_KEY` first, or see [`demo/`](demo/). `./inject.sh clear` rolls the fault back.)
 
+A built-in agent on a real incident — the prompt is the whole configuration, and the finding it writes is a structured incident note on the service's timeline:
+
+![A built-in Tares agent: its prompt, its run, and the incident note it wrote back onto the timeline](.github/assets/tares-agent.jpg)
+
 Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://docs.glassflow.ai/tares/agents).
 
 ## What you get
