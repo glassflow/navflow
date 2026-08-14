@@ -186,6 +186,10 @@ _MIGRATIONS = [
     # rows get NULL (read as False); the upsert always writes an explicit value going forward.
     "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS paused BOOLEAN",
     "ALTER TABLE dispatch_deliveries ADD COLUMN IF NOT EXISTS error TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS model TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS slack_channel TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_url TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_token TEXT",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -784,28 +788,36 @@ class Store:
 
     # ── Tares agents (a prompt attached to a trigger; enabled ⟺ subscribed) ──
     def upsert_catalog_agent(self, name: str, trigger: str, prompt: str,
-                             slack_webhook: str | None = None) -> None:
+                             slack_webhook: str | None = None, model: str | None = None,
+                             slack_channel: str | None = None, webhook_url: str | None = None,
+                             webhook_token: str | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO catalog_agents "
-                "(name, trigger, prompt, slack_webhook, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?) "
+                "(name, trigger, prompt, slack_webhook, model, slack_channel, "
+                "webhook_url, webhook_token, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
                 "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
+                "model = excluded.model, slack_channel = excluded.slack_channel, "
+                "webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token, "
                 "updated_at = excluded.updated_at",
-                [name, trigger, prompt, slack_webhook or "", ts, ts],
+                [name, trigger, prompt, slack_webhook or "", model or "",
+                 slack_channel or "", webhook_url or "", webhook_token or "", ts, ts],
             )
 
     def list_catalog_agents(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, trigger, prompt, slack_webhook, updated_at "
+                "SELECT name, trigger, prompt, slack_webhook, model, slack_channel, "
+                "webhook_url, webhook_token, updated_at "
                 "FROM catalog_agents ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "trigger": r[1], "prompt": r[2], "slack_webhook": r[3] or "",
-             "updated_at": r[4]}
+             "model": r[4] or "", "slack_channel": r[5] or "",
+             "webhook_url": r[6] or "", "webhook_token": r[7] or "", "updated_at": r[8]}
             for r in rows
         ]
 

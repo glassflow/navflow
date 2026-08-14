@@ -124,6 +124,10 @@ class AgentCfg:
     trigger: str
     prompt: str
     slack_webhook: str = ""
+    model: str = ""           # "" = follow the instance default (TARES_AGENT_MODEL)
+    slack_channel: str = ""   # workspace-bot channel id; wins over slack_webhook when both set
+    webhook_url: str = ""     # write-back: findings + run metadata POSTed here
+    webhook_token: str = ""   # optional bearer token for the write-back (a secret)
     enabled: bool = False
 
 
@@ -224,6 +228,10 @@ def _agent_from_dict(a: dict, enabled: bool = False) -> AgentCfg:
     return AgentCfg(
         name=a["name"], trigger=a["trigger"], prompt=a["prompt"],
         slack_webhook=a.get("slack_webhook") or "",
+        model=a.get("model") or "",
+        slack_channel=a.get("slack_channel") or "",
+        webhook_url=a.get("webhook_url") or "",
+        webhook_token=a.get("webhook_token") or "",
         enabled=bool(a.get("enabled", enabled)),
     )
 
@@ -309,7 +317,9 @@ def import_yaml_to_db(store, text: str) -> dict:
         # paused trigger round-trips. Sources carry paused through upsert_catalog_source already.
         store.set_trigger_paused(t["name"], bool(t.get("paused", False)))
     for a in agents:
-        store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"))
+        store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"),
+                                   a.get("model"), a.get("slack_channel"),
+                                   a.get("webhook_url"), a.get("webhook_token"))
         # enabled ⟺ a subscription to the trigger. Reflect the document's state so an enabled agent
         # round-trips: add the internal subscription if enabled, remove it if not.
         url = agent_url(a["name"])
@@ -376,8 +386,13 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     enabled_urls = {s["url"] for s in store.all_subscriptions()}
     agent_out = [
         {"name": a["name"], "trigger": a["trigger"], "prompt": a["prompt"],
+         **({"model": a["model"]} if a.get("model") else {}),
+         **({"slack_channel": a["slack_channel"]} if a.get("slack_channel") else {}),
+         **({"webhook_url": a["webhook_url"]} if a.get("webhook_url") else {}),
          **({"slack_webhook": a["slack_webhook"]}
             if include_secrets and a.get("slack_webhook") else {}),
+         **({"webhook_token": a["webhook_token"]}
+            if include_secrets and a.get("webhook_token") else {}),
          **({"enabled": True} if agent_url(a["name"]) in enabled_urls else {})}
         for a in store.list_catalog_agents()
         if a["trigger"] in kept_triggers
@@ -619,6 +634,19 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
     hook = str(a.get("slack_webhook") or "").strip()
     if hook and not hook.startswith("https://"):
         raise CatalogError(f"agent {a['name']!r}: slack_webhook must be an https URL")
+    model = str(a.get("model") or "").strip()
+    # Loose on purpose: the console offers a curated list, but YAML/API users may name a model
+    # newer than this build knows. The API rejects a wrong name at run time either way.
+    if model and not re.fullmatch(r"claude-[a-z0-9.\-]+", model):
+        raise CatalogError(f"agent {a['name']!r}: model must be a claude model id (or empty "
+                           "for the instance default)")
+    channel = str(a.get("slack_channel") or "").strip()
+    if channel and not re.fullmatch(r"[A-Z][A-Z0-9]{4,}", channel):
+        raise CatalogError(f"agent {a['name']!r}: slack_channel must be a Slack channel ID "
+                           "(e.g. C0123456789), not a name")
+    wurl = str(a.get("webhook_url") or "").strip()
+    if wurl and not wurl.startswith("https://") and not wurl.startswith("http://"):
+        raise CatalogError(f"agent {a['name']!r}: webhook_url must be an http(s) URL")
 
     # Loop guard: a Tares agent writes a finding into the `findings` source. If its trigger
     # watches a view containing that source, the finding re-fires the trigger, which runs the agent
