@@ -61,7 +61,7 @@ const textOf = (m: Msg, decisions?: DecisionMap) =>
       const what = p.proposal.kind === "labels"
         ? `labels for source ${p.proposal.source}`
         : p.proposal.kind === "view" ? `view ${p.proposal.name}` : `trigger ${p.proposal.name}`;
-      return `\n[proposal: ${what} — ${st}]\n`;
+      return `\n[proposal: ${what}; ${st}]\n`;
     }
     return "";
   }).join("");
@@ -169,7 +169,7 @@ export default function AskChat({ history = false }: { history?: boolean }) {
     try {
       const full = await api.askSession(id);
       restore(full.id, full.state);
-    } catch { refreshSessions(); }   // deleted meanwhile — drop it from the list
+    } catch { refreshSessions(); }   // deleted meanwhile; drop it from the list
   };
   const newConversation = () => {
     sessionId.current = "";

@@ -31,7 +31,7 @@ export function ConnectPage() {
     <>
       <h1>Connect</h1>
       <p className="subtitle">
-        hook an agent up to this Tares — <em>it pulls (MCP), gets pushed (webhook), or calls
+        hook an agent up to this Tares; <em>it pulls (MCP), gets pushed (webhook), or calls
         plain REST</em>
       </p>
 
@@ -66,7 +66,7 @@ export default function AgentActivity() {
   return (
     <>
       <h1>Activity</h1>
-      <p className="subtitle">what's been happening — the reads agents made and every trigger dispatch</p>
+      <p className="subtitle">what's been happening; the reads agents made and every trigger dispatch</p>
 
       <div className="tabs">
         {(Object.keys(ACTIVITY_LABELS) as ActivityTab[]).map((t) => (
@@ -211,7 +211,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
         <div className={`mcp-status ${status}`}>
           {status === "checking" && "checking the MCP endpoint…"}
           {status === "live" && <span>MCP endpoint is live at <span className="mono">{url}</span></span>}
-          {status === "absent" && <span>No MCP endpoint found — neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">tares mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
+          {status === "absent" && <span>No MCP endpoint found; neither at <span className="mono">{origin}/mcp</span> (reverse-proxied) nor on the default port <span className="mono">:8788</span> (separate process). Run <span className="mono">tares mcp</span> alongside the daemon (the compose deployment includes it), or use the <strong>stdio</strong> proxy below.</span>}
         </div>
       )}
 
@@ -225,7 +225,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             </div>
           </div>
           <p className="help" style={{ marginTop: 6, whiteSpace: "normal" }}>
-            This is your console access token — it works in the snippets below, but it carries{" "}
+            This is your console access token; it works in the snippets below, but it carries{" "}
             <strong>full admin rights</strong>. For an agent, prefer a{" "}
             <span className="mono">read</span>-scoped API key from the{" "}
             <Link to="/security">Security page</Link> (add <span className="mono">ingest</span> if
@@ -272,7 +272,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             payload: "…the correlated timeline for this entity, ready to hand to the model…",
           }, null, 2)} />
           <p className="help" style={{ whiteSpace: "normal" }}>
-            Delivery is <strong>at-least-once</strong> — dedupe on{" "}
+            Delivery is <strong>at-least-once</strong> · dedupe on{" "}
             <span className="mono">dispatch_id</span>. Answer <strong>2xx</strong> to acknowledge;
             5xx and transport errors are retried with backoff, a 4xx is recorded as failed and not
             retried.
@@ -291,7 +291,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             </>
           ) : (
             <p className="help" style={{ whiteSpace: "normal" }}>
-              This instance has no triggers yet, so there is nothing to subscribe to — create one
+              This instance has no triggers yet, so there is nothing to subscribe to; create one
               under <Link to="/triggers">Triggers</Link> (a condition over a view), then come back
               here.
             </p>
@@ -310,7 +310,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
       {tab === "rest" && (
         <>
           <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
-            No MCP client? The same read surface is plain HTTP — one call returns the correlated
+            No MCP client? The same read surface is plain HTTP; one call returns the correlated
             timeline. Agents can also write conclusions back with{" "}
             <span className="mono">POST /remember</span> (needs <span className="mono">ingest</span>),
             so the next timeline arrives with prior findings attached.
@@ -323,7 +323,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
         <>
       <p className="help" style={{ whiteSpace: "normal", marginTop: 14 }}>
         The agent connects as an MCP client and reads on demand: <span className="mono">read</span>,{" "}
-        <span className="mono">query</span>, <span className="mono">catalog_*</span> — one correlated
+        <span className="mono">query</span>, <span className="mono">catalog_*</span> · one correlated
         timeline per call instead of fanning out across your systems. Needs a{" "}
         <span className="mono">read</span>-scoped key. Pick your client:
       </p>
@@ -393,7 +393,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
         <>
       <h3 style={{ marginTop: 14 }}>Tools the agent gets {tools && <span className="dim">· {tools.length}</span>}</h3>
       <p className="help" style={{ whiteSpace: "normal" }}>
-        Exactly what a connected agent can call — read straight from this instance&rsquo;s MCP
+        Exactly what a connected agent can call; read straight from this instance&rsquo;s MCP
         surface, so it always matches what MCP (pull) serves. The same read/query operations back
         the REST endpoints.
       </p>
@@ -445,7 +445,7 @@ export function AgentsRoster({ only }: { only?: "connected" | "tares" }) {
   if (!agents.length) {
     return (
       <div className="empty">
-        no external agents connected — connect one, or a Slack channel, from a{" "}
+        no external agents connected; connect one, or a Slack channel, from a{" "}
         <Link to="/triggers">trigger's</Link> page
       </div>
     );
@@ -499,7 +499,7 @@ export function AgentsRoster({ only }: { only?: "connected" | "tares" }) {
                       ))}
                       {a.recent.length > 0 && (
                         <>
-                          <p className="help" style={{ margin: "10px 0 4px" }}>recent wakes — open one for the full dispatch</p>
+                          <p className="help" style={{ margin: "10px 0 4px" }}>recent wakes; open one for the full dispatch</p>
                           <table>
                             <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivery</th></tr></thead>
                             <tbody>
@@ -531,7 +531,7 @@ export function AgentsRoster({ only }: { only?: "connected" | "tares" }) {
 function Queries() {
   const { data, error } = usePolling(() => api.queries(150));
   const [q, setQ] = useState("");
-  const [client, setClient] = useState("mcp");  // default to agent reads — the interesting traffic
+  const [client, setClient] = useState("mcp");  // default to agent reads; the interesting traffic
 
   // Filter options: "all" + mcp (always, the important one) + whatever else appears (ui, http).
   const clientOpts = useMemo(
@@ -548,7 +548,7 @@ function Queries() {
   }, [data, q, client]);
 
   if (error) return <div className="alert error">{error}</div>;
-  if (!data?.length) return <div className="empty">no reads yet — connect an agent in Connect and its reads show up here.</div>;
+  if (!data?.length) return <div className="empty">no reads yet; connect an agent in Connect and its reads show up here.</div>;
   return (
     <>
       <div className="toolbar">
@@ -568,7 +568,7 @@ function Queries() {
       {!shown.length ? (
         <div className="empty">
           no <span className="mono">{client}</span> reads{q && <> matching “{q}”</>} in the last {data.length}
-          {client === "mcp" && <> — connect an agent in Connect, or switch the client filter above.</>}
+          {client === "mcp" && <> · connect an agent in Connect, or switch the client filter above.</>}
         </div>
       ) : (
         <table>

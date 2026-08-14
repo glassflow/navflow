@@ -14,7 +14,7 @@ export default function DispatchDetail() {
     return (
       <div className="alert error">
         {/unknown dispatch/i.test(error) ? <>no dispatch <span className="mono">{id}</span></> : error}
-        {" "}— see <Link to="/activity?tab=dispatches">Trigger dispatches</Link>
+        {" "}· see <Link to="/activity?tab=dispatches">Trigger dispatches</Link>
       </div>
     );
   }
@@ -55,7 +55,7 @@ export default function DispatchDetail() {
       <h2>Deliveries</h2>
       {d.deliveries.length === 0 ? (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          no subscribers were attached when this fired — nothing was delivered (the firing is still
+          no subscribers were attached when this fired; nothing was delivered (the firing is still
           logged; wire an agent on the <Link to={`/triggers/${encodeURIComponent(d.trigger)}`}>trigger</Link>).
         </p>
       ) : (
@@ -80,7 +80,7 @@ export default function DispatchDetail() {
 
       <h2>Payload</h2>
       <p className="help" style={{ margin: "0 0 6px", whiteSpace: "normal" }}>
-        the timeline POSTed to each subscriber — the agent boots holding this.
+        the timeline POSTed to each subscriber; the agent boots holding this.
       </p>
       <pre className="payload">{payload}</pre>
     </>

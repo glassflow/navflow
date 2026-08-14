@@ -98,9 +98,9 @@ export default function TriggerEditor({ initial, presetView, onSaved, onCancel }
           <span className="help">
             {t.view
               ? fieldOpts.length
-                ? `${fieldOpts.length} numeric field${fieldOpts.length === 1 ? "" : "s"} in this view — click the box to pick. Leave empty to count events.`
-                : "no numeric fields found in this view's events yet — leave empty to count events"
-              : "pick a view first — its numeric fields will be suggested here"}
+                ? `${fieldOpts.length} numeric field${fieldOpts.length === 1 ? "" : "s"} in this view; click the box to pick. Leave empty to count events.`
+                : "no numeric fields found in this view's events yet; leave empty to count events"
+              : "pick a view first; its numeric fields will be suggested here"}
           </span>
         </div>
       </div>

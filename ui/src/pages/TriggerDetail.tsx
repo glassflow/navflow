@@ -57,7 +57,7 @@ export default function TriggerDetail() {
   if (!trigger) {
     return (
       <div className="alert error">
-        no trigger named <span className="mono">{name}</span> — see <Link to="/triggers">Triggers</Link>
+        no trigger named <span className="mono">{name}</span> · see <Link to="/triggers">Triggers</Link>
       </div>
     );
   }
@@ -79,7 +79,7 @@ export default function TriggerDetail() {
           <h1><span className="mono">{trigger.name}</span></h1>
           <p className="subtitle">
             watches <Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
-            {" "}— fires when the condition trips, delivering to every subscriber
+            {" "}· fires when the condition trips, delivering to every subscriber
           </p>
         </div>
         {!editing && (
@@ -109,10 +109,10 @@ export default function TriggerDetail() {
                   </td></tr>
               <tr><td className="help">context window</td>
                   <td className="mono">{String(trigger.emit?.context_window ?? "15m")}
-                      <span className="help"> — timeline the woken agent receives</span></td></tr>
+                      <span className="help"> · timeline the woken agent receives</span></td></tr>
               <tr><td className="help">cooldown</td>
                   <td className="mono">{trigger.cooldown}
-                      <span className="help"> — minimum gap between firings per entity</span></td></tr>
+                      <span className="help"> · minimum gap between firings per entity</span></td></tr>
             </tbody>
           </table>
         </div>
@@ -172,11 +172,11 @@ export default function TriggerDetail() {
         </table>
       ) : (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          none yet — add a Tares agent above, or connect an external agent's webhook below
+          none yet; add a Tares agent above, or connect an external agent's webhook below
         </p>
       )}
       <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
-        or connect an external agent — its webhook gets POSTed the timeline on every firing.
+        or connect an external agent; its webhook gets POSTed the timeline on every firing.
         What your endpoint receives and how to acknowledge:{" "}
         <Link to="/connect?tab=push">Connect → Webhook (push)</Link>.
       </p>
@@ -198,7 +198,7 @@ export default function TriggerDetail() {
       {/* A Slack channel is the same thing as the webhook above — one more subscription row —
           so it lives here rather than in a Slack-shaped corner of the app. */}
       <p className="help" style={{ margin: "10px 0 4px" }}>
-        or post every firing to a <strong>Slack channel</strong> — retried and logged like any
+        or post every firing to a <strong>Slack channel</strong> · retried and logged like any
         other delivery:
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
@@ -237,7 +237,7 @@ export default function TriggerDetail() {
         }}>Subscribe channel</button>
       </div>
       {/* The list only contains channels the bot has been invited to, so a missing one almost
-          always means exactly this — a 10-second fix in Slack, but only if we say so. */}
+          always means exactly this; a 10-second fix in Slack, but only if we say so. */}
       {channels.length > 0 && (
         <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
           not seeing a channel? add the bot to it in Slack, then hit Refresh.
@@ -246,13 +246,13 @@ export default function TriggerDetail() {
       {slack?.reason === "missing_scope" && (
         <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
           this Slack token predates the <span className="mono">channels:read</span> and{" "}
-          <span className="mono">groups:read</span> scopes — reinstall the Slack app to pick a
+          <span className="mono">groups:read</span> scopes; reinstall the Slack app to pick a
           channel from a list instead of typing one.
         </p>
       )}
       {caps && caps.slack_configured === false && (
         <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
-          no Slack bot token is configured yet — add one under{" "}
+          no Slack bot token is configured yet; add one under{" "}
           <Link to="/security">Security</Link>, and invite the bot to the channel.
         </p>
       )}
@@ -310,7 +310,7 @@ export default function TriggerDetail() {
           message={agentsError
             // Never reassure from a failed load. "No agents use this" and "we couldn't find out"
             // are different facts, and only one of them is safe to delete on.
-            ? `Couldn’t check what this trigger delivers to (${agentsError}) — deleting may break more than is shown here. This can’t be undone.`
+            ? `Couldn’t check what this trigger delivers to (${agentsError}); deleting may break more than is shown here. This can’t be undone.`
             : wired.length
               ? `${wired.length} subscriber(s) receive this trigger and will stop. This can't be undone.`
               : "This stops the condition from being evaluated. This can't be undone."}

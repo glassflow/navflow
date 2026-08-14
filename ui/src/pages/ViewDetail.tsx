@@ -27,7 +27,7 @@ export default function ViewDetail() {
   if (!view) {
     return (
       <div className="alert error">
-        no view named <span className="mono">{name}</span> — see <Link to="/views">Views</Link>
+        no view named <span className="mono">{name}</span> · see <Link to="/views">Views</Link>
       </div>
     );
   }
@@ -71,7 +71,7 @@ export default function ViewDetail() {
                   {(view.filters ?? []).length
                     ? (view.filters ?? []).map((f, i) => (
                         <span className="chip" key={i}>{f.field} {f.op} {String(f.value)}</span>))
-                    : <span className="help">none — everything the sources carry</span>}
+                    : <span className="help">none; everything the sources carry</span>}
                 </td></tr>
             <tr><td className="help">author</td>
                 <td>{(view.created_by ?? "human").startsWith("agent")
@@ -91,7 +91,7 @@ export default function ViewDetail() {
       {triggersError && <ErrorState error={triggersError} what="the triggers watching this view" />}
       {!triggersError && watchers.length === 0 && (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          none — <Link to={`/triggers/new?view=${encodeURIComponent(view.name)}`}>create one</Link> to
+          none; <Link to={`/triggers/new?view=${encodeURIComponent(view.name)}`}>create one</Link> to
           wake agents when a condition trips on this timeline
         </p>
       )}
@@ -117,7 +117,7 @@ export default function ViewDetail() {
           title={`Delete view ${view.name}?`}
           message={triggersError
             // A failed load must never produce the calmer of the two messages — see TriggerDetail.
-            ? `Couldn’t check which triggers watch this view (${triggersError}) — deleting may break more than is shown here. This can’t be undone.`
+            ? `Couldn’t check which triggers watch this view (${triggersError}); deleting may break more than is shown here. This can’t be undone.`
             : watchers.length
               ? `${watchers.length} trigger(s) watch this view and will stop working. Agents querying it will start failing.`
               : "Agents querying this view will start failing. This can't be undone."}

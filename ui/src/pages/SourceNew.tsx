@@ -28,7 +28,7 @@ function YamlQuickAdd() {
         ...r.names.agents.map((n) => ({ label: `agent ${n}`, to: `/agents/${encodeURIComponent(n)}` })),
         ...r.names.mcp_servers.map((n) => ({ label: `mcp server ${n}`, to: "/mcp-servers" })),
       ];
-      if (!links.length) { setErr("nothing in that YAML — expected sources:, views:, triggers:, agents: or mcp_servers:"); }
+      if (!links.length) { setErr("nothing in that YAML; expected sources:, views:, triggers:, agents: or mcp_servers:"); }
       else { setDone(links); setText(""); }
     } catch (e) { setErr(String((e as Error).message ?? e)); }
     setBusy(false);
@@ -38,9 +38,7 @@ function YamlQuickAdd() {
     <div className="panel" style={{ marginBottom: 18 }}>
       <h2 style={{ marginTop: 0 }}>Paste a catalog snippet</h2>
       <p className="help" style={{ whiteSpace: "normal", marginTop: 0 }}>
-        the YAML from a docs page or tutorial, added as-is: validated first, then <strong>merged</strong>{" "}
-        into your catalog — nothing existing is removed. Works for sources, views, triggers, agents
-        and MCP servers.
+        validated first, then <strong>merged</strong> into your catalog; nothing existing is removed
       </p>
       {err && <div className="alert error">{err}</div>}
       {done && (
@@ -96,7 +94,7 @@ export default function SourceNew() {
       <div className="pagehead">
         <div>
           <h1>Add source</h1>
-          <p className="subtitle">pick a connector, configure it, save — <em>no restart needed</em></p>
+          <p className="subtitle">pick a connector, configure it, save; <em>no restart needed</em></p>
         </div>
         {!connector && !created && (
           <button className={showYaml ? "" : "dim"} onClick={() => setShowYaml((v) => !v)}>
@@ -113,7 +111,7 @@ export default function SourceNew() {
         <>
           <div className="connector-cards">
             {/* `internal` connectors are provisioned by Tares itself (the agent findings
-                source) — nothing to configure, so they're not offered here. */}
+                source); nothing to configure, so they're not offered here. */}
             {Object.entries(specs).filter(([, s]) => !s.internal).map(([key, s]) => (
               <button key={key} type="button"
                       className={"connector-card" + (unavailable(key) ? " unavailable" : "")}
@@ -127,7 +125,7 @@ export default function SourceNew() {
                 </div>
                 <div className="help desc">
                   {s.description}
-                  {unavailable(key) && <em> Needs Docker on the Tares host — not available on this deployment.</em>}
+                  {unavailable(key) && <em> Needs Docker on the Tares host; not available on this deployment.</em>}
                 </div>
               </button>
             ))}
@@ -146,7 +144,7 @@ export default function SourceNew() {
           {created.authKey ? (
             <div className="alert ok" style={{ marginTop: 14 }}>
               This instance requires auth, so <span className="mono">{created.name}</span> got its own
-              ingest key — send it as <code>Authorization: Bearer …</code>. <strong>Copy it now; it
+              ingest key; send it as <code>Authorization: Bearer …</code>. <strong>Copy it now; it
               is not shown again</strong> (it's listed under <Link to="/security">Security</Link> as{" "}
               <span className="mono">ingest: {created.name}</span>):
               <div className="ingest-url" style={{ marginTop: 8 }}>
@@ -161,7 +159,7 @@ export default function SourceNew() {
             </div>
           ) : authOn === false ? (
             <p className="help" style={{ marginTop: 14, whiteSpace: "normal" }}>
-              This instance is open, so no key is needed — the URL alone accepts events. Run{" "}
+              This instance is open, so no key is needed; the URL alone accepts events. Run{" "}
               <code>tares up --auth</code> to require an ingest key per producer.
             </p>
           ) : null}

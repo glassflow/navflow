@@ -89,7 +89,7 @@ function NormPreview({ source, label }: { source: string; label: LabelSpec }) {
       <span className="help">
         <span className="mono">{label.name}</span>: {preview.distinct_before} value{preview.distinct_before === 1 ? "" : "s"} →{" "}
         <strong>{preview.distinct_after}</strong> after this merge ({preview.sampled} events sampled)
-        {merges.length === 0 && <> — <strong>no observed value actually changes</strong></>}
+        {merges.length === 0 && <> · <strong>no observed value actually changes</strong></>}
       </span>
       {merges.length > 0 && (
         <table style={{ marginTop: 6 }}>
@@ -163,7 +163,7 @@ export function ProposalCard({ proposal, decision, onApply, onSkip }: {
                 return (
                   <span key={i} className={"chip" + (ok ? "" : " invalid")}
                         title={ok ? undefined
-                                  : "not a valid filter — needs field, op and value, with op one of "
+                                  : "not a valid filter; needs field, op and value, with op one of "
                                     + FILTER_OPS.join(", ") + ". Apply will be rejected."}>
                     {text}
                   </span>

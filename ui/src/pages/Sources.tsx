@@ -60,7 +60,7 @@ export default function Sources() {
       <div className="pagehead">
         <div>
           <h1>Sources</h1>
-          <p className="subtitle">everything Tares ingests — <em>lossless, normalized, one project</em></p>
+          <p className="subtitle">everything Tares ingests; <em>lossless, normalized, one project</em></p>
         </div>
         <span className="btnrow">
           {caps?.discover_docker !== false && (
@@ -75,7 +75,7 @@ export default function Sources() {
 
       {sources && sources.length === 0 && (
         <div className="empty">
-          No sources yet — <Link to="/sources/new">add one by hand</Link> or <Link to="/sources/import">import a catalog YAML</Link>
+          No sources yet; <Link to="/sources/new">add one by hand</Link> or <Link to="/sources/import">import a catalog YAML</Link>
           {caps?.discover_docker !== false && (
             <>, or <Link to="/sources/discover">auto-discover from Docker</Link></>
           )}.

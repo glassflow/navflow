@@ -12,7 +12,7 @@ import type { LabelFacet, TimelineEventRow, View } from "../types";
 // timeline or the exact payload an agent receives over MCP.
 
 const WINDOWS = ["1h", "24h", "7d", "30d"];
-const RAW = "";  // lens sentinel: "All sources (raw)" — the /read primitive, no view
+const RAW = "";  // lens sentinel: "All sources (raw)"; the /read primitive, no view
 
 // One label=value term of the conjunction. The first term carries display metadata (event count,
 // the axis's declared sources) so we can label the header and offer relevant view lenses.
@@ -136,7 +136,7 @@ export default function Explore() {
         <div className="cat-group-head">
           <span>{f.label}</span>
           {f.high_cardinality && (
-            <span className="badge starting" title="high-cardinality: too many distinct values to profile as an entity axis — showing a live sample">high-card</span>
+            <span className="badge starting" title="high-cardinality: too many distinct values to profile as an entity axis; showing a live sample">high-card</span>
           )}
           <span className="n">{vals.length}</span>
         </div>
@@ -158,18 +158,18 @@ export default function Explore() {
 
   const shownSources = effectiveLens === RAW ? readSources : (lensView?.sources ?? []);
   const emptyHint = effectiveLens === RAW
-    ? "no events match this selector in the last " + window_ + " — widen the window or remove a filter."
-    : "this view's sources don't carry this selector — switch to All sources (raw) to read every source.";
+    ? "no events match this selector in the last " + window_ + "; widen the window or remove a filter."
+    : "this view's sources don't carry this selector; switch to All sources (raw) to read every source.";
 
   return (
     <>
       <h1>Explore</h1>
-      <p className="subtitle">pick an entity, filter it if you like — read everything matching across every source, <em>one timeline</em></p>
+      <p className="subtitle">pick an entity, filter it if you like; read everything matching across every source, <em>one timeline</em></p>
 
       {error && <div className="alert error">{error}</div>}
       {!facets.length && !error && (
         <div className="empty">
-          no entities yet — add a source (each declares one or more labels; one is its key), then
+          no entities yet; add a source (each declares one or more labels; one is its key), then
           ingest some events.
         </div>
       )}
