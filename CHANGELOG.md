@@ -3,6 +3,15 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] — 2026-08-17
+
+### Fixed
+- **The trigger page keeps setup out of the way.** It mixed the running system (subscribers,
+  delivery status, recent firings) with always-open forms for wiring a webhook or a Slack channel.
+  Those forms now sit behind **Add webhook** / **Add Slack channel** buttons beside **Add a Tares
+  agent**, opening in a small panel with Cancel; on success it closes and the subscriber table
+  reloads. (TR-138)
+
 ## [1.5.0] — 2026-08-14
 
 ### Added
