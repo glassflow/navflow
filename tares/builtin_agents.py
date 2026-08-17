@@ -427,12 +427,12 @@ class AgentRunner:
         if not token:
             print(f"[agent {agent_name}] slack: no bot token configured, channel post skipped")
             return
-        link = _slack_deep_link(key)
-        text = f"*{agent_name}* · `{trigger_name}` fired for *{key}*\n\n{finding}{link}"
+        msg = _slack_mod.build_finding_message(agent_name, trigger_name, key, finding,
+                                               _slack_deep_link(key))
         try:
             async with httpx.AsyncClient(timeout=15) as cx:
                 r = await cx.post(f"{_slack_mod.API_BASE}/chat.postMessage",
-                                  json={"channel": channel, "text": text},
+                                  json={"channel": channel, **msg},
                                   headers={"authorization": f"Bearer {token}"})
                 try:
                     data = r.json()
@@ -457,11 +457,13 @@ class AgentRunner:
         a `slack://channel/<id>` subscription (`tares/slack.py`), which is per-trigger, retried
         and logged in the delivery ledger; existing agents are not migrated.
         """
-        link = _slack_deep_link(key)
-        text = f"*{agent_name}* · `{trigger_name}` fired for *{key}*\n\n{finding}{link}"
+        # Incoming webhooks accept blocks too, so the finding renders the same way as on the
+        # channel path instead of as raw markdown.
+        from .slack import build_finding_message
+        msg = build_finding_message(agent_name, trigger_name, key, finding, _slack_deep_link(key))
         try:
             async with httpx.AsyncClient(timeout=15) as cx:
-                r = await cx.post(hook, json={"text": text})
+                r = await cx.post(hook, json=msg)
                 if r.status_code >= 300:
                     print(f"[agent {agent_name}] slack: HTTP {r.status_code} {r.text[:120]}")
         except Exception as e:   # notification failing must never lose the finding
