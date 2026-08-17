@@ -24,6 +24,10 @@ export default function TriggerDetail() {
   // stake, and a failed load would otherwise silently read as "nothing depends on this".
   const { data: agents, error: agentsError, reload: reloadAgents } = usePolling(() => api.agents(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
+  // Which "add a subscriber" form is open, if any. The forms are closed by default: this page
+  // is first a view of the running system (who receives this trigger, is it healthy, what fired),
+  // and setup gets in the way when it is always on screen (TR-138).
+  const [adding, setAdding] = useState<null | "webhook" | "slack">(null);
   const [url, setUrl] = useState("");
   const [channel, setChannel] = useState("");
   const [busy, setBusy] = useState(false);
@@ -120,9 +124,17 @@ export default function TriggerDetail() {
 
       <div className="pagehead" style={{ marginTop: 20 }}>
         <h2 style={{ margin: 0 }}>Where this trigger delivers</h2>
-        <Link className="btn primary" to={`/agents/new?trigger=${encodeURIComponent(name)}`}>
-          Add a Tares agent
-        </Link>
+        <span className="btnrow">
+          <button type="button" onClick={() => { setAdding(adding === "webhook" ? null : "webhook"); setMsg(undefined); }}>
+            Add webhook
+          </button>
+          <button type="button" onClick={() => { setAdding(adding === "slack" ? null : "slack"); setMsg(undefined); }}>
+            Add Slack channel
+          </button>
+          <Link className="btn primary" to={`/agents/new?trigger=${encodeURIComponent(name)}`}>
+            Add a Tares agent
+          </Link>
+        </span>
       </div>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
@@ -172,16 +184,17 @@ export default function TriggerDetail() {
         </table>
       ) : (
         <p className="help" style={{ whiteSpace: "normal" }}>
-          none yet; add a Tares agent above, or connect an external agent's webhook below
+          none yet; add a Tares agent, a webhook for your own agent, or a Slack channel above
         </p>
       )}
-      <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
-        or connect an external agent; its webhook gets POSTed the timeline on every firing.
+      {adding === "webhook" && (<div className="panel">
+      <p className="help" style={{ margin: "0 0 6px", whiteSpace: "normal" }}>
+        Connect your own agent: its webhook gets POSTed the timeline on every firing.
         What your endpoint receives and how to acknowledge:{" "}
         <Link to="/connect?tab=push">Connect → Webhook (push)</Link>.
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
-        <input type="text" className="mono" style={{ flex: 1 }}
+        <input type="text" className="mono" style={{ flex: 1 }} autoFocus
                placeholder="https://your-agent.example.com/hook" value={url}
                onChange={(e) => setUrl(e.target.value)} />
         <button className="primary" disabled={!url.trim() || busy} onClick={async () => {
@@ -189,17 +202,20 @@ export default function TriggerDetail() {
           try {
             const r = await api.subscribe(name, url.trim());
             setMsg(`✓ subscribed (${r.subscription_id})`);
-            setUrl("");
+            setUrl(""); setAdding(null); reloadAgents();
           } catch (e) { setMsg(`⚠️ ${String((e as Error).message ?? e)}`); }
           setBusy(false);
         }}>Subscribe</button>
+        <button type="button" onClick={() => setAdding(null)}>Cancel</button>
       </div>
+      {msg && <p className="help" style={{ margin: "6px 0 0" }}>{msg}</p>}
+      </div>)}
 
       {/* A Slack channel is the same thing as the webhook above — one more subscription row —
           so it lives here rather than in a Slack-shaped corner of the app. */}
-      <p className="help" style={{ margin: "10px 0 4px" }}>
-        or post every firing to a <strong>Slack channel</strong> · retried and logged like any
-        other delivery:
+      {adding === "slack" && (<div className="panel">
+      <p className="help" style={{ margin: "0 0 6px" }}>
+        Post every firing to a Slack channel · retried and logged like any other delivery:
       </p>
       <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
         {channels.length > 0 ? (
@@ -231,10 +247,11 @@ export default function TriggerDetail() {
           try {
             const r = await api.subscribe(name, `slack://channel/${target}`);
             setMsg(`✓ subscribed (${r.subscription_id})`);
-            setChannel("");
+            setChannel(""); setAdding(null); reloadAgents();
           } catch (e) { setMsg(`⚠️ ${String((e as Error).message ?? e)}`); }
           setBusy(false);
         }}>Subscribe channel</button>
+        <button type="button" onClick={() => setAdding(null)}>Cancel</button>
       </div>
       {/* The list only contains channels the bot has been invited to, so a missing one almost
           always means exactly this; a 10-second fix in Slack, but only if we say so. */}
@@ -256,7 +273,10 @@ export default function TriggerDetail() {
           <Link to="/security">Security</Link>, and invite the bot to the channel.
         </p>
       )}
-      {msg && <p className="help">{msg}</p>}
+      {msg && <p className="help" style={{ margin: "6px 0 0" }}>{msg}</p>}
+      </div>)}
+      {/* Result of a remove (the forms show their own messages while open). */}
+      {adding === null && msg && <p className="help">{msg}</p>}
 
       <h2>Recent firings</h2>
       {dispatchesError && <ErrorState error={dispatchesError} what="recent firings" />}
