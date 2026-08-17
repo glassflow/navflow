@@ -3,6 +3,17 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] — 2026-08-17
+
+### Added
+- **A cloud cell links to its workspace.** Users, the Slack app install, plan and storage are
+  managed in the control plane, and a user in the data-plane console had to know that to find
+  them. When the instance is given `TARES_WORKSPACE_URL` (a generic, env-gated hook the cloud
+  sets per cell, surfaced on `/health` as `workspace_url` next to `login_url`), the console shows
+  a **Workspace** link in the sidebar footer and a banner at the top of Settings naming what lives
+  there, including the Slack split: the bot token is here, the app install is in the workspace.
+  Self-host never sets it and sees nothing. (TR-142)
+
 ## [1.6.0] — 2026-08-17
 
 ### Changed
