@@ -63,6 +63,11 @@ AUTH_TOKEN = os.getenv("TARES_AUTH_TOKEN", "").strip()
 # URL, e.g. https://app.navflow.dev/login; unset for self-host (behaves exactly as before). Surfaced
 # on the PUBLIC /health so a logged-out console knows where to send the browser to authenticate.
 LOGIN_URL = os.getenv("TARES_LOGIN_URL", "").strip()
+# The workspace this cell belongs to in the control plane (additive, env-gated; TR-142). Users,
+# plan, storage and the Slack app install are managed there, not in the cell; the console links
+# out to it so a user never has to know the control plane exists to find them. Unset for
+# self-host: no link. Public, non-secret, surfaced on /health next to login_url.
+WORKSPACE_URL = os.getenv("TARES_WORKSPACE_URL", "").strip()
 # The Anthropic key for the in-app Ask agent (and Tares agents) is resolved at request time via
 # resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
 # Never returned by any API — capabilities exposes only a boolean.
@@ -465,6 +470,8 @@ def make_app() -> FastAPI:
         if LOGIN_URL:
             # public, non-secret: where the logged-out console sends the browser to authenticate.
             body["login_url"] = LOGIN_URL
+        if WORKSPACE_URL:
+            body["workspace_url"] = WORKSPACE_URL
         return body
 
     @app.post("/query")

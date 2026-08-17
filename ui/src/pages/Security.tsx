@@ -14,10 +14,24 @@ import type { ApiKey } from "../types";
 //                  signing secret that authenticates the /tares slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
 export default function Security() {
+  // Cloud only (TR-142): the half of "settings" a user comes here looking for that lives in the
+  // control plane, named and linked, so nobody has to know the control plane exists.
+  const [workspaceUrl, setWorkspaceUrl] = useState<string>();
+  useEffect(() => {
+    api.health().then((h) => setWorkspaceUrl(h.workspace_url || undefined)).catch(() => {});
+  }, []);
   return (
     <>
       <h1>Settings</h1>
       <p className="subtitle">access mode, API keys, and the instance credentials: Anthropic and Slack</p>
+      {workspaceUrl && (
+        <div className="alert" style={{ marginBottom: 14 }}>
+          <strong>Users, the Slack app, plan and storage</strong> are managed in your workspace, not
+          here. The Slack <em>bot token</em> below is what this instance posts with; installing the
+          app into your Slack happens in the workspace.{" "}
+          <a href={workspaceUrl}>Open workspace ↗</a>
+        </div>
+      )}
       <AccessPanel />
       <ApiKeysPanel />
       <AnthropicKeyPanel />
