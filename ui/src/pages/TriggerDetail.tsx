@@ -149,7 +149,7 @@ export default function TriggerDetail() {
                   // channel list is already loaded on this page, so resolve it when we can and fall
                   // back to the id when the bot has since been removed from the channel.
                   ? <strong>{channelLabel(a.name)}</strong>
-                  : <Link to={`/activity?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
+                  : <Link to={`/deliveries?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
                 <td>{a.kind === "tares"
                   ? <span className="badge">Tares</span>
                   : a.kind === "slack"
@@ -270,7 +270,7 @@ export default function TriggerDetail() {
       {caps && caps.slack_configured === false && (
         <p className="help" style={{ margin: "4px 0", whiteSpace: "normal" }}>
           no Slack bot token is configured yet; add one under{" "}
-          <Link to="/security">Security</Link>, and invite the bot to the channel.
+          <Link to="/settings">Settings</Link>, and invite the bot to the channel.
         </p>
       )}
       {msg && <p className="help" style={{ margin: "6px 0 0" }}>{msg}</p>}

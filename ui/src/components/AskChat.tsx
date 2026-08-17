@@ -474,7 +474,7 @@ function ToolNode({ tool }: { tool: ToolPart }) {
 
 const fmtMs = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
-/** The key is stored on the SERVER, under Security — the same one Slack and trigger-woken agents
+/** The key is stored on the SERVER, under Settings — the same one Slack and trigger-woken agents
  *  resolve. It used to live in this browser's localStorage and ride along as a header, so a key
  *  added here made Ask work while Slack still reported no key configured (NF-125). */
 function KeySetup({ onSaved }: { onSaved: () => void }) {
@@ -496,7 +496,7 @@ function KeySetup({ onSaved }: { onSaved: () => void }) {
         The assistant runs on your Tares daemon using this key. It is stored on this instance and
         used by everything that reasons over your data: this assistant, Tares agents woken by
         triggers, and <span className="mono">/tares ask</span> in Slack. You can change or remove it
-        later under <strong>Security</strong>. Get one at{" "}
+        later under <strong>Settings</strong>. Get one at{" "}
         <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
       </p>
       {err && <div className="alert error">{err}</div>}

@@ -38,7 +38,7 @@ async def _docker_ps() -> list[dict]:
     except Exception as e:
         raise ValueError(f"could not run `docker ps`: {e}")
     if proc.returncode != 0:
-        raise ValueError(f"`docker ps` failed — is the Docker daemon running? "
+        raise ValueError(f"`docker ps` failed; is the Docker daemon running? "
                          f"({err.decode(errors='replace').strip()})")
     containers = []
     for line in out.decode(errors="replace").strip().splitlines():
@@ -87,7 +87,7 @@ async def scan_docker() -> dict:
         except ValueError:
             cfg = normalize_config("prometheus", {"url": url, "default_key": "api-server",
                                                   "queries": [{"promql": "up"}]})
-            summary = f"detected at {url} but couldn't introspect — confirm it's reachable"
+            summary = f"detected at {url} but couldn't introspect; confirm it's reachable"
         proposed.append({
             "connector": "prometheus", "name": "metrics", "config": cfg,
             "summary": summary, "preselect": True, "from": f"container {prom['name']}"})
@@ -98,7 +98,7 @@ async def scan_docker() -> dict:
                             "reason": "a Postgres CDC connector would go here (not built yet)"})
         elif "grafana" in c["image"].lower():
             skipped.append({"service": c["service"], "image": c["image"],
-                            "reason": "a dashboard — nothing to ingest"})
+                            "reason": "a dashboard; nothing to ingest"})
 
     return {"provider": "docker",
             "summary": {"containers": len(containers), "proposed": len(proposed)},

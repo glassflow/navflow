@@ -16,8 +16,8 @@ import type { ApiKey } from "../types";
 export default function Security() {
   return (
     <>
-      <h1>Security</h1>
-      <p className="subtitle">how this instance is secured, and the credentials it issues</p>
+      <h1>Settings</h1>
+      <p className="subtitle">access mode, API keys, and the instance credentials: Anthropic and Slack</p>
       <AccessPanel />
       <ApiKeysPanel />
       <AnthropicKeyPanel />

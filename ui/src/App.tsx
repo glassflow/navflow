@@ -21,26 +21,27 @@ type NavItem = {
   kbd?: string;     // keyboard-shortcut hint, e.g. "⌘K"
 };
 
-// The nav is the product story, in three acts: data in → the timeline → serve to agents.
-// Overview sits above the story rather than inside it — it is where you land and where you check
-// the instance's numbers, not one of the acts.
+// One layer, three named groups (TR-137): the confusion was naming and grouping, not depth.
+// Overview and Ask sit above the groups: where you land, and the global assistant (⌘K).
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "", items: [
     { to: "/", end: true, label: "Overview", icon: Grid },
-  ] },
-  { section: "Data in", items: [
-    { to: "/sources", label: "Sources", icon: Database },
     { to: "/ask", label: "Ask", icon: Chat, kbd: "⌘K" },
   ] },
-  { section: "The timeline", items: [
+  { section: "Data", items: [
+    { to: "/sources", label: "Sources", icon: Database },
     { to: "/explore", label: "Explore", icon: Activity },
-  ] },
-  { section: "Serve to agents", items: [
     { to: "/views", label: "Views", icon: Book },
+  ] },
+  { section: "Automate", items: [
     { to: "/triggers", label: "Triggers", icon: Bolt },
-    { to: "/agents", label: "Agents", icon: Chat },
-    { to: "/activity", label: "Activity", icon: Filter },
+    { to: "/agents", label: "Tares agents", icon: Chat },
+    { to: "/mcp-servers", label: "MCP servers", icon: Terminal },
+    { to: "/deliveries", label: "Deliveries", icon: Filter },
+  ] },
+  { section: "Agent access", items: [
     { to: "/connect", label: "Connect", icon: Terminal },
+    { to: "/reads", label: "Reads", icon: Activity },
   ] },
 ];
 
@@ -49,13 +50,13 @@ const SECTION_LABEL: Record<string, string> = {
   explore: "Explore",
   views: "Views",
   triggers: "Triggers",
-  agents: "Agents",
+  agents: "Tares agents",
+  deliveries: "Deliveries",
   connect: "Connect",
-  activity: "Activity",
+  reads: "Reads",
   catalog: "Catalog",
   "mcp-servers": "MCP servers",
   ask: "Ask",
-  security: "Security",
   settings: "Settings",
 };
 
@@ -84,7 +85,7 @@ function useCrumbs(): Crumb[] {
   if (parts[0] === "agents" && parts.length > 1) {
     const sub = decodeURIComponent(parts[1]);
     const last: Crumb = sub === "new" ? { label: "Create agent" } : { label: sub, mono: true };
-    return [{ label: "Agents", to: "/agents" }, last];
+    return [{ label: "Tares agents", to: "/agents" }, last];
   }
 
   return [{ label: SECTION_LABEL[parts[0]] ?? parts[0] }];
@@ -144,7 +145,7 @@ export default function App() {
 
         {NAV_GROUPS.map(({ section, items }) => (
           <div className="nav-group" key={section}>
-            {/* Overview has no section heading — it sits above the three acts, not in one. */}
+            {/* Overview and Ask have no section heading: they sit above the groups. */}
             {section && <div className="nav-section">{section}</div>}
             {items.map(({ to, end, label, icon: Icon, badge, locked, kbd }) => (
               <NavLink key={to} to={to} end={end} className={link}>
@@ -161,9 +162,9 @@ export default function App() {
         <div className="nav-spacer" />
         <div className="sep" />
 
-        <NavLink to="/security" className={link}>
+        <NavLink to="/settings" className={link}>
           <Lock className="ico" />
-          <span className="nav-label">Security</span>
+          <span className="nav-label">Settings</span>
         </NavLink>
         <ThemeToggle />
         {auth.get() && (

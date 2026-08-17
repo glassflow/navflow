@@ -39,10 +39,10 @@ class VercelConnector(Connector):
         # which is why a status label could not be built without a regex over the wrong field.
         {"name": "status_code", "help": "HTTP status code (proxy.statusCode). Label it as "
                                         "type=number to filter >= 400 and aggregate in triggers"},
-        {"name": "url", "help": "the request URL as asked for, with query string — unlike `path`, "
+        {"name": "url", "help": "the request URL as asked for, with query string; unlike `path`, "
                                 "which is rewritten (/tares?_rsc=… vs tares.segments/_head.segment)"},
         {"name": "method", "help": "GET | POST | HEAD | …"},
-        {"name": "referer", "help": "what linked here — the axis that finds the source of a 404"},
+        {"name": "referer", "help": "what linked here; the axis that finds the source of a 404"},
         {"name": "path_type", "help": "PRERENDER | STATIC | FUNCTION | …"},
         {"name": "region", "help": "edge region that served it, e.g. hnd1"},
         {"name": "cache", "help": "Vercel cache result: HIT | MISS | STALE | BYPASS (lambda only)"},

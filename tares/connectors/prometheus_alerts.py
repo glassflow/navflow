@@ -40,7 +40,7 @@ class PrometheusAlertsConnector(Connector):
         "url": {"type": "string", "required": True, "discover_input": True,
                 "help": "Prometheus base URL, e.g. http://localhost:9090"},
         "bearer_token": {"type": "string", "secret": True, "discover_input": True,
-                         "help": "optional Authorization: Bearer token — for managed Prometheus or "
+                         "help": "optional Authorization: Bearer token; for managed Prometheus or "
                                  "one behind an auth proxy"},
         "username": {"type": "string", "discover_input": True,
                      "help": "optional HTTP basic-auth username"},
@@ -114,7 +114,7 @@ class PrometheusAlertsConnector(Connector):
                                  fallback=self.cfg.config.get("default_key", "unknown"))
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
-            event_type=alertname, text=f"{state.upper()}: {alertname} — {summary}",
+            event_type=alertname, text=f"{state.upper()}: {alertname} · {summary}",
             event_time=event_time, payload=payload, labels=labels,
         )
 

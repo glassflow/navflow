@@ -42,7 +42,7 @@ export default function AgentNew() {
       {!keyOk && (
         <div className="alert">
           No Anthropic key configured; you can create the agent now, but it won't run until a key
-          is set under <Link to="/security">Security</Link>. It also starts disabled.
+          is set under <Link to="/settings">Settings</Link>. It also starts disabled.
         </div>
       )}
 

@@ -229,7 +229,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
         <OptionRow title="Slack channel"
                    desc="the workspace bot posts the full finding to a channel"
                    on={channelOn} disabled={!slackWorkspace}
-                   disabledHint="connect a workspace bot under Security to enable this"
+                   disabledHint="connect a workspace bot under Settings to enable this"
                    onToggle={setChannelOn}>
           <Picker value={channel} onChange={setChannel}
                   options={["", ...chanList.map((c) => c.id)]} labels={chanLabels}

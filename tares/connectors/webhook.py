@@ -26,9 +26,9 @@ class WebhookConnector(Connector):
         # key/key_field are the legacy way to set the entity key; the key is now just the label
         # marked primary. Kept (advanced) so existing configs round-trip and still work.
         "key": {"type": "string", "advanced": True,
-                "help": "legacy fixed entity key — prefer a primary label"},
+                "help": "legacy fixed entity key; prefer a primary label"},
         "key_field": {"type": "string", "advanced": True,
-                      "help": "legacy: payload field for the key — prefer a primary field-label"},
+                      "help": "legacy: payload field for the key; prefer a primary field-label"},
         "event_type": {"type": "string", "default": "webhook_event",
                        "help": "fixed event type"},
         "event_type_field": {"type": "string",

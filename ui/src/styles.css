@@ -1,15 +1,16 @@
-/* Tares console — the 2026 design system (002.pdf deck): bone page, brown
-   ink, one sand accent, square corners, 1px hairlines, no shadows. Inter for
-   sentences, Departure Mono (the pixel voice) for labels and numerals,
-   JetBrains Mono for code. All colors flow through the same semantic tokens
-   as before, so [data-theme="dark"] re-skins the app onto the brown/ink scale
-   without touching component rules — the user's theme toggle survives; both
-   themes come from the one deck palette. */
+/* Tares console — the GlassFlow design system, sourced from the HeroUI Kit V3
+   Figma variables (TR-140): cream ground, eclipse ink, one Space Sand accent,
+   square corners, 1px hairlines, no shadows. Inter for sentences, Geist Mono
+   for labels, badges, table headers and code (the kit's mono role), Departure
+   Mono (the pixel voice) reserved for headline KPI numerals. All
+   colors flow through semantic tokens, so [data-theme="dark"] re-skins the app
+   onto the kit's dark anchors without touching component rules; the user's
+   theme toggle survives. */
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
-@import "@fontsource/jetbrains-mono";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/geist-mono";
+@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/geist-mono/600.css";
 
 @font-face {
   font-family: "Departure Mono";
@@ -20,95 +21,145 @@
 
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono-jb: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono-jb: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
   --font-pixel: "Departure Mono", ui-monospace, monospace;
 }
 
-/* ── raw deck palette (website base.css upstream) ── */
+/* ── HeroUI Kit V3 (GlassFlow) variables — the single source of truth (TR-140) ──
+   Values are the kit's "02_Theme (HeroUI)" collection, verbatim hex, both modes; the same layer
+   Rius consumes as --agency-* (argus-ui src/app/theme.css; extraction in
+   argus-ui docs/design/heroui-v3-figma-variables.json, 2026-08-13). Both products share one
+   palette by construction. Components never reference --kit-*; they consume the semantic tokens.
+
+   ADOPTED from the kit: canvas + surface tiers + overlay + border, eclipse ink + muted, the accent
+   (fixed across modes; the kit's Button "Primary" is the accent role), the dark anchors, and
+   Geist Mono for the label/interactive/code role.
+
+   HELD on purpose, matching Rius's logged decisions (RIUS-52):
+   - status colors: kit success/warning/danger (#17c964/#f5a524/#ff383c) are stock HeroUI brights
+     that read neon on cream; the cream-derived tones stay.
+   - dark-mode zinc leftovers (background-secondary #0c0c0e, border #28282c, ...): unfinished in
+     the kit; the warm-brown ramp stays for those roles.
+   - radius + shadow: the kit's 0/12/24 radius language and shadow-drawn borderless fields are not
+     adopted. Square corners, 1px hairlines, no shadows are Tares's identity; the rule is
+     "consistent within Tares".
+
+   RULES: no color literal below these token layers; new micro-labels/badges/code use var(--mono),
+   var(--pixel) is for headline numerals only; when the kit changes, re-extract the JSON in argus-ui
+   first, then update --kit-* here. */
 :root {
-  --brown-950: oklch(0.1856 0.0403 69.81);
+  --kit-background: #f0efe2;          /* background/background */
+  --kit-surface: #faf9ec;             /* surface/surface */
+  --kit-surface-secondary: #f1efdf;   /* surface/surface-secondary */
+  --kit-surface-tertiary: #efeddb;    /* surface/surface-tertiary */
+  --kit-overlay: #ffffff;             /* overlay / field/background / default-hover */
+  --kit-foreground: #1e0f00;          /* foreground/foreground = eclipse */
+  --kit-muted: #6e5b3f;               /* foreground/muted */
+  --kit-border: #d8d5bc;              /* border */
+  --kit-accent: #ffac00;              /* accent/accent (fixed across modes) */
+  --kit-accent-hover: #ffd274;        /* accent/accent-hover (fixed across modes) */
+  --kit-accent-foreground: #1e0f00;   /* accent/accent-foreground = eclipse */
+  --kit-accent-soft: #ffac0026;       /* accent/accent-soft (light) */
+  --kit-snow: #fcfcfc;                /* base colors/snow (dark-mode foreground) */
+
+  --kit-dark-background: #1e0f00;     /* background/background (dark) = eclipse */
+  --kit-dark-surface: #492400;        /* surface/surface (dark) */
+  --kit-dark-default: #663b11;        /* default/default (dark) */
+  --kit-dark-background-tertiary: #5a3109;
+  --kit-dark-muted: #c2b197;          /* foreground/muted (dark) */
+  --kit-dark-separator: #895523;      /* separator/separator (dark) */
+  --kit-dark-accent-soft: #ffac001f;  /* accent/accent-soft (dark) */
+}
+
+/* ── raw palette: kit anchors first, cream/brown-derived ramps where the kit is held ── */
+:root {
+  /* the brown ink scale, anchored on eclipse; intermediates keep the deck's warm ramp */
+  --brown-950: var(--kit-foreground);
   --brown-900: oklch(0.222 0.05 64);
   --brown-850: oklch(0.256 0.0594 61.05);
   --brown-800: oklch(0.3047 0.0725 58.57);
   --brown-700: oklch(0.38 0.072 58);
-  --brown-600: oklch(0.462 0.062 60);
+  --brown-600: var(--kit-muted);
   --brown-500: oklch(0.51 0.05 64);
 
-  --bone-100: oklch(0.972 0.013 101);
-  --bone-200: oklch(0.9494 0.0213 100.99);
-  --bone-300: oklch(0.9214 0.0254 101.98);
-  --bone-400: oklch(0.876 0.03 102);
+  /* the cream ground, anchored on the kit's background/surface tiers */
+  --bone-100: var(--kit-surface);
+  --bone-200: var(--kit-background);
+  --bone-300: var(--kit-surface-tertiary);
+  --bone-400: var(--kit-border);
 
-  --on-brown-100: oklch(0.9494 0.0213 100.99);
-  --on-brown-300: oklch(0.74 0.036 88);
+  --on-brown-100: var(--kit-snow);
+  --on-brown-300: var(--kit-dark-muted);
   --on-brown-500: oklch(0.69 0.038 78);
-  --on-brown-border: oklch(0.372 0.055 60);
+  --on-brown-border: var(--kit-dark-separator);
 
-  --sand-500: oklch(0.8052 0.1704 74.31);
-  --sand-400: oklch(0.845 0.163 82);
+  /* accent: the kit's Space Sand, verbatim */
+  --sand-500: var(--kit-accent);
+  --sand-400: var(--kit-accent-hover);
   --sand-300: oklch(0.8857 0.1558 91.49);
-  --sand-700: oklch(0.52 0.148 62);
-  --sand-wash: oklch(0.8052 0.1704 74.31 / 0.14);
+  --sand-700: oklch(0.52 0.148 62);     /* AA ink form for text on cream; the kit has no dark accent */
+  --sand-wash: var(--kit-accent-soft);
 
+  /* status: held from the kit (stock brights); cream-derived tones stay */
   --green-500: oklch(0.56 0.14 150);
   --green-300: oklch(0.74 0.15 152);
   --red-500: oklch(0.552 0.196 28);
   --red-300: oklch(0.69 0.19 26);
   --blue-500: oklch(0.56 0.12 250);
   --blue-300: oklch(0.72 0.11 245);
-  --white: oklch(100% 0 0);
+  --white: var(--kit-overlay);
 }
 
-/* ── semantic tokens: light = the bone ground ── */
+/* ── semantic tokens: light = the cream ground ── */
 :root {
   color-scheme: light;
 
-  /* surfaces & text */
-  --bg: var(--bone-200);
-  --panel: var(--white);
-  --ink: var(--brown-800);
-  --ink-soft: var(--brown-600);
+  /* surfaces & text — kit tiers: background canvas, surface panels, overlay pops */
+  --bg: var(--kit-background);
+  --panel: var(--kit-surface);
+  --ink: var(--kit-foreground);
+  --ink-soft: var(--kit-muted);
   --ink-faint: var(--brown-500);
-  --line: var(--bone-300);
-  --input-bg: var(--white);
+  --line: var(--kit-border);
+  --input-bg: var(--kit-overlay);      /* field/background */
 
   /* accent — Space Sand carries fills; sand-700 is the AA text/ink form */
-  --accent: var(--sand-500);
-  --accent-soft: var(--sand-wash);
+  --accent: var(--kit-accent);
+  --accent-soft: var(--kit-accent-soft);
   --accent-deep: var(--sand-700);
-  --on-accent: var(--brown-950);
+  --on-accent: var(--kit-accent-foreground);
 
   /* status */
   --ok: var(--green-500);
-  --ok-soft: color-mix(in srgb, var(--green-500) 11%, var(--white));
-  --ok-border: color-mix(in srgb, var(--green-500) 28%, var(--white));
+  --ok-soft: color-mix(in srgb, var(--green-500) 11%, var(--kit-surface));
+  --ok-border: color-mix(in srgb, var(--green-500) 28%, var(--kit-surface));
   --err: var(--red-500);
-  --err-soft: color-mix(in srgb, var(--red-500) 9%, var(--white));
-  --danger-border: color-mix(in srgb, var(--red-500) 30%, var(--white));
+  --err-soft: color-mix(in srgb, var(--red-500) 9%, var(--kit-surface));
+  --danger-border: color-mix(in srgb, var(--red-500) 30%, var(--kit-surface));
   --warn: var(--sand-700);
-  --warn-soft: color-mix(in srgb, var(--sand-500) 16%, var(--white));
+  --warn-soft: color-mix(in srgb, var(--kit-accent) 16%, var(--kit-surface));
 
-  /* structural neutrals */
-  --hover: var(--bone-100);
-  --row-hover: var(--bone-100);
-  --th-bg: var(--bone-100);
-  --chip-bg: var(--bone-100);
-  --starting-bg: var(--bone-300);
-  --border-strong: var(--bone-400);
-  --wash: oklch(0.3047 0.0725 58.57 / 0.06);
-  --wash-2: oklch(0.3047 0.0725 58.57 / 0.1);
-  --code-bg: var(--bone-100);
+  /* structural neutrals — kit surface tiers */
+  --hover: var(--kit-surface-secondary);
+  --row-hover: var(--kit-surface-secondary);
+  --th-bg: var(--kit-surface-secondary);
+  --chip-bg: var(--kit-surface-tertiary);
+  --starting-bg: var(--kit-surface-tertiary);
+  --border-strong: var(--kit-border);
+  --wash: color-mix(in srgb, var(--kit-foreground) 6%, transparent);
+  --wash-2: color-mix(in srgb, var(--kit-foreground) 10%, transparent);
+  --code-bg: var(--kit-surface-secondary);
   --slate: var(--blue-500); /* structural tags (push mode, kind) */
-  --slate-soft: color-mix(in srgb, var(--blue-500) 10%, var(--white));
+  --slate-soft: color-mix(in srgb, var(--blue-500) 10%, var(--kit-surface));
 
-  /* primary action — the deck's sand button, both themes */
-  --btn-primary-bg: var(--sand-500);
-  --btn-primary-ink: var(--brown-950);
-  --btn-primary-bg-hover: var(--sand-400);
+  /* primary action — the kit's Button "Primary" maps to accent (fixed across modes) */
+  --btn-primary-bg: var(--kit-accent);
+  --btn-primary-ink: var(--kit-accent-foreground);
+  --btn-primary-bg-hover: var(--kit-accent-hover);
 
   /* overlays: hairline + tone, shadows only where something floats */
-  --overlay: oklch(0.1856 0.0403 69.81 / 0.45);
-  --sheet-shadow: oklch(0.1856 0.0403 69.81 / 0.25);
+  --overlay: color-mix(in srgb, var(--kit-foreground) 45%, transparent);
+  --sheet-shadow: color-mix(in srgb, var(--kit-foreground) 25%, transparent);
 
   --mono: var(--font-mono-jb);
   --pixel: var(--font-pixel);
@@ -119,43 +170,45 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: var(--brown-950);
-  --panel: var(--brown-900);
-  --ink: var(--on-brown-100);
-  --ink-soft: var(--on-brown-300);
+  /* kit dark anchors: eclipse canvas, warm-brown surfaces, snow ink */
+  --bg: var(--kit-dark-background);
+  --panel: var(--kit-dark-surface);
+  --ink: var(--kit-snow);
+  --ink-soft: var(--kit-dark-muted);
   --ink-faint: var(--on-brown-500);
-  --line: var(--on-brown-border);
-  --input-bg: var(--brown-900);
+  --line: var(--kit-dark-separator);
+  --input-bg: var(--kit-dark-surface);
 
-  --accent: var(--sand-500);
-  --accent-soft: var(--sand-wash);
+  --accent: var(--kit-accent);
+  --accent-soft: var(--kit-dark-accent-soft);
   --accent-deep: var(--sand-300);
-  --on-accent: var(--brown-950);
+  --on-accent: var(--kit-accent-foreground);
 
   --ok: var(--green-300);
-  --ok-soft: color-mix(in srgb, var(--green-300) 14%, var(--brown-950));
-  --ok-border: color-mix(in srgb, var(--green-300) 30%, var(--brown-950));
+  --ok-soft: color-mix(in srgb, var(--green-300) 14%, var(--kit-dark-background));
+  --ok-border: color-mix(in srgb, var(--green-300) 30%, var(--kit-dark-background));
   --err: var(--red-300);
-  --err-soft: color-mix(in srgb, var(--red-300) 12%, var(--brown-950));
-  --danger-border: color-mix(in srgb, var(--red-300) 32%, var(--brown-950));
+  --err-soft: color-mix(in srgb, var(--red-300) 12%, var(--kit-dark-background));
+  --danger-border: color-mix(in srgb, var(--red-300) 32%, var(--kit-dark-background));
   --warn: var(--sand-300);
-  --warn-soft: color-mix(in srgb, var(--sand-300) 12%, var(--brown-950));
+  --warn-soft: color-mix(in srgb, var(--sand-300) 12%, var(--kit-dark-background));
 
-  --hover: var(--brown-850);
-  --row-hover: var(--brown-850);
-  --th-bg: var(--brown-850);
-  --chip-bg: var(--brown-850);
-  --starting-bg: var(--brown-850);
-  --border-strong: var(--brown-700);
-  --wash: oklch(0.9494 0.0213 100.99 / 0.07);
-  --wash-2: oklch(0.9494 0.0213 100.99 / 0.11);
-  --code-bg: var(--brown-950);
+  /* the kit's dark neutrals beyond these are zinc leftovers (held); warm-brown ramp stays */
+  --hover: var(--kit-dark-default);
+  --row-hover: var(--kit-dark-default);
+  --th-bg: var(--kit-dark-background-tertiary);
+  --chip-bg: var(--kit-dark-default);
+  --starting-bg: var(--kit-dark-default);
+  --border-strong: var(--kit-dark-separator);
+  --wash: color-mix(in srgb, var(--kit-snow) 7%, transparent);
+  --wash-2: color-mix(in srgb, var(--kit-snow) 11%, transparent);
+  --code-bg: var(--kit-dark-background);
   --slate: var(--blue-300);
-  --slate-soft: color-mix(in srgb, var(--blue-300) 14%, var(--brown-950));
+  --slate-soft: color-mix(in srgb, var(--blue-300) 14%, var(--kit-dark-background));
 
-  --btn-primary-bg: var(--sand-500);
-  --btn-primary-ink: var(--brown-950);
-  --btn-primary-bg-hover: var(--sand-400);
+  --btn-primary-bg: var(--kit-accent);
+  --btn-primary-ink: var(--kit-accent-foreground);
+  --btn-primary-bg-hover: var(--kit-accent-hover);
 
   --overlay: oklch(0 0 0 / 0.55);
   --sheet-shadow: oklch(0 0 0 / 0.5);
@@ -185,7 +238,7 @@ b, strong { font-weight: 600; }
 
 /* the pixel voice — labels and numerals only, never body copy */
 .pixel-label {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0.1em;
@@ -224,7 +277,7 @@ b, strong { font-weight: 600; }
 .sidebar .brand { display: flex; align-items: center; gap: 8px; }
 .brand-mark { width: 24px; height: auto; flex-shrink: 0; }
 .brand-word { display: block; line-height: 1.05; }
-.brand small { display: block; font-family: var(--pixel); font-size: 10px; color: var(--ink-faint); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+.brand small { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
 .navlink {
   display: flex;
@@ -242,7 +295,7 @@ b, strong { font-weight: 600; }
 
 /* nav badges & locks */
 .nav-badge {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -327,7 +380,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 0; overflow: hidden; }
 thead th {
   text-align: left;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -351,7 +404,7 @@ td .dim, .dim { color: var(--ink-faint); }
 /* ── table toolbar ── */
 .toolbar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
 .toolbar .grow { flex: 1 1 auto; }
-.toolbar .count { font-family: var(--pixel); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.toolbar .count { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .toolbar select { width: auto; }
 .search-box { position: relative; display: inline-flex; align-items: center; }
 .search-box .ico { position: absolute; left: 9px; width: 15px; height: 15px; color: var(--ink-faint); pointer-events: none; }
@@ -362,7 +415,7 @@ td .dim, .dim { color: var(--ink-faint); }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -567,7 +620,7 @@ button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 0; padding: 18px 20px; margin-bottom: 18px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 0; padding: 12px 16px; }
-.card .k { font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
+.card .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
 .card .v { font-family: var(--pixel); font-variant-ligatures: none; font-variant-numeric: tabular-nums; font-size: 22px; margin-top: 4px; }
 .card .v small { font-size: 11px; font-family: var(--mono); color: var(--ink-faint); }
 
@@ -722,7 +775,7 @@ pre.payload {
 
 /* key/value summary grid (sheet detail) */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; }
-.kv .k { font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
+.kv .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
 
 /* auth login gate — the brown ground, like the cloud console */
 .login-wrap {
@@ -818,7 +871,7 @@ pre.payload {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -850,7 +903,7 @@ pre.payload {
 /* nav sections — the 3-act grouping */
 .nav-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .nav-section {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -869,7 +922,7 @@ pre.payload {
 
 /* Explore — picker sections */
 .ent-section {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -887,7 +940,7 @@ pre.payload {
 .tl-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 2px; }
 .tl-ctl { display: flex; align-items: center; gap: 8px; }
 .tl-ctl .lbl {
-  font-family: var(--pixel); font-size: 10px; text-transform: uppercase;
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
   font-variant-ligatures: none;
   letter-spacing: 0.1em; color: var(--ink-faint); margin: 0;
 }
@@ -933,7 +986,7 @@ pre.payload {
 }
 .menu-item .menu-n { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .menu-item.back {
-  color: var(--ink-faint); font-family: var(--pixel); font-size: 10px;
+  color: var(--ink-faint); font-family: var(--mono); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.1em; font-variant-ligatures: none; margin-bottom: 2px;
 }
 .menu-scroll { max-height: 260px; overflow-y: auto; }
@@ -974,7 +1027,7 @@ pre.payload {
 .turn:first-of-type { border-top: 0; }
 .turn-who {
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--pixel); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--ink-faint); margin-bottom: 6px;
 }
 .turn-copy {
@@ -1067,7 +1120,7 @@ pre.payload {
 
 /* nav ⌘K hint on the Ask link */
 .nav-kbd {
-  font-family: var(--pixel); font-size: 9px; color: var(--ink-faint);
+  font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
   border: 1px solid var(--line); border-radius: 0; padding: 2px 4px; line-height: 1.2;
 }
 .navlink.active .nav-kbd { color: var(--accent-deep); border-color: var(--accent-deep); }
@@ -1134,7 +1187,7 @@ pre.payload {
 .mcp-status.absent { background: var(--warn-soft); }
 .mcp-status.absent::before { background: var(--warn); }
 .codeblock { margin: 4px 0 16px; border: 1px solid var(--line); border-radius: 0; overflow: hidden; }
-.codeblock-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--th-bg); font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-soft); }
+.codeblock-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--th-bg); font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-soft); }
 .codeblock pre { margin: 0; border: 0; border-radius: 0; }
 .copybtn { font-size: 12px; padding: 2px 10px; }
 
@@ -1161,7 +1214,7 @@ pre.payload {
 .ask-rail-list { display: flex; flex-direction: column; gap: 2px; }
 .ask-rail-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 7px 9px; border-radius: 6px; cursor: pointer;
+  padding: 7px 9px; border-radius: 0; cursor: pointer;
   border: 1px solid transparent; font-size: 13.5px;
 }
 .ask-rail-item:hover { background: var(--wash); }
@@ -1179,13 +1232,13 @@ pre.payload {
 
 /* Delivery option rows on the agent form: collapsed rows that read before they open, an explicit
    toggle inside, fields only when on. */
-.opt-row { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
+.opt-row { border: 1px solid var(--line); border-radius: 0; margin-bottom: 6px; }
 .opt-head {
   display: flex; align-items: center; gap: 10px; width: 100%;
   padding: 10px 12px; background: none; border: none; cursor: pointer;
   font: inherit; text-align: left;
 }
-.opt-head:hover { background: var(--wash); border-radius: 8px; }
+.opt-head:hover { background: var(--wash); }
 .opt-caret { color: var(--ink-faint); width: 12px; flex-shrink: 0; }
 .opt-title { font-weight: 600; margin-right: 10px; }
 .opt-desc { display: inline; }
@@ -1196,7 +1249,7 @@ pre.payload {
 
 /* URL + bearer token as ONE control: a shared border, an inner divider, no gap — they are a
    credential pair, not two independent settings. */
-.hook-group { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.hook-group { border: 1px solid var(--line); border-radius: 0; overflow: hidden; }
 .hook-group input { border: none; border-radius: 0; width: 100%; }
 .hook-group input + input { border-top: 1px solid var(--line); }
 .hook-group:focus-within { border-color: var(--accent); }
@@ -1211,14 +1264,15 @@ pre.payload {
 /* Add-source connector cards: a scannable grid instead of a table — the description reads as a
    card, and click targets are the whole card. */
 .connector-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+/* Square, hairline, no shadow: the app's identity. Distinguishable by the panel surface against
+   the canvas plus a strong border, not by elevation. */
 .connector-card {
   text-align: left; font: inherit; cursor: pointer;
-  background: var(--bg); border: 1.5px solid var(--border-strong); border-radius: 8px;
+  background: var(--panel); border: 1.5px solid var(--border-strong); border-radius: 0;
   padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
-  box-shadow: 0 1px 3px oklch(0.2 0.04 65 / 0.10);
 }
-.connector-card:hover { border-color: var(--accent); box-shadow: 0 2px 6px oklch(0.2 0.04 65 / 0.16); }
-.connector-card.unavailable { cursor: default; opacity: 0.6; box-shadow: none; }
+.connector-card:hover { border-color: var(--accent); background: var(--hover); }
+.connector-card.unavailable { cursor: default; opacity: 0.6; }
 .connector-card.unavailable:hover { border-color: var(--border-strong); }
 .connector-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .connector-card-head .name { font-weight: 600; }

@@ -250,7 +250,7 @@ async def list_channels(token: str, timeout: float = 10.0
                         # only name both when it doesn't.
                         needed = str(data.get("needed") or "").strip() or "channels:read and groups:read"
                         return [], "missing_scope", (
-                            f"slack: missing_scope (the bot token is missing {needed} — "
+                            f"slack: missing_scope (the bot token is missing {needed}; "
                             "reconnect Slack to grant it)")
                     return [], "error", f"slack: {err}{_error_detail(err, data)}"
                 for c in data.get("channels") or []:
@@ -277,7 +277,7 @@ async def list_channels(token: str, timeout: float = 10.0
 # Everything below serves `POST /api/slack/events`. It is deliberately pure — parsing, cost
 # bounding and message shaping — so the endpoint itself is only plumbing: verify, ACK, answer.
 
-USAGE = ("usage: `/tares ask <question>` — e.g. "
+USAGE = ("usage: `/tares ask <question>`; e.g. "
          "`/tares ask what happened to checkout-svc in the last hour?`")
 
 # Cost ceiling, the same shape as `builtin_agents.DAILY_RUN_CAP`: a per-day count with an env
@@ -413,6 +413,23 @@ def to_mrkdwn(text: str) -> str:
     for i, block in enumerate(tables):
         text = text.replace(f"\x00TBL{i}\x00", block)
     return text
+
+
+def build_finding_message(agent_name: str, trigger: str, key: str, finding: str,
+                          link: str = "") -> dict:
+    """Block Kit body for a Tares agent's finding: a headline, the finding rendered as mrkdwn
+    (headers, emphasis, tables converted; split across sections so a long incident note never
+    trips Slack's 3000-char block cap), and a context line. `text` is the notification fallback.
+
+    The finding is the model's markdown; sending it raw is why findings showed up as literal
+    `**` and `##` and pipe tables in Slack (TR-141). Same converter `/tares ask` answers use."""
+    headline = f"*{agent_name}* · `{trigger}` fired for *{key}*"
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": headline}}]
+    blocks += _sections(finding)
+    context = "Tares agent finding" + (f" · {link.strip()}" if link.strip() else "")
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": context}]})
+    return {"text": f"{agent_name}: {trigger} fired for {key}", "blocks": blocks,
+            "unfurl_links": False, "unfurl_media": False}
 
 
 def _sections(text: str) -> list[dict]:

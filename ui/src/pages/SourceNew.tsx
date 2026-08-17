@@ -145,7 +145,7 @@ export default function SourceNew() {
             <div className="alert ok" style={{ marginTop: 14 }}>
               This instance requires auth, so <span className="mono">{created.name}</span> got its own
               ingest key; send it as <code>Authorization: Bearer …</code>. <strong>Copy it now; it
-              is not shown again</strong> (it's listed under <Link to="/security">Security</Link> as{" "}
+              is not shown again</strong> (it's listed under <Link to="/settings">Settings</Link> as{" "}
               <span className="mono">ingest: {created.name}</span>):
               <div className="ingest-url" style={{ marginTop: 8 }}>
                 <code className="mono">{created.authKey}</code>
@@ -155,7 +155,7 @@ export default function SourceNew() {
           ) : created.keyErr ? (
             <div className="alert error" style={{ marginTop: 14 }}>
               The source was created, but minting its ingest key failed: {created.keyErr}. Create one
-              under <Link to="/security">Security</Link> (scope <span className="mono">ingest</span>).
+              under <Link to="/settings">Settings</Link> (scope <span className="mono">ingest</span>).
             </div>
           ) : authOn === false ? (
             <p className="help" style={{ marginTop: 14, whiteSpace: "normal" }}>

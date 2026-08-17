@@ -46,36 +46,14 @@ export function ConnectPage() {
   );
 }
 
-type ActivityTab = "queries" | "dispatches";
-const ACTIVITY_LABELS: Record<ActivityTab, string> = {
-  dispatches: "Trigger dispatches", queries: "Reads",
-};
-
-// The connected-agent roster moved to the Agents page (which lists Tares agents too); Activity is
-// now just what's been happening — reads agents ran, and trigger dispatches.
+// Reads: the one feed left on this page. Trigger dispatches moved to Deliveries (with the
+// subscriber roster they belong to); the connected-agent roster went the same way (TR-137).
 export default function AgentActivity() {
-  const [params, setParams] = useSearchParams();
-  const tab = (["queries", "dispatches"].includes(params.get("tab") ?? "")
-    ? params.get("tab") : "dispatches") as ActivityTab;
-  const setTab = (t: ActivityTab) => {
-    const next = new URLSearchParams(params);
-    next.set("tab", t);
-    setParams(next);
-  };
-
   return (
     <>
-      <h1>Activity</h1>
-      <p className="subtitle">what's been happening; the reads agents made and every trigger dispatch</p>
-
-      <div className="tabs">
-        {(Object.keys(ACTIVITY_LABELS) as ActivityTab[]).map((t) => (
-          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{ACTIVITY_LABELS[t]}</button>
-        ))}
-      </div>
-
-      {tab === "queries" && <Queries />}
-      {tab === "dispatches" && <Dispatches />}
+      <h1>Reads</h1>
+      <p className="subtitle">every read agents made over MCP or the API, newest first</p>
+      <Queries />
     </>
   );
 }
@@ -228,7 +206,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
             This is your console access token; it works in the snippets below, but it carries{" "}
             <strong>full admin rights</strong>. For an agent, prefer a{" "}
             <span className="mono">read</span>-scoped API key from the{" "}
-            <Link to="/security">Security page</Link> (add <span className="mono">ingest</span> if
+            <Link to="/settings">Settings page</Link> (add <span className="mono">ingest</span> if
             the agent also writes memories) and paste it in place of the token.
           </p>
         </div>
@@ -285,7 +263,7 @@ function Connect({ tab }: { tab: ConnectTab }) {
                 Wire it on the trigger&rsquo;s page: open <Link to="/triggers">Triggers</Link>,
                 pick the trigger, and paste your endpoint there. From a script, the same action is
                 (needs a <span className="mono">read</span>-scoped{" "}
-                <Link to="/security">API key</Link>):
+                <Link to="/settings">API key</Link>):
               </p>
               <CodeBlock title="subscribe your agent's endpoint" code={subscribeCurl(shownTok)} copyText={subscribeCurl(tok)} />
             </>
@@ -597,7 +575,7 @@ function deliveryBadge(d: DispatchLogEntry) {
   return <span className={`badge ${cls}`}>{d.delivered}/{d.subscribers} delivered</span>;
 }
 
-function Dispatches() {
+export function Dispatches() {
   const nav = useNavigate();
   const { data, error } = usePolling(() => api.dispatches(150));
   const [q, setQ] = useState("");

@@ -1,13 +1,11 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
-import { AgentsRoster } from "./Activity";
 import { TimeAgo, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
-// The home for every agent a trigger can wake: Tares agents (configured here, run in-process) and
-// connected agents (external, reached over a webhook). Tares agents are created and managed on
-// this page; connected agents are listed from the roster and connected from a trigger's page.
+// Tares agents: the prompts you author that run in-process when a trigger fires. Subscribers
+// (external webhooks, Slack channels) are runtime state and live under Deliveries (TR-137).
 
 function runBadge(r: AgentRun | null | undefined) {
   if (!r) return <span className="dim">never run</span>;
@@ -27,26 +25,21 @@ export default function Agents() {
     <>
       <div className="pagehead">
         <div>
-          <h1>Agents</h1>
+          <h1>Tares agents</h1>
           <p className="subtitle">
-            everything your triggers can wake; <strong>Tares agents</strong> that run in-process,
-            and <strong>connected agents</strong> reached over a webhook
+            prompts that run inside Tares when a trigger fires and write a finding back
           </p>
         </div>
-        <div className="btnrow">
-          <button onClick={() => nav("/mcp-servers")}>MCP servers</button>
-          <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
-        </div>
+        <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
       </div>
 
       {data && !data.key_configured && (
         <div className="alert">
           No Anthropic key configured; agents can be created but not enabled. Set one under{" "}
-          <Link to="/security">Security</Link>.
+          <Link to="/settings">Settings</Link>.
         </div>
       )}
 
-      <h2>Tares agents</h2>
       {!data ? <div className="dim">loading…</div>
         : data.agents.length === 0 ? (
           <div className="panel">
@@ -78,13 +71,6 @@ export default function Agents() {
             </tbody>
           </table>
         )}
-
-      <h2 style={{ marginTop: 28 }}>Connected agents</h2>
-      <p className="help" style={{ margin: "0 0 10px", whiteSpace: "normal" }}>
-        external agents subscribed to a trigger's webhook. Connect one from a{" "}
-        <Link to="/triggers">trigger's</Link> page.
-      </p>
-      <AgentsRoster only="connected" />
     </>
   );
 }

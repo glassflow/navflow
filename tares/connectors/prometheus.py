@@ -56,7 +56,7 @@ class PrometheusConnector(Connector):
         "url": {"type": "string", "required": True, "discover_input": True,
                 "help": "Prometheus base URL, e.g. http://localhost:9090"},
         "bearer_token": {"type": "string", "secret": True, "discover_input": True,
-                         "help": "optional Authorization: Bearer token — for managed Prometheus "
+                         "help": "optional Authorization: Bearer token; for managed Prometheus "
                                  "(Thanos/Cortex/Mimir) or one behind an auth proxy"},
         "username": {"type": "string", "discover_input": True,
                      "help": "optional HTTP basic-auth username (e.g. a Grafana Cloud instance id)"},
@@ -66,7 +66,7 @@ class PrometheusConnector(Connector):
                         "help": "entity key for series that carry no key label"},
         "queries": {
             "type": "list", "required": True,
-            "help": "metrics to ingest — each a PromQL query mapped into the envelope",
+            "help": "metrics to ingest; each a PromQL query mapped into the envelope",
             "item": {
                 "promql": {"type": "string", "required": True,
                            "help": "PromQL (a bare metric name = raw, lossless ingest)"},

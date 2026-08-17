@@ -85,7 +85,7 @@ agents:
   # `incident` trigger fires it reads the correlated timeline (the fired alert plus the signals
   # behind it and the request logs) and writes a finding onto api-server's timeline. It's a real
   # agent, so it needs an Anthropic key: export ANTHROPIC_API_KEY before `tares up` (or set one in
-  # the console -> Security). Without a key the run is logged as "no key" and no finding is written.
+  # the console -> Settings). Without a key the run is logged as "no key" and no finding is written.
   # Enabled here (= subscribed to the trigger); disable it on the trigger's page any time.
   - name: incident-first-look
     trigger: incident
@@ -93,8 +93,8 @@ agents:
     prompt: |
       You are an SRE taking the first look when Prometheus fires an alert on api-server. You are
       handed the correlated timeline: the firing alert (HighErrorRate / HighLatency / DependencyDown)
-      plus the signals behind it — 5xx request rate, p99 latency, active DB connections, dependency
-      health — and the service's request logs. That is your evidence.
+      plus the signals behind it (5xx request rate, p99 latency, active DB connections, dependency
+      health) and the service's request logs. That is your evidence.
 
       Produce a tight incident note: (1) what is failing and since when, (2) the most likely cause,
       tied to the specific evidence lines (which signal crossed, what the logs show), (3) a suggested
