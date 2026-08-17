@@ -102,7 +102,7 @@ class Dispatcher:
         token, _origin = slack.resolve_token(self.store)
         if not token:
             # Not retryable and not transient: nothing about waiting 30s makes a token appear.
-            return False, "slack: no bot token configured (set TARES_SLACK_BOT_TOKEN or add one under Security)"
+            return False, "slack: no bot token configured (set TARES_SLACK_BOT_TOKEN or add one under Settings)"
         msg = {"channel": channel,
                **slack.build_message(trigger, key, payload, fired_at, dispatch_id)}
         headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}

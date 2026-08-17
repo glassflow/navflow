@@ -80,13 +80,13 @@ function KeyNote({ authKey }: { authKey?: string }) {
     <p className="muted">
       This instance requires auth; send this source's <strong>ingest key</strong> as{" "}
       <span className="mono">Authorization: Bearer …</span>. Copy it now; it's shown once and listed
-      under <Link to="/security">Security</Link>.
+      under <Link to="/settings">Settings</Link>.
     </p>
   ) : (
     <p className="muted">
       This instance requires auth; the producer needs this source's <strong>ingest key</strong> in{" "}
       <span className="mono">Authorization: Bearer …</span>. Use the key shown when you created the
-      source, or mint one under <Link to="/security">Security</Link> (scope <span className="mono">ingest</span>).
+      source, or mint one under <Link to="/settings">Settings</Link> (scope <span className="mono">ingest</span>).
     </p>
   );
 }

@@ -14,7 +14,7 @@ export default function DispatchDetail() {
     return (
       <div className="alert error">
         {/unknown dispatch/i.test(error) ? <>no dispatch <span className="mono">{id}</span></> : error}
-        {" "}· see <Link to="/activity?tab=dispatches">Trigger dispatches</Link>
+        {" "}· see <Link to="/deliveries">Deliveries</Link>
       </div>
     );
   }
@@ -29,7 +29,7 @@ export default function DispatchDetail() {
       <div className="pagehead">
         <div>
           <p className="subtitle" style={{ marginBottom: 4 }}>
-            <Link to="/activity?tab=dispatches">Trigger dispatches</Link> ›
+            <Link to="/deliveries">Deliveries</Link> ›
           </p>
           <h1>
             <Link to={`/triggers/${encodeURIComponent(d.trigger)}`} className="mono">{d.trigger}</Link>

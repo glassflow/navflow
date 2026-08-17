@@ -510,7 +510,7 @@ def make_app() -> FastAPI:
                 _err(e)
             if not resolve_slack_token(store)[0]:
                 _err(ValueError("no Slack bot token configured; set TARES_SLACK_BOT_TOKEN or "
-                                "add one under Security before subscribing a channel"))
+                                "add one under Settings before subscribing a channel"))
         sid = "sub_" + uuid.uuid4().hex[:8]
         # record the creating credential: revoking a key removes its subscriptions (a revoked
         # agent must stop receiving trigger dispatches)
@@ -1420,7 +1420,7 @@ def make_app() -> FastAPI:
         key, _ = resolve_anthropic_key(store)
         if not key:
             _err(ValueError("no Anthropic key configured; set ANTHROPIC_API_KEY or add one "
-                            "under Security before enabling an agent"))
+                            "under Settings before enabling an agent"))
         # enable = subscribe to the trigger (the same wiring an external agent has). Idempotent.
         if not _agent_enabled(name):
             store.add_subscription("sub_" + uuid.uuid4().hex[:8], agent["trigger"],
@@ -1629,7 +1629,7 @@ def make_app() -> FastAPI:
             # Never "accept and hope". Refusing to serve is the only safe failure here.
             return JSONResponse({"detail": "Slack is not configured on this instance: set "
                                            f"{slack_verify.ENV_VAR} (or add the signing secret "
-                                           "under Security) and try again"}, status_code=503)
+                                           "under Settings) and try again"}, status_code=503)
         if (why := slack_verify.check(request.headers, raw, secret)) is not None:
             # The reason goes to the operator's log, not to the caller: telling a forger which part
             # of their forgery failed is free help.
@@ -1662,7 +1662,7 @@ def make_app() -> FastAPI:
         if not resolve_anthropic_key(store)[0]:
             return slack_mod.build_error(
                 ":warning: no Anthropic API key is configured on this Tares instance; set "
-                "`ANTHROPIC_API_KEY` or add one under Security in the console", thread_ts)
+                "`ANTHROPIC_API_KEY` or add one under Settings in the console", thread_ts)
         if not runtime.catalog.sources:
             return slack_mod.build_error(
                 ":warning: this Tares instance has no sources configured yet, so there is "

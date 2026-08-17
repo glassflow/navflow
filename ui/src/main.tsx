@@ -5,6 +5,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import App from "./App";
 import AuthGate from "./components/AuthGate";
 import AgentActivity, { ConnectPage } from "./pages/Activity";
+import Deliveries from "./pages/Deliveries";
 import Agents from "./pages/Agents";
 import AgentDetail from "./pages/AgentDetail";
 import AgentNew from "./pages/AgentNew";
@@ -27,6 +28,15 @@ import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import "./styles.css";
+
+/** /activity?tab=dispatches (and the bare page, whose default tab was dispatches) → Deliveries;
+ *  /activity?tab=queries → Reads; ?agent=… → the subscriber roster on Deliveries. */
+function ActivityRedirect() {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("tab") === "queries") return <Navigate to="/reads" replace />;
+  const agent = q.get("agent");
+  return <Navigate to={agent ? `/deliveries?agent=${encodeURIComponent(agent)}` : "/deliveries"} replace />;
+}
 
 const router = createBrowserRouter([
   {
@@ -52,15 +62,19 @@ const router = createBrowserRouter([
       { path: "triggers/new", element: <TriggerNew /> },
       { path: "triggers/:name", element: <TriggerDetail /> },
       { path: "connect", element: <ConnectPage /> },
-      { path: "activity", element: <AgentActivity /> },
+      { path: "reads", element: <AgentActivity /> },
+      { path: "deliveries", element: <Deliveries /> },
+      // TR-137 renames: /activity split into /reads + /deliveries (dispatches live with their
+      // subscribers now); /security is /settings.
+      { path: "activity", element: <ActivityRedirect /> },
+      { path: "security", element: <Navigate to="/settings" replace /> },
       { path: "dispatches/:id", element: <DispatchDetail /> },
       { path: "agents", element: <Agents /> },
       { path: "mcp-servers", element: <McpServers /> },
       { path: "agents/new", element: <AgentNew /> },
       { path: "agents/:name", element: <AgentDetail /> },
       { path: "ask", element: <Ask /> },
-      { path: "security", element: <Security /> },
-      { path: "settings", element: <Navigate to="/sources" replace /> },
+      { path: "settings", element: <Security /> },
       // legacy paths → new homes (bookmarks, the old Entities/Activity/Catalog nav). Catalog
       // dissolved: source schema/freshness now lives on the source detail; the agent's-eye read
       // is Explore's Agent-view toggle.

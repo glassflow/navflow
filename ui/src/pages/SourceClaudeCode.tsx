@@ -89,7 +89,7 @@ export default function SourceClaudeCode() {
             <span className="help">
               Create an API key with the <span className="mono">read</span> +{" "}
               <span className="mono">ingest</span> scopes on the{" "}
-              <Link to="/security">Security page</Link> and paste it here; it lets the plugin
+              <Link to="/settings">Settings page</Link> and paste it here; it lets the plugin
               stream sessions <em>and</em> query Tares over MCP, without full admin rights.
             </span>
           ) : (

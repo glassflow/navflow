@@ -85,7 +85,7 @@ agents:
   # `incident` trigger fires it reads the correlated timeline (the fired alert plus the signals
   # behind it and the request logs) and writes a finding onto api-server's timeline. It's a real
   # agent, so it needs an Anthropic key: export ANTHROPIC_API_KEY before `tares up` (or set one in
-  # the console -> Security). Without a key the run is logged as "no key" and no finding is written.
+  # the console -> Settings). Without a key the run is logged as "no key" and no finding is written.
   # Enabled here (= subscribed to the trigger); disable it on the trigger's page any time.
   - name: incident-first-look
     trigger: incident
