@@ -106,7 +106,7 @@ export default function McpServers() {
     <>
       <h1>MCP servers</h1>
       <p className="subtitle">
-        external tool servers your <em>Tares agents</em> can use, connected once with their credential
+        external MCP servers, connected once; pick them per <em>Tares agent</em> to give it those tools
       </p>
 
       {error && <div className="alert error">{error}</div>}

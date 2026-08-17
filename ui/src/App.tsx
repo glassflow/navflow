@@ -36,6 +36,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "Automate", items: [
     { to: "/triggers", label: "Triggers", icon: Bolt },
     { to: "/agents", label: "Tares agents", icon: Chat },
+    { to: "/mcp-servers", label: "MCP servers", icon: Terminal },
     { to: "/deliveries", label: "Deliveries", icon: Filter },
   ] },
   { section: "Agent access", items: [

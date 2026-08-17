@@ -30,10 +30,7 @@ export default function Agents() {
             prompts that run inside Tares when a trigger fires and write a finding back
           </p>
         </div>
-        <div className="btnrow">
-          <button onClick={() => nav("/mcp-servers")}>MCP servers</button>
-          <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
-        </div>
+        <button className="primary" onClick={() => nav("/agents/new")}>Create Tares agent</button>
       </div>
 
       {data && !data.key_configured && (
