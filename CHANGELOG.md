@@ -3,6 +3,30 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] — 2026-08-17
+
+### Changed
+- **The console wears the GlassFlow design system.** Palette and typography now come from the
+  agency's HeroUI Kit V3 variables, the same source Rius uses, so the two products share one
+  palette by construction: cream canvas and surface tiers, eclipse ink, one Space Sand accent,
+  both themes. Geist Mono carries labels, badges, table headers and code; the pixel voice is kept
+  for the Overview's headline numerals. Square corners, hairlines and no shadows stay, now
+  consistent everywhere. (TR-140)
+- **The sidebar is one layer, rearranged.** Overview and Ask on top, then **Data** (Sources,
+  Explore, Views), **Automate** (Triggers, Tares agents, MCP servers, Deliveries) and **Agent
+  access** (Connect, Reads), with Settings in the footer. Agents is now Tares agents only; the new
+  **Deliveries** page holds every subscriber with its delivery health and every trigger firing (a
+  Slack channel is a destination, not an agent). MCP servers has its own entry. Security is
+  Settings, which is what it always held. Old routes redirect. (TR-137)
+
+### Fixed
+- **Agent findings render properly in Slack.** They were posted as raw markdown, so headers, bold
+  and pipe tables arrived as literal `##`, `**` and pipes. Both posting paths now send Block Kit
+  through the same converter `/tares ask` uses; tables become aligned monospace blocks and long
+  findings split under Slack's block cap. (TR-141)
+- Em dashes removed from every string the daemon serves (connector descriptions, field help,
+  errors, prompts, CLI output). (TR-143)
+
 ## [1.5.1] — 2026-08-17
 
 ### Fixed
