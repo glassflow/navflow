@@ -28,7 +28,7 @@ def _warn_if_exposed(host: str) -> None:
         print(
             f"\n  ⚠  Tares is binding {host} (reachable off this machine) with NO auth token.\n"
             "     Anyone who can reach this port can read your data. Set TARES_AUTH_TOKEN and put\n"
-            "     it behind TLS before exposing it — see https://docs.glassflow.ai/tares (Deployment).\n",
+            "     it behind TLS before exposing it; see https://docs.glassflow.ai/tares (Deployment).\n",
             flush=True,
         )
 
@@ -109,7 +109,7 @@ def _up(args: argparse.Namespace):
     if root_token:
         # print the login the operator uses — a click-through URL, since they're at the terminal.
         print(f"tares: console at {url}  ·  data in {home}", flush=True)
-        print(f"tares: auth ON — log in at {url}/?token={root_token}", flush=True)
+        print(f"tares: auth ON; log in at {url}/?token={root_token}", flush=True)
     else:
         print(f"tares: console at {url}  ·  data in {home}  ·  auth OFF (open; "
               f"run with --auth to require a login)", flush=True)
@@ -139,7 +139,7 @@ def _mcp(args: argparse.Namespace):
 def main():
     from .config import reject_legacy_env
     reject_legacy_env()
-    p = argparse.ArgumentParser(prog="tares", description="Tares — a data plane for AI agents.")
+    p = argparse.ArgumentParser(prog="tares", description="Tares; a data plane for AI agents.")
     p.add_argument("--version", action="version", version=f"tares {_pkg_version()}")
     sub = p.add_subparsers(dest="cmd")
 

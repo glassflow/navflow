@@ -37,7 +37,7 @@ def _dsn(config: dict) -> str:
     # comes only from the source's config — there is no daemon-level env fallback.
     dsn = config.get("dsn")
     if not dsn:
-        raise CatalogError("no Postgres DSN — set the source's `dsn` connection URL")
+        raise CatalogError("no Postgres DSN; set the source's `dsn` connection URL")
     return dsn
 
 
@@ -68,7 +68,7 @@ def _connect(dsn: str):
     try:
         import asyncpg
     except ImportError:
-        raise CatalogError("the postgres connector needs asyncpg (it ships with navflow — reinstall if missing)")
+        raise CatalogError("the postgres connector needs asyncpg (it ships with navflow; reinstall if missing)")
     # bounded connect: an unreachable host (firewalled DB, wrong IP) should fail in seconds with a
     # clear error, not sit on asyncpg's 60s default while the console appears hung
     return asyncpg.connect(dsn, timeout=10)
@@ -116,7 +116,7 @@ def _select_clause(config: dict, cursor_column: str) -> str:
 class PostgresConnector(Connector):
     CONFIG_SCHEMA = {
         "dsn": {"type": "string", "secret": True, "required": True, "discover_input": True,
-                "help": "postgresql://user:pass@host:port/dbname — this source's connection URL (the "
+                "help": "postgresql://user:pass@host:port/dbname; this source's connection URL (the "
                         "path after the slash picks the database; omitted, Postgres defaults to a db "
                         "named after the user). Must be reachable from the Tares host. Stored as a "
                         "secret: redacted in the API and omitted from catalog exports."},
@@ -124,18 +124,18 @@ class PostgresConnector(Connector):
         # needs the DSN) lists the tables and you pick one. So the form shows Discover right after
         # the DSN, and the table field below it.
         "table": {"type": "string", "required": True,
-                  "help": "table to poll, e.g. orders or public.orders — leave empty and Discover "
+                  "help": "table to poll, e.g. orders or public.orders; leave empty and Discover "
                           "lists the tables it can see"},
         "cursor_column": {"type": "string", "required": True,
                           "help": "column that only ever grows, used to fetch just the new rows on "
                                   "each poll: an autoincrement id (captures inserts only) or "
-                                  "updated_at (also captures row updates) — Discover picks this "
+                                  "updated_at (also captures row updates); Discover picks this "
                                   "for you"},
         "time_column": {"type": "string",
                         "help": "timestamp column for event_time (default: the cursor column if it "
                                 "is a timestamp, else ingest time)"},
         "columns": {"type": "string",
-                    "help": "comma-separated columns to pull, e.g. id,status,amount — empty pulls "
+                    "help": "comma-separated columns to pull, e.g. id,status,amount; empty pulls "
                             "every column (SELECT *). The cursor/key/time columns are always "
                             "included so the source still works. `database` and `table` are also "
                             "available as fields (from config) regardless of what you select."},
@@ -238,13 +238,13 @@ class PostgresConnector(Connector):
             finally:
                 await conn.close()
             if not rows:
-                raise ValueError(f"connected to database {db!r}, but no tables are visible — "
+                raise ValueError(f"connected to database {db!r}, but no tables are visible; "
                                  "wrong database in the DSN (the path after the slash), or the "
                                  "user lacks privileges")
             tables = [r["table_name"] if r["table_schema"] == "public"
                       else f"{r['table_schema']}.{r['table_name']}" for r in rows]
             return {"connector": "postgres", "tables": tables,
-                    "summary": f"connected to database {db!r} — {len(tables)} tables; "
+                    "summary": f"connected to database {db!r}: {len(tables)} tables; "
                                "pick one to introspect (another database needs its own "
                                "source with its DSN)"}
         table = _ident(config["table"], "table", _TABLE)

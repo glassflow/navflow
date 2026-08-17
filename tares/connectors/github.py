@@ -54,10 +54,10 @@ class GithubConnector(Connector):
                  "help": "owner/name, e.g. glassflow/tares (a pasted GitHub URL works too)"},
         "branch": {"type": "string",
                    "help": "branch to follow (empty = the repo's default branch, labeled by its "
-                           "real name). One source follows one branch — add a source per branch "
+                           "real name). One source follows one branch; add a source per branch "
                            "to watch several"},
         "token": {"type": "string", "secret": True, "discover_input": True,
-                  "help": "GitHub token — required for private repos, recommended otherwise: "
+                  "help": "GitHub token; required for private repos, recommended otherwise: "
                           "without one GitHub allows 60 API requests/hour per IP"},
         "limit": {"type": "number", "default": 20,
                   "help": "newest commits fetched per poll (the first poll imports this many)"},
@@ -89,11 +89,11 @@ class GithubConnector(Connector):
             return None
         if r.status_code in (403, 429) and r.headers.get("x-ratelimit-remaining") == "0":
             raise ValueError("GitHub rate limit exhausted (unauthenticated: 60 requests/hour per IP)"
-                             " — set a token or raise the poll interval")
+                             "; set a token or raise the poll interval")
         if r.status_code == 404:
             raise ValueError(f"repo {repo!r} not found"
-                             + (" — check owner/name (the token may also lack access)" if token
-                                else " — private repos need a token"))
+                             + ("; check owner/name (the token may also lack access)" if token
+                                else "; private repos need a token"))
         if r.status_code == 401:
             raise ValueError("GitHub rejected the token (401 unauthorized)")
         if r.status_code != 200:
@@ -178,7 +178,7 @@ class GithubConnector(Connector):
                 raise ValueError(f"could not reach GitHub: {e}")
             if meta.status_code == 404:
                 raise ValueError(f"repo {repo!r} not found"
-                                 + (" — check owner/name (the token may also lack access)" if token
+                                 + ("; check owner/name (the token may also lack access)" if token
                                     else " (private repos need a token)"))
             if meta.status_code != 200:
                 raise ValueError(f"GitHub returned {meta.status_code} for {repo!r}")

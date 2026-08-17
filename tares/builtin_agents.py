@@ -56,14 +56,14 @@ PRESETS = {
         "prompt": (
             "You are taking a first look at an entity in a system you monitor, because a condition "
             "you watch just tripped. You are handed the correlated timeline (logs, metrics, "
-            "deploys, commits, alerts) for that entity at the moment it tripped — that is your "
+            "deploys, commits, alerts) for that entity at the moment it tripped; that is your "
             "evidence.\n\n"
             "Establish what is happening and what CHANGED just before it started. Connect the "
             "change to the signature in the evidence. If the timeline is too narrow, read a wider "
             "window (1h) once before concluding.\n\n"
             "Write a short note: 1) what is happening and since when, 2) the most likely "
             "explanation with the specific evidence lines that support it, 3) what you would look "
-            "at next. Do not speculate beyond the evidence — if it is inconclusive, say so and say "
+            "at next. Do not speculate beyond the evidence; if it is inconclusive, say so and say "
             "what you would need. Your final message is recorded on this entity's timeline."
         ),
     },
@@ -72,7 +72,7 @@ PRESETS = {
         "prompt": (
             "You are an SRE taking the first look when an error condition trips on a running "
             "service. You are handed the correlated timeline (logs, metrics, deploys, commits) for "
-            "the affected entity — that is your primary evidence.\n\n"
+            "the affected entity; that is your primary evidence.\n\n"
             "Diagnose the most likely root cause: look for what changed (a deploy, a commit, a "
             "config value) just before the errors began, and connect it to the failure signature "
             "in the logs. If the timeline is insufficient, read a wider window (1h) once before "
@@ -261,7 +261,7 @@ class AgentRunner:
         servers = [m for m in self.store.list_mcp_servers() if m["name"] in selected]
         async with RemoteToolbox(servers) as toolbox:
             for failure in toolbox.failures:
-                print(f"[agent {agent['name']}] mcp connect failed — {failure}")
+                print(f"[agent {agent['name']}] mcp connect failed; {failure}")
             return await self._loop_with(agent, trigger_name, key, payload, api_key, toolbox)
 
     async def _loop_with(self, agent: dict, trigger_name: str, key: str, payload: str,
@@ -273,7 +273,7 @@ class AgentRunner:
             "content": (
                 f'The condition "{trigger_name}" tripped for "{key}".\n\n'
                 f"The correlated timeline at that moment:\n\n{payload}\n\n"
-                f"Take a first look, per your instructions. You already hold the evidence above — "
+                f"Take a first look, per your instructions. You already hold the evidence above; "
                 f"read again only if you need a wider window or a different entity."),
         }]
         rounds = tool_calls = 0

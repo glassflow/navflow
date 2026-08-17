@@ -70,7 +70,7 @@ class AlertmanagerConnector(Connector):
         key = primary_key or self._pick_key(labels)
         return Envelope(
             source=self.cfg.name, source_type=self.cfg.type, key_value=key,
-            event_type=alertname, text=f"{status.upper()}: {alertname} — {summary}",
+            event_type=alertname, text=f"{status.upper()}: {alertname} · {summary}",
             event_time=_parse_time(ts), payload=payload, labels=labels,
         )
 

@@ -50,7 +50,7 @@ def reject_legacy_env(environ=None) -> None:
         "tares 1.0 renamed every NAVFLOW_* environment variable to TARES_*, and does NOT read the "
         "old names.\n\nStill set in this environment:\n"
         f"{mapping}\n\n"
-        "Rename them and start again. (The DuckDB file itself is unchanged — your data is where you "
+        "Rename them and start again. (The DuckDB file itself is unchanged; your data is where you "
         "left it.)"
     )
 
@@ -180,7 +180,7 @@ def validate_slack_channel(channel: str) -> str:
     if _SLACK_ID.match(chan) or _SLACK_NAME.match(chan):
         return chan
     raise ValueError(
-        f"{channel!r} is not a Slack channel — use the channel ID (C0123456789, from the channel's "
+        f"{channel!r} is not a Slack channel; use the channel ID (C0123456789, from the channel's "
         "'Copy link') or its lowercase name")
 
 
@@ -711,5 +711,5 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
         if view and FINDINGS_SOURCE in (view.get("sources") or []):
             raise CatalogError(
                 f"agent {a['name']!r}: trigger {a['trigger']!r} watches view "
-                f"{trig['view']!r}, which includes the {FINDINGS_SOURCE!r} source — an agent "
+                f"{trig['view']!r}, which includes the {FINDINGS_SOURCE!r} source; an agent "
                 f"cannot be woken by findings (it would fire itself forever)")

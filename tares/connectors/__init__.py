@@ -46,20 +46,20 @@ SPECS = {
     "prometheus": {"label": "Prometheus", "mode": "poll", "discover": True,
                    "description": "Instant-query snapshots of PromQL expressions on every poll tick."},
     "docker_logs": {"label": "Docker logs", "mode": "poll", "discover": True,
-                    "description": "Tails a running container's logs — all lines by default; "
+                    "description": "Tails a running container's logs; all lines by default; "
                                    "optional match/drop regex filters."},
     "prometheus_alerts": {"label": "Prometheus alerts", "mode": "poll", "discover": True, "poll": "30s",
-                          "description": "Polls Prometheus's own /api/v1/alerts — the alerts its rules "
-                                         "have fired — and emits one event per active alert (keyed by a "
+                          "description": "Polls Prometheus's own /api/v1/alerts, the alerts its rules "
+                                         "have fired, and emits one event per active alert (keyed by a "
                                          "label), plus a resolved event when it clears. No Alertmanager, "
                                          "no PromQL."},
     "alertmanager": {"label": "Alertmanager alerts", "mode": "push",
-                     "description": "Push receiver for Alertmanager — point a webhook_configs.url at this "
+                     "description": "Push receiver for Alertmanager; point a webhook_configs.url at this "
                                     "source's ingest endpoint. Each alert Alertmanager routes (with its "
                                     "grouping, silencing and firing/resolved status) becomes one event, "
                                     "keyed by a label. No PromQL."},
     "reference": {"label": "Reference documents", "mode": "reference",
-                  "description": "Documents (json/csv/md/txt) attached to an entity by its labels — "
+                  "description": "Documents (json/csv/md/txt) attached to an entity by its labels; "
                                  "project notes, schemas, runbooks. Always surfaced when correlating "
                                  "on that entity, regardless of time window. Edit to add or remove."},
     "webhook": {"label": "Inbound webhook", "mode": "push",
@@ -77,7 +77,7 @@ SPECS = {
                "description": "Polls a repo's commits (cursor by SHA); one event per commit, "
                               "keyed by repo, with author as a label."},
     "vercel": {"label": "Vercel logs", "mode": "push",
-               "description": "Push source for Vercel logs — point a Vercel log drain (JSON) at this "
+               "description": "Push source for Vercel logs; point a Vercel log drain (JSON) at this "
                               "source's ingest endpoint; one event per log entry, keyed by project, "
                               "with environment + source labels."},
     "postgres": {"label": "Postgres table", "mode": "poll", "discover": True, "poll": "30s",
@@ -86,7 +86,7 @@ SPECS = {
                                 "Your application's source-of-truth data in the timeline."},
     "claude_code": {"label": "Claude Code sessions", "mode": "poll",
                     "description": "Tails local Claude Code session transcripts "
-                                   "(~/.claude/projects/*.jsonl) into the data plane — one event per "
+                                   "(~/.claude/projects/*.jsonl) into the data plane; one event per "
                                    "message, keyed by session, with project/branch/model labels and "
                                    "token-usage fields. Sub-agents roll up into the same source. "
                                    "Secrets are redacted before storage."},
@@ -94,7 +94,7 @@ SPECS = {
     # "Add source". Still a first-class source everywhere else — it appears on timelines, in the
     # catalog and in exports like any other.
     "finding": {"label": "Agent findings", "mode": "push", "internal": True,
-                "description": "What Tares agents conclude when a trigger fires — one finding per "
+                "description": "What Tares agents conclude when a trigger fires; one finding per "
                                "run, keyed to the entity, on that entity's timeline."},
 }
 

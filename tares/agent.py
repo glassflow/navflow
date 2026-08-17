@@ -48,7 +48,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "label": {"type": "string", "description": "optional: one label axis"}}}},
     {"name": "recent_events",
-     "description": "Recent events for a source (key, type, text, time) — the actual data.",
+     "description": "Recent events for a source (key, type, text, time); the actual data.",
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string"}, "limit": {"type": "integer", "default": 20}},
          "required": ["name"]}},
@@ -70,7 +70,7 @@ PROPOSAL_TOOLS = [
     {"name": "propose_labels",
      "description": "Propose the labels (and primary key) for ONE source, as a card the user will "
                     "review. Propose only fields the source's field profile actually shows "
-                    "(source_fields) — anything else cannot be extracted. Give concrete evidence "
+                    "(source_fields); anything else cannot be extracted. Give concrete evidence "
                     "in `reasoning` (coverage, distinct counts, why the key is an entity). This "
                     "REPLACES the source's label set, so include every label it should end up with.",
      "input_schema": {"type": "object", "properties": {
@@ -123,7 +123,7 @@ PROPOSAL_TOOLS = [
          "reasoning": {"type": "string"}},
          "required": ["name", "key_field", "sources", "reasoning"]}},
     {"name": "propose_trigger",
-     "description": "Propose a trigger — a condition Tares evaluates continuously over a view; "
+     "description": "Propose a trigger; a condition Tares evaluates continuously over a view; "
                     "when it trips, subscribed agents are woken with the correlated timeline. Use "
                     "when the user's goal involves alerting or autonomous debugging. The view must "
                     "exist or be proposed in this conversation; `field` must be a numeric field "
@@ -212,16 +212,16 @@ connectors ingest events from sources (logs, metrics, deploys, Vercel/GitHub/Pos
 Every event has a key, named labels (correlation axes; one is the primary key), typed fields, and a \
 text line. Entities are label values. Views correlate sources for a key; triggers watch views.
 
-You help the user with their OWN ingested data — both to UNDERSTAND it (what's ingesting, the shape \
+You help the user with their OWN ingested data; both to UNDERSTAND it (what's ingesting, the shape \
 and entities of each source, coverage) and to DEBUG problems (a source not ingesting, an empty or \
 sparse entity, an unpopulated field, stale data). Adapt to whatever they ask.
 
-Always inspect with the read tools — never guess at what's there. For a problem, form a hypothesis \
+Always inspect with the read tools; never guess at what's there. For a problem, form a hypothesis \
 then verify it (health, field coverage, recent events, freshness). Be concrete: cite source names, \
 field coverage, entity values, counts. Prefer `describe` and `source_fields` to understand a source. \
 Keep answers tight and useful; use small tables or lists where they help. If a tool errors, say so.
 
-When the user wants the catalog changed — labels on a source, a view, a trigger — do not just \
+When the user wants the catalog changed; labels on a source, a view, a trigger; do not just \
 describe it: call propose_labels / propose_view / propose_trigger. Each proposal appears to the \
 user as a card they apply or skip; you never change the catalog directly. Ground every proposal \
 in evidence from the read tools.
@@ -230,39 +230,39 @@ HOW TO CHOOSE WHAT TO PROPOSE. These rules used to live in a separate "organize 
 user had to find; they apply to every proposal you make, so they are always in force:
 
 · A good KEY identifies a durable entity (a service, a session, a tenant): moderate distinct count, \
-high coverage, stable values. Check both before choosing one — a field with ONE distinct value \
+high coverage, stable values. Check both before choosing one; a field with ONE distinct value \
 cannot discriminate between entities and is never a key, however sensible its name. Dimensions \
 (http_method, level, status) make good secondary labels but bad keys. Sparse or constant fields \
 are weak.
-· Labels come from REAL fields — never invent one. A label's `field` MUST be a name source_fields \
+· Labels come from REAL fields; never invent one. A label's `field` MUST be a name source_fields \
 actually showed for that source; anything else extracts nothing. A label reads a `field`, a \
-`const`, or a regex over a field (`pattern`/`replace`, plus `map` for aliases) — reach for the \
+`const`, or a regex over a field (`pattern`/`replace`, plus `map` for aliases); reach for the \
 regex to clean messy values rather than guessing at a tidy field that isn't there.
 · FIRST check a source's existing labels (list_sources shows config.labels). If they already match \
 what you would propose, say so in text and do NOT call propose_labels. Otherwise call it ONCE with \
-the COMPLETE label set — the proposal replaces, it does not append. Same for views: don't propose \
+the COMPLETE label set; the proposal replaces, it does not append. Same for views: don't propose \
 a duplicate of one that already covers it.
 · Watch top values for VARIANTS of one entity (checkout / checkout-svc / checkout-service). \
 Correlation needs values to agree literally, so propose normalization on the label: \
 `pattern`/`replace` for whole families, `map` for irregular aliases (pattern runs first, map \
 applies to its result). This is often the highest-value fix available.
-· Views key and filter on LABELS only — never a raw field. A view's `key_field` and filters must be \
+· Views key and filter on LABELS only; never a raw field. A view's `key_field` and filters must be \
 a label the chosen sources EXPOSE. To correlate on something that isn't a label yet, promote it \
 first, then build the view. When sources share nothing but belong together, propose const labels \
 (same name and value) on each and key by that.
-· A view FILTER is always {"field": …, "op": …, "value": …} — three keys, never a flat \
-{"service": "checkout"} pair — and `op` is a NAME from eq / neq / contains / gt / gte / lt / lte. \
+· A view FILTER is always {"field": …, "op": …, "value": …}; three keys, never a flat \
+{"service": "checkout"} pair; and `op` is a NAME from eq / neq / contains / gt / gte / lt / lte. \
 Symbols are not operators here: write "eq", not "==". `field` may also be one of the built-in \
 columns event_type, source, text, key_value. Example: to keep only ingress-nginx events, \
 {"field": "service", "op": "eq", "value": "ingress-nginx"}. A view that needs no restriction takes \
-no filters at all — don't invent one.
-· To match a label across sources, ADD a new label — there is no rename, and a source's label set \
+no filters at all; don't invent one.
+· To match a label across sources, ADD a new label; there is no rename, and a source's label set \
 is declared whole. If source B should join A on `service`, propose a NEW label named `service` on \
 B reading B's matching field, keep B's other labels, and normalize B's values so they agree \
 literally with A's.
 · A trigger needs a numeric field the view's events actually carry, an aggregate and predicate, a \
 detection window, and a cooldown. Say what it would have fired on recently, in the data you just \
-read — a trigger that would fire constantly, or never, is not worth proposing.
+read; a trigger that would fire constantly, or never, is not worth proposing.
 
 Everything goes through proposals; the user applies or skips each card. Be decisive; don't ask \
 permission to inspect."""
@@ -329,7 +329,7 @@ async def run_agent(api_key: str, messages: list,
                         if cur is not None and _canon_labels(cur) == _canon_labels(tu.input.get("labels")):
                             results.append({"type": "tool_result", "tool_use_id": tu.id,
                                             "content": "this source ALREADY has exactly this label "
-                                                       "set — no card was shown. Tell the user its "
+                                                       "set; no card was shown. Tell the user its "
                                                        "labels already look right; propose only "
                                                        "changes."})
                             continue
@@ -337,7 +337,7 @@ async def run_agent(api_key: str, messages: list,
                     kind = {"propose_labels": "labels", "propose_view": "view", "propose_trigger": "trigger"}[tu.name]
                     yield _sse({"type": "proposal", "kind": kind, "id": tu.id, "payload": tu.input})
                     results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                    "content": "proposal recorded — the user will review it as a "
+                                    "content": "proposal recorded; the user will review it as a "
                                                "card and apply or skip it"})
                     continue
                 # A start AND a finish. The console draws each call as a step that is visibly

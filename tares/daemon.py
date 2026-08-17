@@ -149,7 +149,7 @@ def _serve_ui(path: str):
     """The built console SPA: a real file if it exists, else index.html (client-side routing)."""
     if not UI_DIST.exists():
         return JSONResponse(
-            {"detail": "console not built — run `npm install && npm run build` in ui/"},
+            {"detail": "console not built; run `npm install && npm run build` in ui/"},
             status_code=404)
     f = (UI_DIST / path).resolve()
     if path and f.is_file() and f.is_relative_to(UI_DIST.resolve()):
@@ -177,7 +177,7 @@ def _degraded_app(reason: str) -> FastAPI:
         return body
 
     async def unavailable():
-        return JSONResponse({"detail": f"database unavailable — {reason}", "status": "down"},
+        return JSONResponse({"detail": f"database unavailable; {reason}", "status": "down"},
                             status_code=503)
 
     # Everything that needs the store answers 503 (not a bare 500, and not the SPA's index.html).
@@ -307,7 +307,7 @@ def make_app() -> FastAPI:
         # traceback (degraded mode explains the failure to the user, it does not hide it from the
         # operator) and serve the console + 503s instead of exiting before uvicorn ever binds.
         traceback.print_exc()
-        print(f"taresd: DEGRADED — {e.reason}. Serving the console and 503s; fix the database "
+        print(f"taresd: DEGRADED; {e.reason}. Serving the console and 503s; fix the database "
               f"and restart.", flush=True)
         return _degraded_app(e.reason)
 
@@ -344,7 +344,7 @@ def make_app() -> FastAPI:
             runtime.reload_catalog()
             print("taresd: auto-provisioned OTLP source 'otlp'")
             return "otlp"
-        raise ValueError("multiple OTLP sources — set the X-Tares-Source header")
+        raise ValueError("multiple OTLP sources; set the X-Tares-Source header")
 
     @asynccontextmanager
     async def lifespan(_app):
@@ -509,7 +509,7 @@ def make_app() -> FastAPI:
             except ValueError as e:
                 _err(e)
             if not resolve_slack_token(store)[0]:
-                _err(ValueError("no Slack bot token configured — set TARES_SLACK_BOT_TOKEN or "
+                _err(ValueError("no Slack bot token configured; set TARES_SLACK_BOT_TOKEN or "
                                 "add one under Security before subscribing a channel"))
         sid = "sub_" + uuid.uuid4().hex[:8]
         # record the creating credential: revoking a key removes its subscriptions (a revoked
@@ -672,7 +672,7 @@ def make_app() -> FastAPI:
     async def derive(req: DeriveReq):
         name = req.name or "agent_view_" + uuid.uuid4().hex[:6]
         if name in runtime.catalog.views:
-            _err(ValueError(f"view {name!r} already exists — derived views must not "
+            _err(ValueError(f"view {name!r} already exists; derived views must not "
                             f"collide with existing entries"), 409)
         try:
             validate_view_dict({"name": name, "key_field": req.key_field,
@@ -684,7 +684,7 @@ def make_app() -> FastAPI:
                                   created_by=f"agent:{req.client}")
         runtime.reload_catalog()
         return {"handle": f"view:{name}", "name": name, "status": "active",
-                "note": "virtual view — query it by name like any other view"}
+                "note": "virtual view; query it by name like any other view"}
 
     # ── remember — the agent writes its own memory back (closes the loop) ─────
     @app.post("/remember", status_code=202)
@@ -902,7 +902,7 @@ def make_app() -> FastAPI:
             proposal = await asyncio.wait_for(
                 REGISTRY[connector].discover(body.get("config", {}) or {}), timeout=30)
         except (TimeoutError, asyncio.TimeoutError):
-            _err(ValueError("discover timed out — is the target reachable from the Tares "
+            _err(ValueError("discover timed out; is the target reachable from the Tares "
                             "server? (a hosted Tares can only reach public endpoints)"))
         except HTTPException:
             raise
@@ -1373,7 +1373,7 @@ def make_app() -> FastAPI:
                                    body.webhook_url, body.webhook_token, body.mcp_servers)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
-                "note": "agents start disabled — enable it to run on the next firing"}
+                "note": "agents start disabled; enable it to run on the next firing"}
 
     @app.put("/api/agents/builtin/{name}")
     async def update_builtin_agent(name: str, body: AgentIn):
@@ -1419,7 +1419,7 @@ def make_app() -> FastAPI:
             _err(KeyError(f"unknown agent {name!r}"), 404)
         key, _ = resolve_anthropic_key(store)
         if not key:
-            _err(ValueError("no Anthropic key configured — set ANTHROPIC_API_KEY or add one "
+            _err(ValueError("no Anthropic key configured; set ANTHROPIC_API_KEY or add one "
                             "under Security before enabling an agent"))
         # enable = subscribe to the trigger (the same wiring an external agent has). Idempotent.
         if not _agent_enabled(name):
@@ -1488,7 +1488,7 @@ def make_app() -> FastAPI:
         if not token.startswith("xox"):
             # Caught here rather than on the first failed delivery: a pasted webhook URL or signing
             # secret would otherwise sit in the settings table looking configured.
-            _err(ValueError("that does not look like a Slack bot token — it should start with "
+            _err(ValueError("that does not look like a Slack bot token; it should start with "
                             "'xoxb-' (OAuth & Permissions → Bot User OAuth Token)"))
         store.set_setting(SLACK_TOKEN_SETTING, token)
         _, origin = resolve_slack_token(store)
@@ -1539,7 +1539,7 @@ def make_app() -> FastAPI:
             _err(ValueError("secret is required (use DELETE to remove the stored secret)"))
         if secret.startswith("xox"):
             # A bot token pasted into the wrong box would look configured and fail every signature.
-            _err(ValueError("that is a bot token, not the signing secret — take the Signing Secret "
+            _err(ValueError("that is a bot token, not the signing secret; take the Signing Secret "
                             "from the Slack app's Basic Information page"))
         store.set_setting(slack_verify.SETTING_KEY, secret)
         _, origin = slack_verify.resolve_secret(store)
@@ -1599,7 +1599,7 @@ def make_app() -> FastAPI:
                             error = ev.get("detail") or "the assistant failed"
             await asyncio.wait_for(_run(), timeout=SLACK_ASK_TIMEOUT)
         except asyncio.TimeoutError:
-            error = f"that took longer than {SLACK_ASK_TIMEOUT}s — try a narrower question"
+            error = f"that took longer than {SLACK_ASK_TIMEOUT}s; try a narrower question"
         except Exception as e:   # noqa: BLE001 — every failure has to reach the user as words
             error = f"{type(e).__name__}: {e}"
         if text.strip():
@@ -1657,11 +1657,11 @@ def make_app() -> FastAPI:
             return slack_mod.build_error(problem, thread_ts)
         if not response_url:
             return slack_mod.build_error(
-                ":warning: that request carried no response_url — Tares has nowhere to reply",
+                ":warning: that request carried no response_url; Tares has nowhere to reply",
                 thread_ts)
         if not resolve_anthropic_key(store)[0]:
             return slack_mod.build_error(
-                ":warning: no Anthropic API key is configured on this Tares instance — set "
+                ":warning: no Anthropic API key is configured on this Tares instance; set "
                 "`ANTHROPIC_API_KEY` or add one under Security in the console", thread_ts)
         if not runtime.catalog.sources:
             return slack_mod.build_error(

@@ -62,7 +62,7 @@ class DockerLogsConnector(Connector):
         "drop": {"type": "string",
                  "help": "skip lines matching this regex, e.g. 'HTTP/1.1\"' to drop access logs"},
         "key": {"type": "string", "advanced": True,
-                "help": "legacy fixed key — prefer a primary label"},
+                "help": "legacy fixed key; prefer a primary label"},
         "label_pattern": {"type": "string", "advanced": True,
                           "help": "regex with named groups → per-line label context"},
     }

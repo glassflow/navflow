@@ -250,7 +250,7 @@ async def list_channels(token: str, timeout: float = 10.0
                         # only name both when it doesn't.
                         needed = str(data.get("needed") or "").strip() or "channels:read and groups:read"
                         return [], "missing_scope", (
-                            f"slack: missing_scope (the bot token is missing {needed} — "
+                            f"slack: missing_scope (the bot token is missing {needed}; "
                             "reconnect Slack to grant it)")
                     return [], "error", f"slack: {err}{_error_detail(err, data)}"
                 for c in data.get("channels") or []:
@@ -277,7 +277,7 @@ async def list_channels(token: str, timeout: float = 10.0
 # Everything below serves `POST /api/slack/events`. It is deliberately pure — parsing, cost
 # bounding and message shaping — so the endpoint itself is only plumbing: verify, ACK, answer.
 
-USAGE = ("usage: `/tares ask <question>` — e.g. "
+USAGE = ("usage: `/tares ask <question>`; e.g. "
          "`/tares ask what happened to checkout-svc in the last hour?`")
 
 # Cost ceiling, the same shape as `builtin_agents.DAILY_RUN_CAP`: a per-day count with an env
