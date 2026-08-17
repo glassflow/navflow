@@ -3,6 +3,12 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] — 2026-08-17
+
+No code changes; a version bump so managed cells can be re-provisioned through the upgrade path
+(a same-version upgrade is a no-op there), which is how a cell picks up `TARES_WORKSPACE_URL` from a
+control plane that started setting it after the cell was last applied.
+
 ## [1.7.0] — 2026-08-17
 
 ### Added
