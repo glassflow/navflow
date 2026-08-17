@@ -27,14 +27,26 @@
 
 /* ── HeroUI Kit V3 (GlassFlow) variables — the single source of truth (TR-140) ──
    Values are the kit's "02_Theme (HeroUI)" collection, verbatim hex, both modes; the same layer
-   Rius consumes as --agency-* (argus-ui src/app/theme.css), so the two products share one palette
-   by construction. Components never reference --kit-*; they consume the semantic tokens below.
+   Rius consumes as --agency-* (argus-ui src/app/theme.css; extraction in
+   argus-ui docs/design/heroui-v3-figma-variables.json, 2026-08-13). Both products share one
+   palette by construction. Components never reference --kit-*; they consume the semantic tokens.
 
-   Held back on purpose, matching Rius's logged decisions (RIUS-52): the kit's status colors
-   (success #17c964 / danger #ff383c are stock HeroUI brights that read neon on cream) and its
-   dark-mode zinc leftovers (background-secondary #0c0c0e, border #28282c) — Tares keeps its
-   cream-derived status tones and warm-brown dark neutrals for those. Radius/shadow language:
-   Tares stays square + hairline (a deliberate identity), consistent within the app. */
+   ADOPTED from the kit: canvas + surface tiers + overlay + border, eclipse ink + muted, the accent
+   (fixed across modes; the kit's Button "Primary" is the accent role), the dark anchors, and
+   Geist Mono for the label/interactive/code role.
+
+   HELD on purpose, matching Rius's logged decisions (RIUS-52):
+   - status colors: kit success/warning/danger (#17c964/#f5a524/#ff383c) are stock HeroUI brights
+     that read neon on cream; the cream-derived tones stay.
+   - dark-mode zinc leftovers (background-secondary #0c0c0e, border #28282c, ...): unfinished in
+     the kit; the warm-brown ramp stays for those roles.
+   - radius + shadow: the kit's 0/12/24 radius language and shadow-drawn borderless fields are not
+     adopted. Square corners, 1px hairlines, no shadows are Tares's identity; the rule is
+     "consistent within Tares".
+
+   RULES: no color literal below these token layers; new micro-labels/badges/code use var(--mono),
+   var(--pixel) is for headline numerals only; when the kit changes, re-extract the JSON in argus-ui
+   first, then update --kit-* here. */
 :root {
   --kit-background: #f0efe2;          /* background/background */
   --kit-surface: #faf9ec;             /* surface/surface */
