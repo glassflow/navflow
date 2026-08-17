@@ -79,6 +79,7 @@ export const api = {
   // isn't ok; `pct_used` is on /api/usage's 0-100 scale and null when no limit is configured.
   health: () => request<{
     status: string; auth_required: boolean; login_url?: string;
+    workspace_url?: string;   // cloud only: the control-plane workspace this cell belongs to
     detail?: string; pct_used?: number | null;
   }>("/health"),
   // Swap a one-time ?code= (handed to us in the redirect back from the control plane) for the real

@@ -5,7 +5,7 @@ import { api, auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
   Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Grid, Lock, Moon,
-  SignOut, Sun, Terminal,
+  Settings, SignOut, Sun, Terminal,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
 
@@ -132,8 +132,13 @@ function ThemeToggle() {
 
 export default function App() {
   const [version, setVersion] = useState<string | null>(null);
+  // Cloud only: the control-plane workspace this cell belongs to. Users, plan, storage and the
+  // Slack app are managed there; the link is the missing half of Settings (TR-142). Self-host
+  // sets no TARES_WORKSPACE_URL and never sees it.
+  const [workspaceUrl, setWorkspaceUrl] = useState<string>();
   useEffect(() => {
     api.capabilities().then((c) => setVersion(c.version ?? null)).catch(() => {});
+    api.health().then((h) => setWorkspaceUrl(h.workspace_url || undefined)).catch(() => {});
   }, []);
   return (
     <>
@@ -166,6 +171,13 @@ export default function App() {
           <Lock className="ico" />
           <span className="nav-label">Settings</span>
         </NavLink>
+        {workspaceUrl && (
+          <a className="navlink" href={workspaceUrl} title="users, plan, storage and the Slack app: managed in your workspace">
+            <Settings className="ico" />
+            <span className="nav-label">Workspace</span>
+            <span className="nav-badge">↗</span>
+          </a>
+        )}
         <ThemeToggle />
         {auth.get() && (
           <button className="navbtn" onClick={signOut}>
