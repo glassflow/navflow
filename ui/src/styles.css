@@ -1,15 +1,16 @@
 /* Tares console — the GlassFlow design system, sourced from the HeroUI Kit V3
    Figma variables (TR-140): cream ground, eclipse ink, one Space Sand accent,
-   square corners, 1px hairlines, no shadows. Inter for sentences, Departure
-   Mono (the pixel voice) for labels and numerals, JetBrains Mono for code. All
+   square corners, 1px hairlines, no shadows. Inter for sentences, Geist Mono
+   for labels, badges, table headers and code (the kit's mono role), Departure
+   Mono (the pixel voice) reserved for headline KPI numerals. All
    colors flow through semantic tokens, so [data-theme="dark"] re-skins the app
    onto the kit's dark anchors without touching component rules; the user's
    theme toggle survives. */
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
-@import "@fontsource/jetbrains-mono";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/geist-mono";
+@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/geist-mono/600.css";
 
 @font-face {
   font-family: "Departure Mono";
@@ -20,7 +21,7 @@
 
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-mono-jb: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono-jb: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
   --font-pixel: "Departure Mono", ui-monospace, monospace;
 }
 
@@ -225,7 +226,7 @@ b, strong { font-weight: 600; }
 
 /* the pixel voice — labels and numerals only, never body copy */
 .pixel-label {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 12px;
   line-height: 1;
   letter-spacing: 0.1em;
@@ -264,7 +265,7 @@ b, strong { font-weight: 600; }
 .sidebar .brand { display: flex; align-items: center; gap: 8px; }
 .brand-mark { width: 24px; height: auto; flex-shrink: 0; }
 .brand-word { display: block; line-height: 1.05; }
-.brand small { display: block; font-family: var(--pixel); font-size: 10px; color: var(--ink-faint); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+.brand small { display: block; font-family: var(--mono); font-size: 10px; color: var(--ink-faint); font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
 .navlink {
   display: flex;
@@ -282,7 +283,7 @@ b, strong { font-weight: 600; }
 
 /* nav badges & locks */
 .nav-badge {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -367,7 +368,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 0; overflow: hidden; }
 thead th {
   text-align: left;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -391,7 +392,7 @@ td .dim, .dim { color: var(--ink-faint); }
 /* ── table toolbar ── */
 .toolbar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
 .toolbar .grow { flex: 1 1 auto; }
-.toolbar .count { font-family: var(--pixel); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.toolbar .count { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 .toolbar select { width: auto; }
 .search-box { position: relative; display: inline-flex; align-items: center; }
 .search-box .ico { position: absolute; left: 9px; width: 15px; height: 15px; color: var(--ink-faint); pointer-events: none; }
@@ -402,7 +403,7 @@ td .dim, .dim { color: var(--ink-faint); }
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -607,7 +608,7 @@ button:focus-visible, .btn:focus-visible, .navlink:focus-visible, .navbtn:focus-
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 0; padding: 18px 20px; margin-bottom: 18px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 0; padding: 12px 16px; }
-.card .k { font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
+.card .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
 .card .v { font-family: var(--pixel); font-variant-ligatures: none; font-variant-numeric: tabular-nums; font-size: 22px; margin-top: 4px; }
 .card .v small { font-size: 11px; font-family: var(--mono); color: var(--ink-faint); }
 
@@ -762,7 +763,7 @@ pre.payload {
 
 /* key/value summary grid (sheet detail) */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; }
-.kv .k { font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
+.kv .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-faint); font-weight: 400; }
 
 /* auth login gate — the brown ground, like the cloud console */
 .login-wrap {
@@ -858,7 +859,7 @@ pre.payload {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -890,7 +891,7 @@ pre.payload {
 /* nav sections — the 3-act grouping */
 .nav-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .nav-section {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -909,7 +910,7 @@ pre.payload {
 
 /* Explore — picker sections */
 .ent-section {
-  font-family: var(--pixel);
+  font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -927,7 +928,7 @@ pre.payload {
 .tl-controls { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 2px; }
 .tl-ctl { display: flex; align-items: center; gap: 8px; }
 .tl-ctl .lbl {
-  font-family: var(--pixel); font-size: 10px; text-transform: uppercase;
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
   font-variant-ligatures: none;
   letter-spacing: 0.1em; color: var(--ink-faint); margin: 0;
 }
@@ -973,7 +974,7 @@ pre.payload {
 }
 .menu-item .menu-n { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .menu-item.back {
-  color: var(--ink-faint); font-family: var(--pixel); font-size: 10px;
+  color: var(--ink-faint); font-family: var(--mono); font-size: 10px;
   text-transform: uppercase; letter-spacing: 0.1em; font-variant-ligatures: none; margin-bottom: 2px;
 }
 .menu-scroll { max-height: 260px; overflow-y: auto; }
@@ -1014,7 +1015,7 @@ pre.payload {
 .turn:first-of-type { border-top: 0; }
 .turn-who {
   display: flex; align-items: center; gap: 8px;
-  font-family: var(--pixel); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--ink-faint); margin-bottom: 6px;
 }
 .turn-copy {
@@ -1107,7 +1108,7 @@ pre.payload {
 
 /* nav ⌘K hint on the Ask link */
 .nav-kbd {
-  font-family: var(--pixel); font-size: 9px; color: var(--ink-faint);
+  font-family: var(--mono); font-size: 9px; color: var(--ink-faint);
   border: 1px solid var(--line); border-radius: 0; padding: 2px 4px; line-height: 1.2;
 }
 .navlink.active .nav-kbd { color: var(--accent-deep); border-color: var(--accent-deep); }
@@ -1174,7 +1175,7 @@ pre.payload {
 .mcp-status.absent { background: var(--warn-soft); }
 .mcp-status.absent::before { background: var(--warn); }
 .codeblock { margin: 4px 0 16px; border: 1px solid var(--line); border-radius: 0; overflow: hidden; }
-.codeblock-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--th-bg); font-family: var(--pixel); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-soft); }
+.codeblock-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--th-bg); font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; font-variant-ligatures: none; color: var(--ink-soft); }
 .codeblock pre { margin: 0; border: 0; border-radius: 0; }
 .copybtn { font-size: 12px; padding: 2px 10px; }
 
