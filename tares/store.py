@@ -154,6 +154,15 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   created_at  TIMESTAMPTZ,
   updated_at  TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS github_credentials (
+  name        TEXT PRIMARY KEY,
+  kind        TEXT,
+  token       TEXT,
+  api_url     TEXT,
+  account     TEXT,
+  created_at  TIMESTAMPTZ,
+  updated_at  TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS ask_sessions (
   id         TEXT PRIMARY KEY,
   title      TEXT,
@@ -230,6 +239,9 @@ _MIGRATIONS = [
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS external_tools JSON",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
+    # extra, non-secret headers an MCP server wants on every request (toolset selection, read-only
+    # mode); the auth header stays its own column because it is the secret
+    "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS headers JSON",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -1004,26 +1016,28 @@ class Store:
     def list_mcp_servers(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, url, auth_header, auth_value, updated_at, owned_by, customized "
+                "SELECT name, url, auth_header, auth_value, updated_at, owned_by, customized, headers "
                 "FROM mcp_servers ORDER BY name").fetchall()
         return [{"name": r[0], "url": r[1], "auth_header": r[2] or "",
                  "auth_value": r[3] or "", "updated_at": r[4],
-                 "owned_by": r[5], "customized": bool(r[6])} for r in rows]
+                 "owned_by": r[5], "customized": bool(r[6]),
+                 "headers": json.loads(r[7]) if r[7] else {}} for r in rows]
 
     def get_mcp_server(self, name: str) -> dict | None:
         return next((m for m in self.list_mcp_servers() if m["name"] == name), None)
 
     def upsert_mcp_server(self, name: str, url: str, auth_header: str | None = None,
-                          auth_value: str | None = None) -> None:
+                          auth_value: str | None = None, headers: dict | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
-                "INSERT INTO mcp_servers (name, url, auth_header, auth_value, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "INSERT INTO mcp_servers (name, url, auth_header, auth_value, headers, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET url = excluded.url, "
                 "auth_header = excluded.auth_header, auth_value = excluded.auth_value, "
-                "updated_at = excluded.updated_at",
-                [name, url, auth_header or "", auth_value or "", ts, ts])
+                "headers = excluded.headers, updated_at = excluded.updated_at",
+                [name, url, auth_header or "", auth_value or "", json.dumps(headers or {}),
+                 ts, ts])
 
     def delete_mcp_server(self, name: str) -> None:
         with self._lock:
@@ -1139,6 +1153,35 @@ class Store:
                 "SELECT logged_at, action, detail FROM usecase_log WHERE usecase_id = ? "
                 "ORDER BY logged_at DESC LIMIT ?", [uid, limit]).fetchall()
         return [{"at": r[0], "action": r[1], "detail": r[2]} for r in rows]
+    # ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+    # The token is held verbatim like every other connector secret; redaction is the API's job.
+    def list_github_credentials(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT name, kind, token, api_url, account, created_at, updated_at "
+                "FROM github_credentials ORDER BY name").fetchall()
+        return [{"name": r[0], "kind": r[1] or "token", "token": r[2] or "",
+                 "api_url": r[3] or "", "account": r[4] or "",
+                 "created_at": r[5], "updated_at": r[6]} for r in rows]
+
+    def get_github_credential(self, name: str) -> dict | None:
+        return next((c for c in self.list_github_credentials() if c["name"] == name), None)
+
+    def upsert_github_credential(self, name: str, token: str, kind: str = "token",
+                                 api_url: str = "", account: str = "") -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO github_credentials (name, kind, token, api_url, account, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET kind = excluded.kind, token = excluded.token, "
+                "api_url = excluded.api_url, account = excluded.account, "
+                "updated_at = excluded.updated_at",
+                [name, kind, token or "", api_url or "", account or "", ts, ts])
+
+    def delete_github_credential(self, name: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM github_credentials WHERE name = ?", [name])
 
     # ── ask sessions (the in-app agent's chat history) ────────────────────────
     # `state` is an opaque JSON blob owned by the console (messages, tool calls, proposal

@@ -304,7 +304,16 @@ class McpServerIn(BaseModel):
     name: str
     url: str
     auth_header: str = ""        # header name; empty means Authorization when a value is set
-    auth_value: str = ""         # the credential (secret; blank-to-keep on update)
+    auth_value: str = ""         # the credential (secret; blank-to-keep on update), or
+                                 # `credential:github/<name>` to use a stored GitHub credential
+    headers: dict[str, str] = {}  # extra non-secret headers sent on every request
+
+
+class GithubCredentialIn(BaseModel):
+    name: str
+    token: str = ""              # secret; blank-to-keep on update
+    api_url: str | None = None   # GitHub Enterprise API base; empty = github.com; omitted on
+                                 # update = keep
 
 
 class AskSessionIn(BaseModel):
@@ -398,6 +407,7 @@ def make_app() -> FastAPI:
         runtime.shutdown()
 
     app = FastAPI(title="taresd", lifespan=lifespan)
+    app.state.store = store   # for in-process tests; DuckDB is single-writer, so no second Store
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 
@@ -927,11 +937,22 @@ def make_app() -> FastAPI:
         connector = body.get("connector")
         if connector not in REGISTRY:
             _err(ValueError(f"unknown connector {connector!r}"), 404)
+        config = dict(body.get("config", {}) or {})
+        if config.get("credential") and not config.get("token"):
+            # discover() is a classmethod with no store: resolve the stored GitHub credential
+            # here so it can authenticate; the proposal keeps the reference, never the token
+            from .github_credentials import resolve_api_url, resolve_github_token
+            token = resolve_github_token(store, config["credential"])
+            if not token:
+                _err(ValueError(f"GitHub credential {config['credential']!r} not found "
+                                "(Settings > GitHub)"), 404)
+            config["token"] = token
+            config.setdefault("api_url", resolve_api_url(store, config["credential"]) or "")
         try:
             # bounded + catch-all: driver errors (asyncpg timeouts/auth/network) are not ValueError
             # and would otherwise 500 with nothing shown to the user
             proposal = await asyncio.wait_for(
-                REGISTRY[connector].discover(body.get("config", {}) or {}), timeout=30)
+                REGISTRY[connector].discover(config), timeout=30)
         except (TimeoutError, asyncio.TimeoutError):
             _err(ValueError("discover timed out; is the target reachable from the Tares "
                             "server? (a hosted Tares can only reach public endpoints)"))
@@ -1158,9 +1179,25 @@ def make_app() -> FastAPI:
     # The registry: URL + optional auth header. The auth value is a secret: never returned,
     # blank-to-keep on update, exported only with secrets included.
     def _mcp_row(m: dict) -> dict:
+        from .github_credentials import credential_name, is_credential_ref
+        ref = m["auth_value"] if is_credential_ref(m["auth_value"]) else ""
         return {"name": m["name"], "url": m["url"], "auth_header": m["auth_header"],
-                "auth_value_configured": bool(m["auth_value"]), "updated_at": m["updated_at"],
+                "auth_value_configured": bool(m["auth_value"]),
+                # a credential reference is not a secret: the console can show which one is used
+                "auth_credential": credential_name(ref) if ref else "",
+                "headers": m.get("headers") or {}, "updated_at": m["updated_at"],
                 "owned_by": m.get("owned_by"), "customized": bool(m.get("customized"))}
+
+    def _clean_headers(headers: dict | None) -> dict:
+        out = {}
+        for k, v in (headers or {}).items():
+            k = str(k).strip()
+            if not k:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9-]+", k):
+                _err(ValueError(f"header name {k!r} must be a header name"))
+            out[k] = str(v).strip()
+        return out
 
     @app.get("/api/mcp-servers")
     async def list_mcp_servers():
@@ -1175,8 +1212,17 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         store.upsert_mcp_server(body.name, body.url.strip(), body.auth_header.strip(),
-                                body.auth_value)
+                                _check_credential_ref(body.auth_value), _clean_headers(body.headers))
         return {"ok": True}
+
+    def _check_credential_ref(value: str) -> str:
+        """`credential:github/<name>` must name a stored credential; anything else passes through
+        as the literal header value."""
+        from .github_credentials import credential_name, is_credential_ref
+        if is_credential_ref(value) and store.get_github_credential(credential_name(value)) is None:
+            _err(ValueError(f"GitHub credential {credential_name(value)!r} not found "
+                            "(Settings > GitHub)"), 404)
+        return value
 
     @app.put("/api/mcp-servers/{name}")
     async def update_mcp_server(name: str, body: McpServerIn):
@@ -1190,7 +1236,8 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         value = body.auth_value or existing.get("auth_value", "")   # blank-to-keep
-        store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(), value)
+        store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(),
+                                _check_credential_ref(value), _clean_headers(body.headers))
         store.mark_customized("mcp_server", name)
         return {"ok": True}
 
@@ -1208,13 +1255,105 @@ def make_app() -> FastAPI:
         server = store.get_mcp_server(name)
         if server is None:
             _err(KeyError(f"unknown mcp server {name!r}"), 404)
-        from .mcp_client import list_remote_tools
+        from .mcp_client import list_remote_tools, resolve_servers
         try:
-            tools = await asyncio.wait_for(list_remote_tools(server), timeout=20)
+            tools = await asyncio.wait_for(
+                list_remote_tools(resolve_servers(store, [server])[0]), timeout=20)
         except Exception as e:
             detail = f"{type(e).__name__}: {str(e)[:200]}" if str(e).strip() else type(e).__name__
             return {"ok": False, "error": detail, "tools": []}
         return {"ok": True, "tools": tools}
+
+    # ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+    # Same write-only contract as the other credentials: the token is never returned, blank-to-keep
+    # on update, and the console can list, test and delete.
+    from .github_credentials import (forget_repos, list_repos, redact as _gh_redact,
+                                     test_credential)
+
+    def _gh_users(name: str) -> dict:
+        """Where a credential is used, so deleting one is an informed act."""
+        sources = [s["name"] for s in store.list_catalog_sources()
+                   if (s.get("config") or {}).get("credential") == name]
+        ref = f"credential:github/{name}"
+        servers = [m["name"] for m in store.list_mcp_servers() if m.get("auth_value") == ref]
+        return {"sources": sources, "mcp_servers": servers}
+
+    @app.get("/api/integrations/github")
+    async def list_github_credentials():
+        return {"credentials": [{**_gh_redact(c), **_gh_users(c["name"])}
+                                for c in store.list_github_credentials()]}
+
+    @app.post("/api/integrations/github", status_code=201)
+    async def create_github_credential(body: GithubCredentialIn):
+        name = body.name.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            _err(ValueError("name must be alphanumeric/_/-"))
+        if store.get_github_credential(name) is not None:
+            _err(ValueError(f"GitHub credential {name!r} already exists"), 409)
+        if not body.token.strip():
+            _err(ValueError("token is required"))
+        api_url = (body.api_url or "").strip()
+        account = ""
+        try:   # best effort: a bad token is still stored, the Test button explains it
+            account = (await test_credential(body.token.strip(), api_url or None))["login"]
+        except ValueError:
+            pass
+        store.upsert_github_credential(name, body.token.strip(), "token", api_url, account)
+        return {"ok": True, "account": account}
+
+    @app.put("/api/integrations/github/{name}")
+    async def update_github_credential(name: str, body: GithubCredentialIn):
+        existing = store.get_github_credential(name)
+        if existing is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        token = body.token.strip() or existing["token"]     # blank-to-keep
+        api_url = (existing.get("api_url") or "") if body.api_url is None else body.api_url.strip()
+        account = existing.get("account") or ""
+        if body.token.strip():
+            try:
+                account = (await test_credential(token, api_url or None))["login"]
+            except ValueError:
+                pass
+        store.upsert_github_credential(name, token, existing.get("kind") or "token",
+                                       api_url, account)
+        forget_repos(name)
+        return {"ok": True, "account": account}
+
+    @app.delete("/api/integrations/github/{name}")
+    async def delete_github_credential(name: str):
+        if store.get_github_credential(name) is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        store.delete_github_credential(name)
+        forget_repos(name)
+        return {"ok": True, **_gh_users(name)}
+
+    @app.post("/api/integrations/github/{name}/test")
+    async def test_github_credential(name: str):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        try:
+            info = await test_credential(cred["token"], cred.get("api_url") or None)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if info["login"] and info["login"] != cred.get("account"):
+            store.upsert_github_credential(name, cred["token"], cred.get("kind") or "token",
+                                           cred.get("api_url") or "", info["login"])
+        return {"ok": True, **info}
+
+    @app.get("/api/integrations/github/{name}/repos")
+    async def github_credential_repos(name: str, query: str = ""):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        try:
+            repos = await asyncio.wait_for(
+                list_repos(name, cred["token"], cred.get("api_url") or None, query), timeout=60)
+        except ValueError as e:
+            _err(e, 502)
+        except (TimeoutError, asyncio.TimeoutError):
+            _err(ValueError("GitHub took too long to list repositories"), 504)
+        return {"repos": repos}
 
     # ── Ask sessions — server-side chat history, so a conversation survives navigation and a
     # console reopened tomorrow can pick up where it left off. The console PUTs the whole session

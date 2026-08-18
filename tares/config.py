@@ -291,6 +291,12 @@ def validate_mcp_server_dict(m: dict) -> None:
     header = str(m.get("auth_header") or "").strip()
     if header and not re.fullmatch(r"[A-Za-z0-9-]+", header):
         raise CatalogError(f"mcp_server {m['name']!r}: auth_header must be a header name")
+    headers = m.get("headers") or {}
+    if not isinstance(headers, dict):
+        raise CatalogError(f"mcp_server {m['name']!r}: headers must be a map of name to value")
+    for k in headers:
+        if not re.fullmatch(r"[A-Za-z0-9-]+", str(k).strip()):
+            raise CatalogError(f"mcp_server {m['name']!r}: header {k!r} must be a header name")
 
 
 def import_yaml_to_db(store, text: str, engine=None) -> dict:
@@ -367,8 +373,13 @@ def import_catalog_dict(store, raw: dict, engine=None) -> dict:
             store.remove_subscription_by_url(url)
 
     for m in mcp_servers:
+        # blank-to-keep for the secret: a YAML without auth_value (an export without secrets
+        # re-imported) must not wipe a stored credential
+        existing = store.get_mcp_server(m["name"]) or {}
+        auth_value = m.get("auth_value") if m.get("auth_value") else existing.get("auth_value")
         store.upsert_mcp_server(m["name"], str(m["url"]).strip(),
-                                m.get("auth_header"), m.get("auth_value"))
+                                m.get("auth_header"), auth_value,
+                                {str(k): str(v) for k, v in (m.get("headers") or {}).items()})
 
     # use cases: {recipe, name, params}. Created (or, by name, updated) through the engine so
     # they own their objects like a console-created instance would.
@@ -447,11 +458,16 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     enabled_urls = {s["url"] for s in store.all_subscriptions()}
     # MCP connections: the URL and header name are configuration, the value is a credential —
     # same rule as every other secret here.
+    # A `credential:github/<name>` reference is not a secret (the token lives in the credential),
+    # so it is exported either way; extra headers are plain configuration.
     mcp_out = [
         {"name": m["name"], "url": m["url"],
          **({"auth_header": m["auth_header"]} if m.get("auth_header") else {}),
          **({"auth_value": m["auth_value"]}
-            if include_secrets and m.get("auth_value") else {})}
+            if m.get("auth_value") and (include_secrets
+                                        or str(m["auth_value"]).startswith("credential:github/"))
+            else {}),
+         **({"headers": m["headers"]} if m.get("headers") else {})}
         for m in store.list_mcp_servers()
     ]
 

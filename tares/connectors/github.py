@@ -56,9 +56,14 @@ class GithubConnector(Connector):
                    "help": "branch to follow (empty = the repo's default branch, labeled by its "
                            "real name). One source follows one branch; add a source per branch "
                            "to watch several"},
+        "credential": {"type": "string", "discover_input": True,
+                       "help": "name of a stored GitHub credential (Settings > GitHub); the token "
+                               "is read from it at every poll, so rotating the credential rotates "
+                               "this source too. Set this or `token`, not both"},
         "token": {"type": "string", "secret": True, "discover_input": True,
-                  "help": "GitHub token; required for private repos, recommended otherwise: "
-                          "without one GitHub allows 60 API requests/hour per IP"},
+                  "help": "GitHub token for this source only; required for private repos, "
+                          "recommended otherwise: without one GitHub allows 60 API requests/hour "
+                          "per IP. Prefer a stored credential"},
         "limit": {"type": "number", "default": 20,
                   "help": "newest commits fetched per poll (the first poll imports this many)"},
         "api_url": {"type": "string", "advanced": True,
@@ -102,11 +107,33 @@ class GithubConnector(Connector):
             etags[etag_key] = r.headers["etag"]
         return r.json()
 
+    def _token(self) -> str | None:
+        """The token to use: the stored credential named in `credential` (resolved now, so a
+        rotation is picked up on the next poll), else this source's own `token`."""
+        c = self.cfg.config
+        if c.get("credential"):
+            from ..github_credentials import resolve_github_token
+            token = resolve_github_token(self.store, c["credential"])
+            if not token:
+                raise ValueError(f"GitHub credential {c['credential']!r} not found or empty "
+                                 "(Settings > GitHub)")
+            return token
+        return c.get("token") or None
+
+    def _api(self) -> str:
+        c = self.cfg.config
+        if not c.get("api_url") and c.get("credential"):
+            from ..github_credentials import resolve_api_url
+            url = resolve_api_url(self.store, c["credential"])
+            if url:
+                return url.rstrip("/")
+        return (c.get("api_url") or _API_DEFAULT).rstrip("/")
+
     async def poll(self):
         c = self.cfg.config
         repo = _normalize_repo(c["repo"])
-        api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
-        token = c.get("token")
+        api = self._api()
+        token = self._token()
         limit = int(c.get("limit", 20))
         async with httpx.AsyncClient(timeout=15) as cx:
             branch = str(c.get("branch") or "")
@@ -198,6 +225,9 @@ class GithubConnector(Connector):
             "recent_authors": authors[:8],
             "proposed_config": {
                 "repo": repo, "branch": branch,
+                # keep the credential reference the user chose (the daemon resolved it into a
+                # token for this call; the token itself must not land in the proposal)
+                **({"credential": config["credential"]} if config.get("credential") else {}),
                 "labels": [{"name": "repo", "field": "repo", "primary": True},
                            {"name": "author", "field": "author"},
                            {"name": "branch", "field": "branch"}],

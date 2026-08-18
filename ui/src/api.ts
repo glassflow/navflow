@@ -3,6 +3,7 @@ import type {
   ApiKey,
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchDetail, DispatchLogEntry, Entity, EnvScan,
   AgentPreset, AgentRun, BuiltinAgent,
+  GithubCredential,
   LabelFacet, QueryLogEntry,
   Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
@@ -217,10 +218,13 @@ export const api = {
   // ── MCP connections: external tool servers agents can opt into ──
   mcpServers: () =>
     request<{ servers: { name: string; url: string; auth_header: string;
-                         auth_value_configured: boolean; updated_at: string }[] }>("/api/mcp-servers"),
-  createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+                         auth_value_configured: boolean; auth_credential: string;
+                         headers: Record<string, string>; updated_at: string }[] }>("/api/mcp-servers"),
+  createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string;
+                            headers?: Record<string, string> }) =>
     request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
-  updateMcpServer: (name: string, body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+  updateMcpServer: (name: string, body: { name: string; url: string; auth_header?: string; auth_value?: string;
+                                          headers?: Record<string, string> }) =>
     request<{ ok: boolean }>(`/api/mcp-servers/${encodeURIComponent(name)}`,
       { method: "PUT", body: JSON.stringify(body) }),
   deleteMcpServer: (name: string) =>
@@ -228,6 +232,24 @@ export const api = {
   testMcpServer: (name: string) =>
     request<{ ok: boolean; error?: string; tools: { name: string; description: string }[] }>(
       `/api/mcp-servers/${encodeURIComponent(name)}/test`, { method: "POST" }),
+
+  // ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+  githubCredentials: () =>
+    request<{ credentials: GithubCredential[] }>("/api/integrations/github"),
+  createGithubCredential: (body: { name: string; token: string; api_url?: string }) =>
+    request<{ ok: boolean; account: string }>("/api/integrations/github",
+      { method: "POST", body: JSON.stringify(body) }),
+  updateGithubCredential: (name: string, body: { name: string; token?: string; api_url?: string }) =>
+    request<{ ok: boolean; account: string }>(`/api/integrations/github/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  deleteGithubCredential: (name: string) =>
+    request<{ ok: boolean }>(`/api/integrations/github/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  testGithubCredential: (name: string) =>
+    request<{ ok: boolean; error?: string; login?: string; name?: string; scopes?: string[] }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/test`, { method: "POST" }),
+  githubCredentialRepos: (name: string, query = "") =>
+    request<{ repos: { full_name: string; default_branch: string; private: boolean; pushed_at: string | null }[] }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/repos?query=${encodeURIComponent(query)}`),
 
   // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──
   askSessions: () =>

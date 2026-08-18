@@ -348,3 +348,17 @@ export interface TestResult {
   error?: string;
   note?: string;
 }
+
+// A GitHub token stored once (Settings > GitHub) and referenced by name from sources and MCP
+// servers. The token itself never comes back over the API.
+export interface GithubCredential {
+  name: string;
+  kind: string;
+  api_url: string;
+  account: string;
+  token_configured: boolean;
+  created_at: string;
+  updated_at: string;
+  sources: string[];
+  mcp_servers: string[];
+}
