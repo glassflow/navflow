@@ -1309,3 +1309,14 @@ pre.payload {
 
 /* a hint inside a field label stays on the label's line */
 .lbl .help { display: inline; margin: 0 0 0 4px; font-weight: 400; }
+
+/* "?" beside a label, opens an InfoDialog */
+.help-btn {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 16px; height: 16px; margin-left: 6px; padding: 0; line-height: 1;
+  border: 1px solid var(--line); border-radius: 0; background: var(--panel);
+  color: var(--ink-soft); font: 600 11px/1 var(--mono); cursor: pointer;
+}
+.help-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+.perm-table { width: 100%; }
+.perm-table td, .perm-table th { padding: 6px 8px; font-size: 13px; }

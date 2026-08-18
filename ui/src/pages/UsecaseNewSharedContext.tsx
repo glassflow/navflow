@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { Combo, Picker } from "../components/bits";
+import InfoDialog, { HelpButton } from "../components/InfoDialog";
 import type { GithubCredential, Recipe, Usecase } from "../types";
 
 // The shared code context wizard: pick the GitHub repos that are the sources of context, pick
@@ -46,6 +47,7 @@ export default function UsecaseNewSharedContext() {
   const [credName, setCredName] = useState("github");
   const [credToken, setCredToken] = useState("");
   const [credApi, setCredApi] = useState("");
+  const [tokenHelp, setTokenHelp] = useState(false);
   const [credTest, setCredTest] = useState<{ busy?: boolean; ok?: boolean; login?: string; error?: string }>();
 
   // step 2: source repos
@@ -271,8 +273,7 @@ export default function UsecaseNewSharedContext() {
           <h2 style={{ marginTop: 0 }}>GitHub access</h2>
           <p className="help">
             One token, stored once under Settings, used by every source this use case creates and by
-            the agent when it writes to the context repo. A fine-grained token with Contents read on the
-            source repos, Contents and Pull requests read and write on the context repo, Metadata read.
+            the agent when it writes to the context repo.
           </p>
           {credentials === undefined && <div className="dim">loading…</div>}
           {credentials && credentials.length > 0 && !newCred && (
@@ -309,7 +310,7 @@ export default function UsecaseNewSharedContext() {
                 </label>
               </div>
               <label className="field">
-                <span className="lbl">token</span>
+                <span className="lbl">token <HelpButton onClick={() => setTokenHelp(true)} label="Which permissions does the token need?" /></span>
                 <input type="password" className="mono" autoComplete="new-password" value={credToken}
                        placeholder="github_pat_…" onChange={(e) => setCredToken(e.target.value)} />
                 <span className="help">stored as a secret, never shown again; rotate it under Settings</span>
@@ -532,6 +533,25 @@ export default function UsecaseNewSharedContext() {
         )}
         <Link className="btn" to={editId ? `/usecases/${encodeURIComponent(editId)}` : "/usecases"}>Cancel</Link>
       </div>
+      {tokenHelp && (
+        <InfoDialog title="Token permissions" onClose={() => setTokenHelp(false)}>
+          <p className="help" style={{ margin: 0 }}>
+            Create a fine-grained personal access token on GitHub (Settings, Developer settings, Personal access tokens, Fine-grained tokens).
+            Under Repository access pick the source repos and the context repo. Then add these repository permissions:
+          </p>
+          <table className="perm-table">
+            <thead><tr><th>permission</th><th>access</th><th>why</th></tr></thead>
+            <tbody>
+              <tr><td>Contents</td><td>Read and write</td><td>read commits and diffs in the source repos; create branches and files in the context repo</td></tr>
+              <tr><td>Pull requests</td><td>Read and write</td><td>open the pull request in the context repo</td></tr>
+              <tr><td>Metadata</td><td>Read-only</td><td>added by GitHub automatically; lists the repos</td></tr>
+            </tbody>
+          </table>
+          <p className="help" style={{ margin: 0 }}>
+            Write access is only used on the context repo. If you prefer, grant Contents read on the source repos with one token and use a second credential with write access for the context repo later; one token is the simple setup.
+          </p>
+        </InfoDialog>
+      )}
     </>
   );
 }
