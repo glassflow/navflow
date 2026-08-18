@@ -9,6 +9,7 @@ not a lock on them.
 from .base import PlannedObject, Recipe, UsecaseError
 from .engine import Engine
 from .registry import get_recipe, list_recipes, register
+from . import shared_code_context as _shared_code_context  # noqa: F401  (registers itself)
 
 __all__ = ["Engine", "PlannedObject", "Recipe", "UsecaseError",
            "get_recipe", "list_recipes", "register"]

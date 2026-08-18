@@ -1,0 +1,312 @@
+"""Use case: shared code context.
+
+A team keeps its shared context (what each service does, its interfaces, configuration, how the
+repos depend on each other) in one GitHub repository. This recipe watches commits across the
+team's code repos and, whenever something lands, a Tares agent reads the diff and updates the
+context repo so it never goes stale. The context repo is the source of truth; the agent writes
+to it through GitHub's hosted MCP server, registered by the recipe with the same stored credential
+the sources use.
+
+Objects one instance owns (all names prefixed `ctx_<slug>_`): one `github` commits source per
+source repo, one view keyed by repo, one trigger that fires on any new commit (batched per repo),
+one MCP server (GitHub, toolsets repos + pull_requests), one Tares agent subscribed to the trigger.
+"""
+from __future__ import annotations
+
+import re
+
+from ..github_credentials import CREDENTIAL_PREFIX
+from .base import PlannedObject, Recipe, UsecaseError
+from .registry import register
+
+GITHUB_MCP_URL = "https://api.githubcopilot.com/mcp/"
+MAX_REPOS = 50
+_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+TRIGGERS = {
+    # only this one is offered today; "every merged PR" needs the github_webhook connector and
+    # "daily" needs scheduled triggers, so both stay out of PARAMS until they exist
+    "every_commit": {"label": "every commit to the branch (batched per repo)",
+                     "window": "2m", "cooldown": "5m"},
+}
+WRITE_MODES = ("pull_request", "commit_to_branch")
+
+PROMPT = """You maintain the shared context repository `{context_repo}` (branch `{context_branch}`, \
+under `{context_path}`) for the team. Its pages tell teammates and agents working in other repos \
+what each repository does and how it is used. Your input is the attached timeline of recent commits \
+to `{repo_hint}`; the source repositories are: {source_repos}.
+
+Steps:
+1. For each commit in the timeline call `github__get_commit` on its repository and sha to see the \
+diff. If the diff comes back truncated, fetch the specific files you need with \
+`github__get_file_contents` at that sha instead of guessing.
+2. Decide whether the change alters anything a teammate or an agent working in another repo must \
+know: public interfaces, APIs and contracts, config and environment variables, data schemas, \
+deployment or runtime behaviour, dependencies between repos, conventions. Ignore pure refactors, \
+tests, formatting and version bumps unless they change behaviour.
+3. Read `{context_path}<repo-name>.md` (repo-name is the part after the slash) with \
+`github__get_file_contents` from `{context_repo}` on `{context_branch}`; if it does not exist, \
+create it from the page template below. Read `{context_path}README.md` (the index) the same way.
+4. Rewrite only the sections the change affects. Keep facts that still hold, drop what the diff \
+makes false, add what is new. Every claim carries the short sha of the commit it comes from, like \
+(abc1234). Keep the page short and factual; no filler.
+5. {write_instructions}
+6. If nothing needs updating, do not write anything; say why.
+
+Finish with a finding for the timeline: what changed in the context repo and the pull request or \
+commit link, or "no update needed" with the reason. Keep the finding under 12 lines.
+
+Page template for `{context_path}<repo-name>.md`:
+# <repo-name>
+Purpose: one paragraph.
+## How to run
+## Interfaces (APIs, events, CLIs)
+## Configuration
+## Data
+## Depends on / used by
+## Recent changes
+- <date> <sha> one line
+
+Index template for `{context_path}README.md`: a title, one sentence saying Tares keeps these pages \
+current, then one line per repository linking its page.
+"""
+
+WRITE_PR = ("Write the changed pages with `github__create_or_update_file` on a branch named "
+            "`tares/context-<repo-name>-<YYYYMMDD>` in `{context_repo}` (create the branch from "
+            "`{context_branch}` with `github__create_branch` if it does not exist; if a pull request "
+            "from that branch is already open, add your commit to the same branch and do not open "
+            "another). Then open one pull request against `{context_branch}` with "
+            "`github__create_pull_request`, titled `context: <repo-name>` and a body listing the "
+            "commits (sha and first line) it reflects.")
+WRITE_DIRECT = ("Write the changed pages with `github__create_or_update_file` directly on "
+                "`{context_branch}` in `{context_repo}`, one commit per page, message "
+                "`context: <repo-name> after <sha>`. Do not open a pull request.")
+
+
+def _slug(text: str, n: int = 24) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
+    return s[:n] or "usecase"
+
+
+def _repo_name(repo: str) -> str:
+    return repo.split("/", 1)[1]
+
+
+def _norm_repo(value) -> str:
+    r = str(value or "").strip().rstrip("/")
+    if "://" in r:
+        r = r.split("://", 1)[1]
+    parts = r.split("/")
+    if parts and "." in parts[0]:
+        parts = parts[1:]
+    r = "/".join(parts[:2])
+    if r.endswith(".git"):
+        r = r[:-4]
+    if not _REPO_RE.match(r):
+        raise UsecaseError(f"repository must be owner/name (got {value!r})")
+    return r
+
+
+class SharedCodeContext(Recipe):
+    key = "shared_code_context"
+    title = "Shared code context"
+    description = ("Keep one repository of shared context current: Tares watches commits across "
+                   "your code repos and an agent updates the context repo when something changes.")
+    PARAMS = {
+        "credential": {"type": "string", "required": True, "label": "GitHub credential",
+                       "help": "name of a stored GitHub credential (Settings > GitHub); read on the "
+                               "source repos, write on the context repo"},
+        "source_repos": {"type": "list", "required": True, "label": "Source repositories",
+                         "help": "the repositories whose commits feed the context, as "
+                                 "[{repo: owner/name, branch: main}] (branch optional: the repo's "
+                                 "default branch); 1 to 50",
+                         "item": {"repo": {"type": "string", "required": True},
+                                  "branch": {"type": "string"}}},
+        "context_repo": {"type": "string", "required": True, "label": "Context repository",
+                         "help": "owner/name of the repository the agent keeps up to date; not one "
+                                 "of the source repos"},
+        "context_branch": {"type": "string", "default": "main", "label": "Context branch",
+                           "help": "branch of the context repo pull requests target"},
+        "context_path": {"type": "string", "default": "context/", "label": "Context path",
+                         "help": "folder inside the context repo holding one page per repository"},
+        "trigger": {"type": "string", "default": "every_commit", "label": "Run when",
+                    "options": [{"value": k, "label": v["label"]} for k, v in TRIGGERS.items()],
+                    "help": "what wakes the agent"},
+        "write_mode": {"type": "string", "default": "pull_request", "label": "Write as",
+                       "options": [{"value": "pull_request", "label": "a pull request for review"},
+                                   {"value": "commit_to_branch",
+                                    "label": "commits straight to the context branch"}],
+                       "help": "pull requests keep a human in the loop; commits keep the repo "
+                               "current with no review"},
+        "model": {"type": "string", "default": "", "label": "Model",
+                  "help": "model for the agent (empty = the instance default)"},
+        "max_rounds": {"type": "number", "default": 12, "label": "Max rounds",
+                       "help": "model rounds per run; reading diffs and writing pages needs more "
+                               "than the default 6"},
+    }
+
+    # ── params ───────────────────────────────────────────────────────────────
+    def validate(self, params: dict) -> dict:
+        p = super().validate(params)
+        p["credential"] = str(p["credential"]).strip()
+        raw = p.get("source_repos") or []
+        if isinstance(raw, str):
+            raw = [line for line in raw.replace(",", "\n").splitlines() if line.strip()]
+        repos, seen = [], set()
+        for item in raw:
+            if isinstance(item, str):
+                item = {"repo": item}
+            if not isinstance(item, dict):
+                raise UsecaseError("source_repos entries must be {repo, branch}")
+            repo = _norm_repo(item.get("repo"))
+            if repo.lower() in seen:
+                raise UsecaseError(f"repository {repo} is listed twice")
+            seen.add(repo.lower())
+            repos.append({"repo": repo, "branch": str(item.get("branch") or "").strip()})
+        if not repos:
+            raise UsecaseError("pick at least one source repository")
+        if len(repos) > MAX_REPOS:
+            raise UsecaseError(f"at most {MAX_REPOS} source repositories per use case")
+        p["source_repos"] = repos
+        p["context_repo"] = _norm_repo(p.get("context_repo"))
+        if p["context_repo"].lower() in seen:
+            raise UsecaseError("the context repository cannot also be a source repository")
+        p["context_branch"] = str(p.get("context_branch") or "main").strip() or "main"
+        path = str(p.get("context_path") or "context/").strip().strip("/")
+        p["context_path"] = (path + "/") if path else ""
+        if p.get("trigger") not in TRIGGERS:
+            raise UsecaseError(f"trigger must be one of {sorted(TRIGGERS)}")
+        if p.get("write_mode") not in WRITE_MODES:
+            raise UsecaseError(f"write_mode must be one of {list(WRITE_MODES)}")
+        p["model"] = str(p.get("model") or "").strip()
+        try:
+            rounds = int(p.get("max_rounds") or 12)
+        except (TypeError, ValueError):
+            raise UsecaseError("max_rounds must be a whole number between 1 and 24")
+        if not 1 <= rounds <= 24:
+            raise UsecaseError("max_rounds must be between 1 and 24")
+        p["max_rounds"] = rounds
+        return p
+
+    def preflight(self, params: dict, store) -> None:
+        if store.get_github_credential(params["credential"]) is None:
+            raise UsecaseError(f"GitHub credential {params['credential']!r} not found; add it "
+                               "under Settings > GitHub first")
+
+    # ── plan ─────────────────────────────────────────────────────────────────
+    def names(self, params: dict) -> dict:
+        s = _slug(params.get("context_repo", ""))
+        return {"prefix": f"ctx_{s}_", "view": f"ctx_{s}_repo_activity",
+                "trigger": f"ctx_{s}_changes", "mcp": f"ctx_{s}_github",
+                "agent": f"ctx_{s}_maintainer"}
+
+    def source_name(self, params: dict, repo: str) -> str:
+        return self.names(params)["prefix"] + _slug(repo, 48)
+
+    def plan(self, params: dict) -> list[PlannedObject]:
+        n = self.names(params)
+        cred = params["credential"]
+        objs: list[PlannedObject] = []
+        source_names = []
+        for item in params["source_repos"]:
+            repo = item["repo"]
+            name = self.source_name(params, repo)
+            source_names.append(name)
+            config = {"repo": repo, "credential": cred, "limit": 20,
+                      "labels": [{"name": "repo", "field": "repo", "primary": True},
+                                 {"name": "author", "field": "author"},
+                                 {"name": "branch", "field": "branch"}]}
+            if item.get("branch"):
+                config["branch"] = item["branch"]
+            objs.append(PlannedObject("source", f"source:{repo}", {
+                "name": name, "connector": "github", "poll": "60s", "config": config}))
+        objs.append(PlannedObject("view", "view", {
+            "name": n["view"], "key_field": "repo", "sources": source_names}))
+        trig = TRIGGERS[params["trigger"]]
+        objs.append(PlannedObject("trigger", "trigger", {
+            "name": n["trigger"], "view": n["view"],
+            "condition": {"aggregate": "count", "predicate": "> 0", "window": trig["window"],
+                          "group_by": ["key_value"]},
+            "emit": {"kind": "code_change", "attach_view": True, "context_window": "30m"},
+            "cooldown": trig["cooldown"]}))
+        objs.append(PlannedObject("mcp_server", "mcp", {
+            "name": n["mcp"], "url": GITHUB_MCP_URL, "auth_header": "Authorization",
+            "auth_value": CREDENTIAL_PREFIX + cred,
+            "headers": {"X-MCP-Toolsets": "repos,pull_requests"}}))
+        agent = {"name": n["agent"], "trigger": n["trigger"], "prompt": self.render_prompt(params),
+                 "mcp_servers": [n["mcp"]], "max_rounds": params["max_rounds"], "enabled": True}
+        if params.get("model"):
+            agent["model"] = params["model"]
+        objs.append(PlannedObject("agent", "agent", agent))
+        return objs
+
+    def render_prompt(self, params: dict) -> str:
+        write = WRITE_PR if params["write_mode"] == "pull_request" else WRITE_DIRECT
+        fmt = {"context_repo": params["context_repo"], "context_branch": params["context_branch"],
+               "context_path": params["context_path"]}
+        return PROMPT.format(
+            repo_hint="one of the source repositories (the timeline says which)",
+            source_repos=", ".join(f"`{r['repo']}`" for r in params["source_repos"]),
+            write_instructions=write.format(**fmt), **fmt)
+
+    # ── summary (the use case page) ──────────────────────────────────────────
+    def summary(self, instance: dict, store) -> dict:
+        params = instance["params"]
+        n = self.names(params)
+        stats = {s["source"]: s for s in store.event_stats()}
+        repos = []
+        for item in params["source_repos"]:
+            name = self.source_name(params, item["repo"])
+            st = stats.get(name) or {}
+            last_fired = store.last_fired(n["trigger"], item["repo"])
+            repos.append({"repo": item["repo"], "branch": item.get("branch") or "",
+                          "source": name, "events": int(st.get("events") or 0),
+                          "last_commit": _iso(st.get("last_ingest")),
+                          "last_fired": _iso(last_fired)})
+        runs = []
+        for r in store.list_agent_runs(n["agent"], limit=10):
+            runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
+                         "repo": r.get("key"), "status": r.get("status"),
+                         "rounds": r.get("rounds"), "max_rounds": r.get("max_rounds"),
+                         "pr_url": _pr_link(r.get("finding")), "finding": r.get("finding"),
+                         "error": r.get("error")})
+        all_runs = store.list_agent_runs(n["agent"], limit=500)
+        prs = [u for u in (_pr_link(r.get("finding")) for r in all_runs) if u]
+        return {"context_repo": params["context_repo"], "context_branch": params["context_branch"],
+                "context_path": params["context_path"], "write_mode": params["write_mode"],
+                "repos": repos, "runs": runs,
+                "runs_total": len(all_runs),
+                "runs_ok": sum(1 for r in all_runs if r.get("status") == "ok"),
+                "prs_opened": len(set(prs)),
+                "last_fired": max((r["last_fired"] for r in repos if r["last_fired"]), default=None),
+                "objects": n}
+
+    # ── bootstrap: first pages right after Start ─────────────────────────────
+    def after_create(self, instance: dict, store, runtime) -> None:
+        """Run the agent once per source repo over the last 7 days of commits so the context repo
+        gets its first pages now instead of at the next commit. Best effort: the sources need a
+        first poll to have anything to read, so this schedules the runs a little later and skips
+        repos with no commits yet."""
+        agents = getattr(getattr(runtime, "dispatcher", None), "agents", None)
+        if agents is None or not hasattr(agents, "run_now"):
+            return
+        n = self.names(instance["params"])
+        repos = [r["repo"] for r in instance["params"]["source_repos"]]
+        agents.bootstrap(n["agent"], n["trigger"], n["view"], repos, window="7d", limit=20)
+
+
+_PR_RE = re.compile(r"https://github\.com/[^\s)\]]+/(?:pull|commit)/[^\s)\]]+")
+
+
+def _pr_link(text: str | None) -> str | None:
+    m = _PR_RE.search(text or "")
+    return m.group(0) if m else None
+
+
+def _iso(v):
+    if v is None:
+        return None
+    return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
+
+register(SharedCodeContext())

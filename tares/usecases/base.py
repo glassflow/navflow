@@ -53,12 +53,23 @@ class Recipe:
                 out[name] = spec["default"]
         return out
 
+    def preflight(self, params: dict, store) -> None:
+        """Optional checks that need the store (a referenced credential exists, ...), run by the
+        engine after validate() and before plan() on create and update. Raise UsecaseError."""
+        return None
+
     def plan(self, params: dict) -> list[PlannedObject]:
         raise NotImplementedError
 
     def summary(self, instance: dict, store) -> dict:
         """What the use case page shows beyond the object list. Default: nothing extra."""
         return {}
+
+    def after_create(self, instance: dict, store, runtime) -> None:
+        """Optional hook the engine calls once after a successful create, with the runtime (None
+        while the daemon boots from a catalog file). Best effort: an error here is logged on the
+        instance and never undoes the create."""
+        return None
 
     def describe(self) -> dict:
         return {"key": self.key, "title": self.title, "description": self.description,

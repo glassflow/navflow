@@ -53,6 +53,7 @@ TOOL_TIMEOUT = 120        # per Anthropic request
 # Cost ceiling. A trigger in a hot loop can fire far more often than anyone expects; without a cap
 # the first surprise is the bill. Per-agent and per-day, counted from the run log.
 DAILY_RUN_CAP = int(os.getenv("TARES_AGENT_DAILY_CAP", "50"))
+MAX_BOOTSTRAP_KEYS = 50    # a use case bootstraps at most this many entities in one go
 
 def effective_max_rounds(agent: dict) -> int:
     """The round cap a run is held to: the agent's own setting when set, else the default for its
@@ -195,6 +196,71 @@ class AgentRunner:
         self.store.log_delivery(dispatch_id, subscription_id, agent_url(agent_name), None)
         task = asyncio.create_task(self._guarded(agent, subscription_id, trigger_name, key,
                                                  payload, dispatch_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    # ── manual and bootstrap runs (no firing behind them) ────────────────────
+    def run_now(self, agent_name: str, trigger_name: str, key: str, payload: str) -> str | None:
+        """Run an agent once outside a firing (a use case bootstrapping its first pages, a manual
+        re-run). Same run record, same caps and dedupe as a firing; no delivery row, since there is
+        no dispatch. Returns the run id, or None when the agent does not exist or is already
+        running for this key."""
+        agent = self.store.get_catalog_agent(agent_name)
+        if agent is None or (agent_name, key) in self._inflight:
+            return None
+        run_id = "run_" + uuid.uuid4().hex[:12]
+        marker = (agent_name, key)
+        self._inflight.add(marker)
+        self.store.start_agent_run(run_id, agent_name, trigger_name, "", key,
+                                   prompt_hash(agent["prompt"]), effective_max_rounds(agent))
+
+        async def go():
+            try:
+                await self._run(agent, trigger_name, key, payload, run_id, None)
+            except Exception as e:
+                detail = f"{type(e).__name__}: {str(e) or repr(e)}"
+                self.store.finish_agent_run(run_id, "failed", error=detail[:500])
+                print(f"[agent {agent_name}] {detail}")
+            finally:
+                self._inflight.discard(marker)
+
+        task = asyncio.create_task(go())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return run_id
+
+    def bootstrap(self, agent_name: str, trigger_name: str, view_name: str, keys: list[str],
+                  window: str = "7d", limit: int = 20, delay_s: float = 90.0,
+                  concurrency: int = 10) -> None:
+        """Schedule one run per key over a wide window of the view, a little later (the sources
+        behind a fresh use case need their first poll before there is anything to read). Keys whose
+        timeline is empty at that point are skipped, so an idle repo costs nothing. Runs go through
+        run_now, so the daily cap and dedupe apply."""
+
+        async def go():
+            await asyncio.sleep(delay_s)
+            sem = asyncio.Semaphore(max(1, concurrency))
+
+            async def one(key: str):
+                async with sem:
+                    catalog = self.runtime.catalog
+                    if view_name not in catalog.views:
+                        return
+                    payload, count, _rows = resolve_query_full(self.store, catalog, view_name,
+                                                               key=key, window=window)
+                    if not count:
+                        print(f"[agent {agent_name}] bootstrap: no events for {key} yet, skipped")
+                        return
+                    rid = self.run_now(agent_name, trigger_name, key, payload)
+                    if rid:
+                        print(f"[agent {agent_name}] bootstrap run {rid} for {key} ({count} events)")
+                        # wait for the run so the semaphore really bounds concurrency
+                        while (agent_name, key) in self._inflight:
+                            await asyncio.sleep(2)
+
+            await asyncio.gather(*(one(k) for k in keys[:MAX_BOOTSTRAP_KEYS]))
+
+        task = asyncio.create_task(go())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

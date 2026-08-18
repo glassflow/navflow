@@ -358,7 +358,7 @@ def make_app() -> FastAPI:
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
     # Use cases: recipes instantiated with params; they create and own ordinary catalog objects.
-    usecases = UsecaseEngine(store, reload=runtime.reload_catalog)
+    usecases = UsecaseEngine(store, reload=runtime.reload_catalog, runtime=runtime)
     # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
@@ -408,6 +408,7 @@ def make_app() -> FastAPI:
 
     app = FastAPI(title="taresd", lifespan=lifespan)
     app.state.store = store   # for in-process tests; DuckDB is single-writer, so no second Store
+    app.state.runtime = runtime
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 

@@ -13,6 +13,19 @@ the project follows [Semantic Versioning](https://semver.org/).
   final call with tools disabled to conclude from what it has; if it still cannot, the run ends
   `exhausted` (a new status, not a failure), keeps the last text as a partial note, and says to raise
   max rounds. Catalog YAML imports and exports the field; the agent form has it under Advanced.
+- **Use case: shared code context.** The first recipe on the use-case framework. Given a stored
+  GitHub credential, a list of source repositories and a context repository, it creates one commits
+  source per repo, a `repo_activity` view keyed by repo, a trigger that fires on any new commit
+  (batched per repo, 5m cooldown), GitHub's hosted MCP server registered with the same credential
+  (toolsets `repos,pull_requests`), and a Tares agent that reads each diff and keeps one page per
+  repository in the context repo current, as a pull request (default) or direct commits. Right
+  after Start it runs once per repo over the last 7 days so the first pages appear without waiting
+  for a commit. `POST /api/usecases` with `recipe: shared_code_context`, or a `usecases:` entry in
+  the catalog.
+- **GitHub commits carry their changed files.** With a token or credential, the `github` connector
+  fetches each new commit's file list (paths, status, additions, deletions, patch) into the payload,
+  capped at 20 files and 4k characters per patch with a `files_truncated` flag; one extra API call
+  per commit, paused for 10 minutes when the rate limit runs low. Off with `files: false`.
 
 ## [1.7.1] — 2026-08-17
 

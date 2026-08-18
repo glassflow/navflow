@@ -22,11 +22,13 @@ _SECTION = {"source": "sources", "view": "views", "trigger": "triggers",
 
 
 class Engine:
-    def __init__(self, store, reload=None):
+    def __init__(self, store, reload=None, runtime=None):
         """`reload`: called after every catalog change (the runtime's reload_catalog); None while
-        the daemon is still booting, since the runtime builds its catalog from the DB afterwards."""
+        the daemon is still booting, since the runtime builds its catalog from the DB afterwards.
+        `runtime`: handed to a recipe's after_create hook (bootstrap runs); None at boot."""
         self.store = store
         self._reload = reload
+        self.runtime = runtime
 
     # ── read side ────────────────────────────────────────────────────────────
     def list_recipes(self) -> list[dict]:
@@ -74,6 +76,7 @@ class Engine:
     def create(self, recipe_key: str, params: dict, name: str | None = None) -> dict:
         recipe = get_recipe(recipe_key)
         params = recipe.validate(params)
+        recipe.preflight(params, self.store)
         name = (name or "").strip() or f"{recipe.title or recipe.key}"
         if self.store.get_usecase_by_name(name) is not None:
             raise UsecaseError(f"a use case named {name!r} already exists")
@@ -96,12 +99,18 @@ class Engine:
             raise
         self._do_reload()
         self.store.log_usecase(uid, "created", ", ".join(f"{o.kind}:{o.name}" for o in plan))
+        inst = self.get(uid)
+        try:
+            recipe.after_create(inst, self.store, self.runtime)
+        except Exception as e:   # the objects exist; a failed bootstrap is a note, not a rollback
+            self.store.log_usecase(uid, "bootstrap_failed", _errtext(e))
         return self.get(uid)
 
     def update(self, uid: str, params: dict) -> dict:
         inst = self._require(uid)
         recipe = get_recipe(inst["recipe"])
         params = recipe.validate(params)
+        recipe.preflight(params, self.store)
         plan = recipe.plan(params)
         existing = {(o["kind"], o["key"]): o for o in self.store.list_usecase_objects(uid)}
         current = self._existing_names()
