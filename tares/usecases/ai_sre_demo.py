@@ -191,7 +191,8 @@ class AiSreDemo(Recipe):
         if r.status_code >= 300:
             raise UsecaseError(f"api-server answered {r.status_code} for {scenario}")
         msg = ("fault cleared; the alert resolves within about a minute" if scenario == "clear"
-               else f"{scenario} injected; watch Explore for the alert and the agent's finding")
+               else f"{scenario} injected; in about 30 seconds the alert fires, the trigger wakes the "
+                    f"agent, and its run appears under Runs below")
         return {"scenario": scenario, "message": msg}
 
     # ── summary ──────────────────────────────────────────────────────────────
