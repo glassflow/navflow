@@ -309,12 +309,12 @@ export default function UsecaseNewSharedContext() {
                   <span className="help">optional; leave empty for github.com</span>
                 </label>
               </div>
-              <label className="field">
-                <span className="lbl">token <HelpButton onClick={() => setTokenHelp(true)} label="Which permissions does the token need?" /></span>
-                <input type="password" className="mono" autoComplete="new-password" value={credToken}
+              <div className="field">
+                <span className="lbl"><label htmlFor="uc-token">token</label> <HelpButton onClick={() => setTokenHelp(true)} label="Which permissions does the token need?" /></span>
+                <input id="uc-token" type="password" className="mono" autoComplete="new-password" value={credToken}
                        placeholder="github_pat_…" onChange={(e) => setCredToken(e.target.value)} />
                 <span className="help">stored as a secret, never shown again; rotate it under Settings</span>
-              </label>
+              </div>
               <div className="btnrow">
                 <button className="primary" onClick={addCredential}
                         disabled={busy || !credName.trim() || !credToken.trim()}>Save credential</button>
