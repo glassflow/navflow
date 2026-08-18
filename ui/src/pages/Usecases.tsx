@@ -29,7 +29,7 @@ export function usecaseKindCounts(u: Usecase) {
 const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
   shared_code_context: {
     you: ["pick the code repos to watch", "pick the repo that holds the shared context", "choose when it runs and how it writes"],
-    tares: ["one commits source per repo", "a view with one timeline per repo", "a trigger that fires when commits land", "an agent that reads each diff and updates the context repo, through GitHub's MCP server"],
+    tares: ["a source for each repo, so its commits flow into Tares", "a timeline per repo you can explore and query", "a trigger that wakes the agent when new commits land", "an agent that reads each change and updates the context repo, opening a pull request"],
   },
 };
 
