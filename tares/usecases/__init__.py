@@ -10,6 +10,7 @@ from .base import PlannedObject, Recipe, UsecaseError
 from .engine import Engine
 from .registry import get_recipe, list_recipes, register
 from . import shared_code_context as _shared_code_context  # noqa: F401  (registers itself)
+from . import ai_sre_demo as _ai_sre_demo  # noqa: F401  (registers itself)
 
 __all__ = ["Engine", "PlannedObject", "Recipe", "UsecaseError",
            "get_recipe", "list_recipes", "register"]

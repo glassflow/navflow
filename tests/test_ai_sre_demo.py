@@ -1,0 +1,146 @@
+"""The AI SRE demo as a use case (TR-176): recipe shape, the six demo objects, adopting an
+existing unowned demo catalog, and the inject/clear actions against a fake api-server.
+Run: .venv/bin/python tests/test_ai_sre_demo.py   (no Docker needed)
+"""
+import asyncio
+import json
+import os
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB = "/tmp/tares-ai-sre-demo-test.duckdb"
+CATALOG = "/tmp/tares-ai-sre-demo-test.catalog.yaml"
+os.environ["TARES_DB"] = DB
+os.environ["TARES_CATALOG"] = CATALOG
+
+import httpx
+
+PASS = FAIL = 0
+
+
+def check(label, cond, detail=""):
+    global PASS, FAIL
+    if cond:
+        PASS += 1; print(f"  ok   {label}")
+    else:
+        FAIL += 1; print(f"  FAIL {label}  {detail}")
+
+
+# a fake api-server that records what /demo/inject receives
+INJECTED = []
+
+
+class FakeApi(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("content-length") or 0)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        if self.path == "/demo/inject":
+            INJECTED.append(body.get("scenario"))
+            self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+        else:
+            self.send_response(404); self.end_headers()
+
+
+async def main():
+    for p in (DB, DB + ".wal", CATALOG):
+        if os.path.exists(p):
+            os.remove(p)
+    srv = HTTPServer(("127.0.0.1", 0), FakeApi)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    api_url = f"http://127.0.0.1:{srv.server_port}"
+
+    from tares.usecases import get_recipe
+    from tares.usecases.base import UsecaseError
+    r = get_recipe("ai_sre_demo")
+
+    print("== recipe ==")
+    d = r.describe()
+    check("tagged demo", d["tags"] == ["demo"])
+    check("setup steps and actions advertised", len(d["setup"]) == 3 and
+          [a["name"] for a in d["actions"]] == ["inject", "clear"])
+    p = r.validate({})
+    check("defaults", p["prometheus_url"] == "http://localhost:9090" and
+          p["container"] == "tares-demo-api-server", json.dumps(p))
+    try:
+        r.validate({"prometheus_url": "localhost:9090"}); check("bad url rejected", False)
+    except UsecaseError:
+        check("bad url rejected", True)
+    plan = r.plan(r.validate({"prometheus_url": "http://prom:9090/"}))
+    names = [(o.kind, o.name) for o in plan]
+    check("the six demo objects by their catalog names",
+          names == [("source", "demo_metrics"), ("source", "demo_logs"), ("source", "demo_alerts"),
+                    ("view", "service_timeline"), ("trigger", "incident"), ("agent", "incident-first-look")], str(names))
+    check("prometheus url applied without trailing slash",
+          plan[0].spec["config"]["url"] == "http://prom:9090" and plan[2].spec["config"]["url"] == "http://prom:9090")
+    check("agent prompt has no em dash", "—" not in plan[5].spec["prompt"])
+
+    from tares.daemon import make_app
+    app = make_app()
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as cx:
+            print("== adopt an existing demo catalog ==")
+            # a user who imported catalog.demo.yaml first: same names, unowned -> adopted, not duplicated
+            demo_yaml = open(os.path.join(os.path.dirname(__file__), "..", "demo", "catalog.demo.yaml")).read()
+            rr = await cx.post("/api/catalog/import", json={"yaml": demo_yaml, "mode": "merge"})
+            check("demo catalog imported", rr.status_code == 200, rr.text[:200])
+            before = {s["name"] for s in (await cx.get("/api/sources")).json()}
+
+            print("== create ==")
+            rr = await cx.post("/api/usecases", json={"recipe": "ai_sre_demo", "name": "AI SRE demo",
+                                                     "params": {"api_server_url": api_url}})
+            check("create -> 201", rr.status_code == 201, rr.text[:300])
+            inst = rr.json(); uid = inst["id"]
+            after = {s["name"] for s in (await cx.get("/api/sources")).json()}
+            check("no duplicate sources: adopted the existing ones", after == before, str(after ^ before))
+            srcs = {s["name"]: s for s in (await cx.get("/api/sources")).json()}
+            check("demo sources owned by the use case",
+                  all(srcs[n]["owned_by"] == uid for n in ("demo_metrics", "demo_logs", "demo_alerts")))
+            agents = (await cx.get("/api/agents/builtin")).json()["agents"]
+            a = next(x for x in agents if x["name"] == "incident-first-look")
+            check("agent owned and on the incident trigger", a["owned_by"] == uid and a["trigger"] == "incident")
+
+            print("== actions ==")
+            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "latency"})
+            check("inject latency -> ok", rr.status_code == 200 and rr.json().get("scenario") == "latency", rr.text[:200])
+            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "clear"})
+            check("inject rejects clear as a scenario", rr.status_code == 400, rr.text[:200])
+            rr = await cx.post(f"/api/usecases/{uid}/actions/clear", json={})
+            check("clear -> ok", rr.status_code == 200 and rr.json().get("scenario") == "clear", rr.text[:200])
+            rr = await cx.post(f"/api/usecases/{uid}/actions/nope", json={})
+            check("unknown action -> 400", rr.status_code == 400, rr.text[:200])
+            check("fake api-server received latency then clear", INJECTED == ["latency", "clear"], str(INJECTED))
+            log = (await cx.get(f"/api/usecases/{uid}/summary")).json()["log"]
+            check("actions logged", any(l["action"] == "action:inject" for l in log) and
+                  any(l["action"] == "action:clear" for l in log), str([l["action"] for l in log]))
+
+            print("== summary ==")
+            s = (await cx.get(f"/api/usecases/{uid}/summary")).json()
+            check("summary has sources, runs, guide",
+                  set(s["sources"]) == {"demo_metrics", "demo_logs", "demo_alerts"} and "runs" in s and s["guide"].endswith("/guides/ai-sre"),
+                  json.dumps({k: s.get(k) for k in ("sources", "guide")})[:300])
+
+            print("== unreachable api-server ==")
+            rr = await cx.put(f"/api/usecases/{uid}", json={"params": {"api_server_url": "http://127.0.0.1:1"}})
+            check("update ok", rr.status_code == 200, rr.text[:200])
+            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "error_spike"})
+            check("inject with unreachable api-server -> 400 with a named reason",
+                  rr.status_code == 400 and "could not reach" in rr.text, rr.text[:200])
+
+            print("== delete ==")
+            rr = await cx.delete(f"/api/usecases/{uid}")
+            check("delete -> 200", rr.status_code == 200, rr.text[:200])
+            after = {s["name"] for s in (await cx.get("/api/sources")).json()}
+            check("demo sources gone", not ({"demo_metrics", "demo_logs", "demo_alerts"} & after), str(after))
+
+    srv.shutdown()
+    print(f"\n{PASS} passed, {FAIL} failed")
+    sys.exit(1 if FAIL else 0)
+
+
+asyncio.run(main())

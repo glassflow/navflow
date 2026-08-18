@@ -199,6 +199,20 @@ class Engine:
         return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in objs],
                 "purged_events": purged}
 
+    async def detect(self, recipe_key: str) -> dict:
+        recipe = get_recipe(recipe_key)
+        return await recipe.detect(self.store, self.runtime)
+
+    def action(self, uid: str, name: str, args: dict | None = None) -> dict:
+        """Run one of the recipe's ACTIONS on an instance and log it."""
+        inst = self._require(uid)
+        recipe = get_recipe(inst["recipe"])
+        if not any(a.get("name") == name for a in recipe.ACTIONS):
+            raise UsecaseError(f"{recipe.key}: no action {name!r}")
+        result = recipe.run_action(inst, name, dict(args or {}), self.store, self.runtime) or {}
+        self.store.log_usecase(uid, f"action:{name}", str(result.get("message", "")) if result else "")
+        return {"ok": True, "action": name, **result}
+
     def repair(self, uid: str, key: str) -> dict:
         """Re-apply one planned object from the current params: re-creates a hand-deleted object,
         or resets a customized one back to the plan (ownership is re-claimed either way)."""

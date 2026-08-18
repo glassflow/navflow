@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
-import type { UsecaseObject, UsecaseSummary } from "../types";
+import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
+import InfoDialog, { HelpButton } from "../components/InfoDialog";
 
 // One use case instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
@@ -36,6 +37,25 @@ function prLink(r: { pr_url?: string | null; finding?: string | null }): string 
   return m?.[0];
 }
 
+const HOW_IT_WORKS: Record<string, string[]> = {
+  shared_code_context: [
+    "Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.",
+    "The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.",
+    "The agent reads each diff through the GitHub MCP server, updates the context repo, and writes a finding on the timeline.",
+    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
+  ],
+  ai_sre_demo: [
+    "Three sources keyed by service: Prometheus metrics, the api-server's container logs, and the alerts Prometheus's own rules fire.",
+    "The service_timeline view merges them on one clock; Explore shows exactly what an agent reads.",
+    "The incident trigger fires when an alert event lands (Prometheus keeps owning alerting; nothing is re-thresholded).",
+    "incident-first-look wakes with the correlated timeline and writes an incident note back onto it. Cause an incident above and watch it happen.",
+  ],
+  default: [
+    "The use case created ordinary sources, views, triggers and agents; see Configuration for the list.",
+    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
+  ],
+};
+
 export default function UsecaseDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -46,6 +66,25 @@ export default function UsecaseDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
   const [busyKey, setBusyKey] = useState<string>();
+  const [recipe, setRecipe] = useState<Recipe>();
+  const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
+  const [actionMsg, setActionMsg] = useState<string>();
+  const [actionBusy, setActionBusy] = useState<string>();
+  const [actionHelp, setActionHelp] = useState(false);
+  useEffect(() => {
+    if (!s?.recipe) return;
+    api.recipes().then((r) => setRecipe(r.recipes.find((x) => x.key === s.recipe))).catch(() => {});
+  }, [s?.recipe]);
+  const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
+    (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
+  const runAction = async (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+    setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
+    const args: Record<string, unknown> = {};
+    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
+    try { const r = await api.usecaseAction(id, name, args); setActionMsg(r.message); reload(); }
+    catch (e) { setActionError(String((e as Error).message ?? e)); }
+    setActionBusy(undefined);
+  };
 
   const act = (fn: () => Promise<unknown>) => async () => {
     setActionError(undefined);
@@ -106,12 +145,12 @@ export default function UsecaseDetail() {
       )}
 
       <div className="cards">
-        <div className="card"><div className="k">repos</div><div className="v">{repos ? repos.length : sourceObjects.length}</div></div>
+        <div className="card"><div className="k">{repos ? "repos" : "sources"}</div><div className="v">{repos ? repos.length : sourceObjects.length}</div></div>
         <div className="card"><div className="k">runs</div><div className="v">{typeof s.runs_total === "number" ? <>{s.runs_total} {typeof s.runs_ok === "number" && <small>{s.runs_ok} ok</small>}</> : runs ? runs.length : <span className="dim">—</span>}</div></div>
-        <div className="card">
+        {(s.prs || typeof s.prs_opened === "number") && <div className="card">
           <div className="k">pull requests</div>
           <div className="v">{s.prs ? <>{s.prs.open ?? 0} <small>open</small> {s.prs.merged ?? 0} <small>merged</small></> : typeof s.prs_opened === "number" ? <>{s.prs_opened} <small>opened</small></> : <span className="dim">—</span>}</div>
-        </div>
+        </div>}
         <div className="card"><div className="k">trigger last fired</div><div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.trigger_last_fired ?? s.last_fired ?? null} /></div></div>
         <div className="card"><div className="k">created</div><div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.created_at} /></div></div>
       </div>
@@ -120,12 +159,71 @@ export default function UsecaseDetail() {
       <details className="panel uc-how" style={{ marginBottom: 14 }}>
         <summary>How it works</summary>
         <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-          <li>Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.</li>
-          <li>The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.</li>
-          <li>The agent reads each diff through the GitHub MCP server, updates that repo's page in the context repo, and writes a finding on the timeline.</li>
-          <li>Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.</li>
+          {(HOW_IT_WORKS[s.recipe] ?? HOW_IT_WORKS.default).map((t) => <li key={t}>{t}</li>)}
         </ol>
       </details>
+
+      {recipe?.actions && recipe.actions.length > 0 && (
+        <div className="panel" style={{ marginBottom: 14 }}>
+          {recipe.actions.some((a) => a.intro) && (
+            <p className="help" style={{ margin: "0 0 10px" }}>
+              {recipe.actions.find((a) => a.intro)?.intro}
+              <HelpButton onClick={() => setActionHelp(true)} label="What do these do?" />
+            </p>
+          )}
+          <div className="uc-actions">
+            {recipe.actions.map((a) => (
+              <span key={a.name} className="uc-actions" title={a.help}>
+                {Object.entries(a.params ?? {}).map(([k, spec]) => {
+                  const o = opts(spec.options);
+                  return (
+                    <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
+                            onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
+                            options={o.map((x) => x.value)}
+                            labels={Object.fromEntries(o.map((x) => [x.value, x.label ?? x.value]))}
+                            ariaLabel={spec.label ?? k} style={{ width: 200 }} />
+                  );
+                })}
+                <button className="primary" disabled={!!actionBusy || s.status !== "active"} onClick={() => runAction(a.name, a.params)}>
+                  {actionBusy === a.name ? "working…" : a.label}
+                </button>
+              </span>
+            ))}
+            {actionMsg && <span className="help">{actionMsg}</span>}
+          </div>
+          {(() => {
+            const cur = recipe.actions.find((a) => a.params?.scenario);
+            const o = cur ? opts(cur.params!.scenario.options) : [];
+            const sel = cur ? (actionArgs[`${cur.name}.scenario`] ?? o[0]?.value) : undefined;
+            const h = o.find((x) => x.value === sel)?.help;
+            return h ? <p className="help" style={{ margin: "8px 0 0" }}>{h}</p> : null;
+          })()}
+        </div>
+      )}
+
+      {actionHelp && recipe?.actions && (
+        <InfoDialog title="Causing an incident" onClose={() => setActionHelp(false)}>
+          {recipe.actions.filter((a) => a.intro).map((a) => <p key={a.name} className="help" style={{ margin: 0 }}>{a.intro}</p>)}
+          {recipe.actions.filter((a) => a.params?.scenario).map((a) => (
+            <table key={a.name} className="perm-table">
+              <thead><tr><th>scenario</th><th>what happens</th></tr></thead>
+              <tbody>
+                {opts(a.params!.scenario.options).map((x) => (
+                  <tr key={x.value}><td className="mono">{x.value}</td><td>{x.help ?? ""}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+          <ul className="help" style={{ margin: 0, paddingLeft: 18 }}>
+            {recipe.actions.filter((a) => a.help).map((a) => <li key={a.name}><strong>{a.label}</strong>: {a.help}</li>)}
+          </ul>
+          {recipe.actions.find((a) => a.docs)?.docs && (
+            <p className="help" style={{ margin: 0 }}>
+              Walkthrough: <a href={recipe.actions.find((a) => a.docs)!.docs!.url} target="_blank" rel="noreferrer">{recipe.actions.find((a) => a.docs)!.docs!.label}</a>
+            </p>
+          )}
+        </InfoDialog>
+      )}
 
       <div className="tabs">
         <button className={tab === "runs" ? "active" : ""} onClick={() => setTab("runs")}>Runs</button>
@@ -184,6 +282,24 @@ export default function UsecaseDetail() {
       </>)}
 
       {tab === "config" && (<>
+      {s.sources && (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Sources</h2>
+          <table>
+            <thead><tr><th>source</th><th>events</th><th>last event</th></tr></thead>
+            <tbody>
+              {Object.entries(s.sources).map(([name, st]) => (
+                <tr key={name}>
+                  <td><Link to={`/sources/${encodeURIComponent(name)}`} className="mono">{name}</Link></td>
+                  <td>{st.events}</td>
+                  <td><TimeAgo ts={st.last ?? null} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {s.guide && <p className="help" style={{ marginBottom: 0 }}>Walkthrough: <a href={s.guide} target="_blank" rel="noreferrer">{s.guide}</a></p>}
+        </div>
+      )}
       {(s.context_repo || typeof p.context_repo === "string") && (
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>Context repo</h2>
@@ -202,6 +318,7 @@ export default function UsecaseDetail() {
         </div>
       )}
 
+      {!s.sources && (
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Source repos</h2>
         {repos && repos.length > 0 ? (
@@ -235,6 +352,7 @@ export default function UsecaseDetail() {
           </table>
         ) : <div className="empty">no sources yet</div>}
       </div>
+      )}
 
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>What it created</h2>

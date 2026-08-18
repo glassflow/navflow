@@ -27,6 +27,10 @@ export function usecaseKindCounts(u: Usecase) {
 // What each recipe wires up, in the user's words. Keyed by recipe so a new recipe without an
 // entry still gets a card, just without the "what it sets up" column.
 const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
+  ai_sre_demo: {
+    you: ["start the demo stack with docker compose", "give the agent an Anthropic key", "cause an incident from the use case page"],
+    tares: ["three sources keyed by service: Prometheus metrics, the api-server's logs, the alerts Prometheus fires", "one timeline per service to explore", "a trigger that wakes the agent when an alert fires", "an agent that writes the first incident note back onto the timeline"],
+  },
   shared_code_context: {
     you: ["pick the code repos to watch", "pick the repo that holds the shared context", "choose when it runs and how it writes"],
     tares: ["a source for each repo, so its commits flow into Tares", "a timeline per repo you can explore and query", "a trigger that wakes the agent when new commits land", "an agent that reads each change and updates the context repo, opening a pull request"],
@@ -40,8 +44,14 @@ function RecipeCard({ r }: { r: Recipe }) {
   return (
     <div className="panel uc-card">
       <div className="uc-card-main">
-        <div className="uc-card-title">{r.title}</div>
-        <p className="help uc-card-desc">{r.description}</p>
+        <div className="uc-card-title">
+          {r.title}
+          {(r.tags ?? []).map((t) => <span key={t} className="badge" style={{ marginLeft: 8, verticalAlign: "middle" }}>{t}</span>)}
+        </div>
+        <p className="help uc-card-desc">
+          {r.description}
+          {r.guide && <> Follows the <a href={r.guide.url} target="_blank" rel="noreferrer">{r.guide.label}</a>.</>}
+        </p>
         {facts && (
           <div className="uc-card-facts">
             <div>

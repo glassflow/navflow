@@ -1326,3 +1326,11 @@ pre.payload {
 .help-btn:hover { color: var(--ink); border-color: var(--border-strong); }
 .perm-table { width: 100%; }
 .perm-table td, .perm-table th { padding: 6px 8px; font-size: 13px; }
+
+/* use case setup steps (the generic wizard) */
+.main ol.uc-setup { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
+.uc-setup-title { font-weight: 600; }
+.uc-setup-cmd { display: flex; align-items: flex-start; gap: 10px; }
+.uc-setup-cmd pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); background: var(--wash); font-size: 12px; flex: 1; overflow-x: auto; white-space: pre; }
+.uc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.uc-setup-done .uc-setup-title { color: var(--ink-soft); }
