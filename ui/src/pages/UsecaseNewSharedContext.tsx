@@ -20,8 +20,10 @@ const STEPS = ["GitHub access", "Source repos", "Context repo", "Trigger and age
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
-function slugOf(name: string) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "ctx";
+// Mirrors the recipe's naming (tares/usecases/shared_code_context.py): objects are named after the
+// context repo, slugged to 24 chars; sources append the source repo slugged to 48.
+function slugOf(text: string, n = 24) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, n) || "usecase";
 }
 
 export default function UsecaseNewSharedContext() {
@@ -179,9 +181,9 @@ export default function UsecaseNewSharedContext() {
     (repos ?? []).filter((r) => !selected(r.full_name)).map((r) => r.full_name),
     [repos, sources]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const slug = slugOf(name);
+  const slug = slugOf(contextRepo);
   const preview = [
-    ...sources.map((s) => ({ kind: "source", name: `ctx_${slug}_${s.repo.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+    ...sources.map((s) => ({ kind: "source", name: `ctx_${slug}_${slugOf(s.repo, 48)}`,
                               note: `commits on ${s.repo}${s.branch ? ` (${s.branch})` : ""}` })),
     { kind: "view", name: `ctx_${slug}_repo_activity`, note: "one timeline per repo" },
     { kind: "trigger", name: `ctx_${slug}_changes`, note: "fires when commits land, once per repo per 5 minutes" },
