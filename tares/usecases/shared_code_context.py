@@ -46,7 +46,10 @@ know: public interfaces, APIs and contracts, config and environment variables, d
 deployment or runtime behaviour, dependencies between repos, conventions. Ignore pure refactors, \
 tests, formatting and version bumps unless they change behaviour.
 3. {layout_instructions}
-4. Rewrite only the sections the change affects. Keep facts that still hold, drop what the diff \
+4. When writing with `github__create_or_update_file`, pass the complete new file text in `content` \
+(plain text, not base64), the file's current `sha` when it exists, `branch`, `path` and a `message`; \
+if a call fails, read the error and fix the arguments rather than retrying the same call. \
+Rewrite only the sections the change affects. Keep facts that still hold, drop what the diff \
 makes false, add what is new. Every claim carries the short sha of the commit it comes from, like \
 (abc1234). Keep the page short and factual; no filler.
 5. {write_instructions}
@@ -66,7 +69,9 @@ LAYOUT_EXISTING = (
     "The context repo already has its own pages under `{context_dir}` on `{context_branch}` (the "
     "team's layout, not one page per repository). First list that folder with "
     "`github__get_file_contents` on the folder path, read the index or README if there is one, then "
-    "read the page or pages that cover what the commit changed. Update those pages in place, keeping "
+    "read the page or pages that cover what the commit changed. Look first for statements the change "
+    "makes false or outdated (a version, a default, a name, a path, a 'still to do' note) and correct "
+    "those where they are; only then add anything new. Update those pages in place, keeping "
     "their structure, headings and voice. Create a new page only when nothing existing covers the "
     "topic, name it like its neighbours, and add it to the index if the repo keeps one. Never create "
     "a parallel set of per-repository pages next to the team's own.")
