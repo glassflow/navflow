@@ -94,7 +94,7 @@ export default function UsecaseNewSharedContext() {
   const loadCredentials = () =>
     api.githubCredentials().then((r) => {
       setCredentials(r.credentials);
-      if (!credential && r.credentials.length === 1) setCredential(r.credentials[0].name);
+      if (!credential && r.credentials.length > 0) setCredential(r.credentials[0].name);
     }).catch((e) => setErr(String((e as Error).message ?? e)));
   useEffect(() => { loadCredentials(); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -280,8 +280,8 @@ export default function UsecaseNewSharedContext() {
             <div className="field">
               <span className="lbl">credential</span>
               <Picker value={credential} onChange={(v) => { setCredential(v); setCredTest(undefined); }}
-                      options={["", ...credOptions]}
-                      labels={{ "": "pick a stored credential", ...Object.fromEntries(
+                      options={credential && !credOptions.includes(credential) ? [credential, ...credOptions] : credOptions}
+                      labels={{ ...Object.fromEntries(
                         (credentials ?? []).map((c) => [c.name, c.account ? `${c.name} (${c.account})` : c.name])) }}
                       ariaLabel="credential" />
               <div className="btnrow" style={{ marginTop: 8 }}>
