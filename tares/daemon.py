@@ -46,6 +46,7 @@ from . import slack as slack_mod
 from . import slack_verify
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
 from .store import Store, StoreUnavailable
+from .usecases import Engine as UsecaseEngine, UsecaseError
 from .views import resolve_query_full, resolve_read
 
 CATALOG_PATH = os.getenv("TARES_CATALOG", "catalog.yaml")
@@ -284,6 +285,21 @@ class ImportReq(BaseModel):
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
 
 
+class UsecaseIn(BaseModel):
+    recipe: str
+    name: str = ""         # defaults to the recipe title
+    params: dict = {}
+
+
+class UsecaseUpdate(BaseModel):
+    params: dict
+    name: str = ""         # blank = unchanged
+
+
+class UsecaseRepair(BaseModel):
+    key: str               # a plan key (or "kind:key")
+
+
 class McpServerIn(BaseModel):
     name: str
     url: str
@@ -323,13 +339,17 @@ def make_app() -> FastAPI:
     # seed the DB catalog from YAML on first boot — or on every boot when CATALOG_SYNC is set, so
     # the file stays the source of truth (the admin interface for a read-only demo: edit + restart).
     if Path(CATALOG_PATH).exists() and (store.catalog_empty() or CATALOG_SYNC):
-        counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text())
+        counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text(),
+                                   engine=UsecaseEngine(store))
         how = "synced" if CATALOG_SYNC else "imported"
         print(f"taresd: {how} {CATALOG_PATH} into catalog "
-              f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers)")
+              f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers"
+              f"{', ' + str(counts['usecases']) + ' usecases' if counts.get('usecases') else ''})")
 
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
+    # Use cases: recipes instantiated with params; they create and own ordinary catalog objects.
+    usecases = UsecaseEngine(store, reload=runtime.reload_catalog)
     # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
@@ -981,6 +1001,7 @@ def make_app() -> FastAPI:
             _err(e)
         store.upsert_catalog_source(name, source_type_for(body.connector), body.connector,
                                     body.poll, config, paused=existing["paused"])
+        store.mark_customized("source", name)
         runtime.reload_catalog()
         # Label specs apply to NEW events going forward — ingest reads the current specs. Existing
         # events keep the labels they were ingested with. A retroactive relabel of stored events can
@@ -1138,7 +1159,8 @@ def make_app() -> FastAPI:
     # blank-to-keep on update, exported only with secrets included.
     def _mcp_row(m: dict) -> dict:
         return {"name": m["name"], "url": m["url"], "auth_header": m["auth_header"],
-                "auth_value_configured": bool(m["auth_value"]), "updated_at": m["updated_at"]}
+                "auth_value_configured": bool(m["auth_value"]), "updated_at": m["updated_at"],
+                "owned_by": m.get("owned_by"), "customized": bool(m.get("customized"))}
 
     @app.get("/api/mcp-servers")
     async def list_mcp_servers():
@@ -1169,6 +1191,7 @@ def make_app() -> FastAPI:
             _err(e)
         value = body.auth_value or existing.get("auth_value", "")   # blank-to-keep
         store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(), value)
+        store.mark_customized("mcp_server", name)
         return {"ok": True}
 
     @app.delete("/api/mcp-servers/{name}")
@@ -1261,6 +1284,7 @@ def make_app() -> FastAPI:
             _err(e)
         store.upsert_catalog_view(name, body.key_field, body.sources, body.filters,
                                   created_by=runtime.catalog.views[name].created_by)
+        store.mark_customized("view", name)
         runtime.reload_catalog()
         return {"ok": True}
 
@@ -1304,6 +1328,7 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         store.upsert_catalog_trigger(name, body.view, body.condition, body.emit, body.cooldown)
+        store.mark_customized("trigger", name)
         runtime.reload_catalog()
         return {"ok": True}
 
@@ -1370,6 +1395,7 @@ def make_app() -> FastAPI:
                          "max_rounds": a.get("max_rounds"),
                          "effective_max_rounds": effective_max_rounds(a),
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
+                         "owned_by": a.get("owned_by"), "customized": bool(a.get("customized")),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
                 "models": AGENT_MODELS, "default_model": AGENT_DEFAULT_MODEL,
@@ -1411,6 +1437,7 @@ def make_app() -> FastAPI:
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
                                    body.model, body.slack_channel,
                                    body.webhook_url, wtoken, body.mcp_servers, body.max_rounds)
+        store.mark_customized("agent", name)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):
@@ -1815,6 +1842,84 @@ def make_app() -> FastAPI:
     async def subscriptions():
         return store.list_all_subscriptions()
 
+    # ── management API: use cases (recipes instantiated with params) ─────────
+    # A use case creates and owns ordinary objects; those stay editable and deletable on their own
+    # pages. These routes are the instance's lifecycle and its combined view.
+    def _uc_err(e: Exception):
+        if isinstance(e, KeyError):
+            _err(e, 404)
+        if isinstance(e, (UsecaseError, CatalogError, ValueError)):
+            _err(e, 400)
+        raise e
+
+    @app.get("/api/usecases/recipes")
+    async def usecase_recipes():
+        return {"recipes": usecases.list_recipes()}
+
+    @app.get("/api/usecases")
+    async def list_usecases():
+        return {"usecases": usecases.list()}
+
+    @app.post("/api/usecases", status_code=201)
+    async def create_usecase(body: UsecaseIn):
+        try:
+            return usecases.create(body.recipe, body.params, name=body.name or None)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.get("/api/usecases/{uid}")
+    async def get_usecase(uid: str):
+        inst = usecases.get(uid)
+        if inst is None:
+            _err(KeyError(f"unknown use case {uid!r}"), 404)
+        return inst
+
+    @app.put("/api/usecases/{uid}")
+    async def update_usecase(uid: str, body: UsecaseUpdate):
+        try:
+            out = usecases.update(uid, body.params)
+            if body.name.strip():
+                store.update_usecase(uid, name=body.name.strip())
+                out = {**usecases.get(uid), "report": out["report"]}
+            return out
+        except Exception as e:
+            _uc_err(e)
+
+    @app.delete("/api/usecases/{uid}")
+    async def delete_usecase(uid: str, purge_events: bool = False):
+        try:
+            return usecases.delete(uid, purge_events=purge_events)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/pause")
+    async def pause_usecase(uid: str):
+        try:
+            return usecases.pause(uid)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/resume")
+    async def resume_usecase(uid: str):
+        try:
+            return usecases.resume(uid)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/repair")
+    async def repair_usecase(uid: str, body: UsecaseRepair):
+        try:
+            return usecases.repair(uid, body.key)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.get("/api/usecases/{uid}/summary")
+    async def usecase_summary(uid: str):
+        try:
+            return usecases.summary(uid)
+        except Exception as e:
+            _uc_err(e)
+
     # ── management API: catalog import/export ────────────────────────────────
     @app.get("/api/catalog/export")
     async def catalog_export(sources: str | None = None, include_secrets: bool = False):
@@ -1830,8 +1935,8 @@ def make_app() -> FastAPI:
         if body.mode == "replace":
             store.clear_catalog()
         try:
-            counts = import_yaml_to_db(store, body.yaml)
-        except CatalogError as e:
+            counts = import_yaml_to_db(store, body.yaml, engine=usecases)
+        except (CatalogError, UsecaseError) as e:
             _err(e)
         except Exception as e:
             _err(ValueError(f"invalid YAML: {e}"))
