@@ -275,6 +275,9 @@ export const api = {
     request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/pause`, { method: "POST" }),
   resumeUsecase: (id: string) =>
     request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  detectRecipe: (key: string) =>
+    request<{ params: Record<string, unknown>; found: Record<string, string>; missing: Record<string, string>; notes: string[] }>(
+      `/api/usecases/recipes/${encodeURIComponent(key)}/detect`, { method: "POST" }),
   usecaseAction: (id: string, name: string, args: Record<string, unknown> = {}) =>
     request<{ ok: boolean; action: string; message?: string }>(
       `/api/usecases/${encodeURIComponent(id)}/actions/${encodeURIComponent(name)}`,

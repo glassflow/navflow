@@ -2068,6 +2068,13 @@ def make_app() -> FastAPI:
         except Exception as e:
             _uc_err(e)
 
+    @app.post("/api/usecases/recipes/{key}/detect")
+    async def usecase_detect(key: str):
+        try:
+            return await usecases.detect(key)
+        except Exception as e:
+            _uc_err(e)
+
     @app.post("/api/usecases/{uid}/actions/{name}")
     async def usecase_action(uid: str, name: str, request: Request):
         try:

@@ -199,6 +199,10 @@ class Engine:
         return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in objs],
                 "purged_events": purged}
 
+    async def detect(self, recipe_key: str) -> dict:
+        recipe = get_recipe(recipe_key)
+        return await recipe.detect(self.store, self.runtime)
+
     def action(self, uid: str, name: str, args: dict | None = None) -> dict:
         """Run one of the recipe's ACTIONS on an instance and log it."""
         inst = self._require(uid)

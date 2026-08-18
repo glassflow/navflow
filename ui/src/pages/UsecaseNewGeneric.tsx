@@ -30,6 +30,21 @@ export default function UsecaseNewGeneric() {
   const [name, setName] = useState("");
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [detected, setDetected] = useState<{ params: Record<string, unknown>; found: Record<string, string>; missing: Record<string, string>; notes: string[] }>();
+  const [detectBusy, setDetectBusy] = useState(false);
+  const detect = async (rk: string, current: Record<string, string>) => {
+    setDetectBusy(true);
+    try {
+      const d = await api.detectRecipe(rk);
+      setDetected(d);
+      setVals((v) => {
+        const next = { ...current, ...v };
+        for (const [k, val] of Object.entries(d.params)) next[k] = typeof val === "string" ? val : JSON.stringify(val);
+        return next;
+      });
+    } catch { setDetected(undefined); }
+    setDetectBusy(false);
+  };
   const [models, setModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
   const [keyStatus, setKeyStatus] = useState<{ configured: boolean; source: string }>();
@@ -52,7 +67,9 @@ export default function UsecaseNewGeneric() {
       if (!found) { setErr(`this instance has no use case named ${key}`); return; }
       setRecipe(found);
       setName(found.title);
-      setVals(Object.fromEntries(Object.entries(found.params).map(([k, p]) => [k, initial(p)])));
+      const init = Object.fromEntries(Object.entries(found.params).map(([k, p]) => [k, initial(p)]));
+      setVals(init);
+      detect(found.key, init);
     }).catch((e) => setErr(String((e as Error).message ?? e)));
   }, [key]);
 
@@ -90,7 +107,9 @@ export default function UsecaseNewGeneric() {
           <ol className="uc-setup">
             {recipe.setup.map((st, i) => {
               const keyStep = st.check === "anthropic_key";
-              const done = keyStep && keyStatus?.configured;
+              const detectStep = st.check === "detect";
+              const detectDone = !!detected && Object.keys(detected.found).length > 0 && Object.keys(detected.missing).length === 0;
+              const done = (keyStep && keyStatus?.configured) || (detectStep && detectDone);
               return (
               <li key={i} className={done ? "uc-setup-done" : undefined}>
                 <div className="uc-setup-title">
@@ -99,7 +118,9 @@ export default function UsecaseNewGeneric() {
                 </div>
                 {done ? (
                   <p className="help" style={{ margin: "2px 0 0" }}>
-                    an Anthropic key is set{keyStatus?.source ? ` (${keyStatus.source})` : ""}; the agent can run. Change it under Settings.
+                    {keyStep
+                      ? <>an Anthropic key is set{keyStatus?.source ? ` (${keyStatus.source})` : ""}; the agent can run. Change it under Settings.</>
+                      : <>running: {Array.from(new Set(Object.values(detected?.found ?? {}).map((v) => v.split(" (")[0].split(" publishes")[0]))).join(", ")}; the fields below were filled from it</>}
                   </p>
                 ) : (
                   <>
@@ -154,8 +175,16 @@ export default function UsecaseNewGeneric() {
                        onChange={(e) => setVals({ ...vals, [k]: e.target.value })} />
               )}
               {p.help && <span className="help">{p.help}</span>}
+              {detected?.found[k] && <span className="help" style={{ color: "var(--ok)" }}>detected: {detected.found[k]}</span>}
+              {detected?.missing[k] && <span className="help" style={{ color: "var(--warn, var(--err))" }}>not detected: {detected.missing[k]}</span>}
             </label>
           ))}
+          {detected && (
+            <div className="btnrow" style={{ marginBottom: 12 }}>
+              <button onClick={() => recipe && detect(recipe.key, vals)} disabled={detectBusy}>{detectBusy ? "scanning…" : "Rescan"}</button>
+              {detected.notes.map((n) => <span key={n} className="help">{n}</span>)}
+            </div>
+          )}
           <div className="btnrow">
             <button className="primary" disabled={busy} onClick={submit}>{busy ? "starting…" : "Start"}</button>
             <Link className="btn" to="/usecases">Cancel</Link>

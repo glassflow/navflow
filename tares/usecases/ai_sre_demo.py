@@ -51,8 +51,9 @@ class AiSreDemo(Recipe):
     }
 
     SETUP = [
-        {"title": "Start the demo stack",
-         "text": "Docker Desktop running. Two files, no checkout needed.",
+        {"title": "Start the demo stack", "check": "detect",
+         "text": "Docker Desktop running. Two files, no checkout needed. The form below fills itself "
+                 "from what is running.",
          "command": "curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compose.yml\n"
                     "docker compose up -d"},
         {"title": "Check it is alive",
@@ -133,6 +134,43 @@ class AiSreDemo(Recipe):
             agent["model"] = params["model"]
         objs.append(PlannedObject("agent", "agent", agent))
         return objs
+
+    # ── detect: ask Docker what is running instead of assuming ports ─────────
+    async def detect(self, store, runtime) -> dict:
+        from ..discovery import _docker_ps, _published_port
+        out = {"params": {}, "found": {}, "missing": {}, "notes": []}
+        try:
+            containers = await _docker_ps()
+        except ValueError as e:
+            out["notes"].append(str(e))
+            for k in ("prometheus_url", "api_server_url", "container"):
+                out["missing"][k] = "Docker not reachable; using the default"
+            return out
+        api = next((c for c in containers if "tares-demo-api-server" in c["image"]
+                    or c["name"] == "tares-demo-api-server"), None)
+        prom = next((c for c in containers if "prom/prometheus" in c["image"]
+                     or _published_port(c["ports"], 9090)), None)
+        if api:
+            port = _published_port(api["ports"], 8080)
+            if port:
+                out["params"]["api_server_url"] = f"http://localhost:{port}"
+                out["found"]["api_server_url"] = f"container {api['name']} publishes port {port}"
+            else:
+                out["missing"]["api_server_url"] = f"container {api['name']} runs but publishes no port 8080"
+            out["params"]["container"] = api["name"]
+            out["found"]["container"] = f"container {api['name']} (image {api['image'].split('/')[-1]})"
+        else:
+            out["missing"]["api_server_url"] = "no demo api-server container is running; start the demo stack"
+            out["missing"]["container"] = "no demo api-server container is running"
+        if prom:
+            port = _published_port(prom["ports"], 9090) or 9090
+            out["params"]["prometheus_url"] = f"http://localhost:{port}"
+            out["found"]["prometheus_url"] = f"container {prom['name']} publishes port {port}"
+        else:
+            out["missing"]["prometheus_url"] = "no Prometheus container is running; start the demo stack"
+        if not containers:
+            out["notes"].append("Docker is running but no compose-managed containers were found")
+        return out
 
     # ── actions ──────────────────────────────────────────────────────────────
     def run_action(self, instance: dict, action: str, args: dict, store, runtime) -> dict:

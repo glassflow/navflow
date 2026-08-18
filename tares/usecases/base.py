@@ -80,6 +80,13 @@ class Recipe:
         instance and never undoes the create."""
         return None
 
+    async def detect(self, store, runtime) -> dict:
+        """Optional: look at the environment (running containers, reachable services) and propose
+        parameter values. Returns {"params": {name: value}, "found": {name: "where it came from"},
+        "missing": {name: "why not"}, "notes": [str]}; the wizard prefills what it can and says the
+        rest. Default: nothing detected."""
+        return {"params": {}, "found": {}, "missing": {}, "notes": []}
+
     def run_action(self, instance: dict, action: str, args: dict, store, runtime) -> dict:
         """Perform one of ACTIONS for a running instance; return what the page should show.
         Raise UsecaseError for a bad action or arguments."""
