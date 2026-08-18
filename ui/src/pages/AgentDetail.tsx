@@ -30,6 +30,7 @@ export default function AgentDetail() {
   const { name = "" } = useParams();
   const [search] = useSearchParams();
   const focusDispatch = search.get("dispatch") ?? undefined;
+  const focusRun = search.get("run") ?? undefined;
   const nav = useNavigate();
   const [editing, setEditing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -188,7 +189,7 @@ export default function AgentDetail() {
                 </p>;
             // Newest run expanded by default; older ones collapse so the page stays readable as
             // runs accumulate. <details> keeps it dependency-free and keyboard-accessible.
-            const focused = !!focusDispatch && r.dispatch_id === focusDispatch;
+            const focused = (!!focusDispatch && r.dispatch_id === focusDispatch) || (!!focusRun && r.id === focusRun);
             return (
               <details className="panel" key={r.id} open={i === 0 || focused}
                        style={focused ? { outline: "2px solid var(--accent)" } : undefined}

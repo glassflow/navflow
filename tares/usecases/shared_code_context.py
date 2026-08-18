@@ -303,7 +303,8 @@ class SharedCodeContext(Recipe):
         runs = []
         for r in store.list_agent_runs(n["agent"], limit=10):
             runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
-                         "repo": r.get("key"), "status": r.get("status"),
+                         "repo": r.get("key"), "key": r.get("key"), "agent": n["agent"],
+                         "status": r.get("status"),
                          "rounds": r.get("rounds"), "max_rounds": r.get("max_rounds"),
                          "pr_url": _pr_link(r.get("finding")), "finding": r.get("finding"),
                          "error": r.get("error")})

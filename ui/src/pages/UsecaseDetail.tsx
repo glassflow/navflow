@@ -41,6 +41,8 @@ export default function UsecaseDetail() {
   const navigate = useNavigate();
   const { data: s, error, reload } = usePolling(() => api.usecaseSummary(id), 10000);
   const [actionError, setActionError] = useState<string>();
+  const [tab, setTab] = useState<"runs" | "config">(() =>
+    (new URLSearchParams(window.location.search).get("tab") === "config" ? "config" : "runs"));
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
   const [busyKey, setBusyKey] = useState<string>();
@@ -105,25 +107,84 @@ export default function UsecaseDetail() {
 
       <div className="cards">
         <div className="card"><div className="k">repos</div><div className="v">{repos ? repos.length : sourceObjects.length}</div></div>
-        <div className="card"><div className="k">runs shown</div><div className="v">{runs ? runs.length : <span className="dim">—</span>}</div></div>
+        <div className="card"><div className="k">runs</div><div className="v">{typeof s.runs_total === "number" ? <>{s.runs_total} {typeof s.runs_ok === "number" && <small>{s.runs_ok} ok</small>}</> : runs ? runs.length : <span className="dim">—</span>}</div></div>
         <div className="card">
           <div className="k">pull requests</div>
-          <div className="v">{s.prs ? <>{s.prs.open ?? 0} <small>open</small> {s.prs.merged ?? 0} <small>merged</small></> : <span className="dim">—</span>}</div>
+          <div className="v">{s.prs ? <>{s.prs.open ?? 0} <small>open</small> {s.prs.merged ?? 0} <small>merged</small></> : typeof s.prs_opened === "number" ? <>{s.prs_opened} <small>opened</small></> : <span className="dim">—</span>}</div>
         </div>
-        <div className="card"><div className="k">trigger last fired</div><div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.trigger_last_fired ?? null} /></div></div>
+        <div className="card"><div className="k">trigger last fired</div><div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.trigger_last_fired ?? s.last_fired ?? null} /></div></div>
         <div className="card"><div className="k">created</div><div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.created_at} /></div></div>
       </div>
 
-      {typeof p.context_repo === "string" && (
-        <p className="help" style={{ marginTop: -6 }}>
-          keeps <a href={`https://github.com/${p.context_repo}`} target="_blank" rel="noreferrer" className="mono">{p.context_repo}</a>
-          {typeof p.context_path === "string" && <> under <span className="mono">{p.context_path}</span></>} current
-          {p.write_mode === "commit_to_branch" ? ", committing straight to the branch" : " through pull requests"}
-        </p>
+
+      <div className="tabs">
+        <button className={tab === "runs" ? "active" : ""} onClick={() => setTab("runs")}>Runs</button>
+        <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
+      </div>
+
+      {tab === "runs" && (<>
+      <div className="panel">
+        <h2 style={{ marginTop: 0 }}>Runs</h2>
+        {runs && runs.length > 0 ? (
+          <table>
+            <thead><tr><th>when</th><th>repo</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
+            <tbody>
+              {runs.map((r, i) => {
+                const link = prLink(r);
+                return (
+                  <tr key={r.id ?? i}>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {r.agent && r.id
+                        ? <Link to={`/agents/${encodeURIComponent(r.agent)}?run=${encodeURIComponent(r.id)}`}><TimeAgo ts={r.started_at ?? null} /></Link>
+                        : <TimeAgo ts={r.started_at ?? null} />}
+                    </td>
+                    <td className="mono">{r.repo ?? r.key ?? ""}</td>
+                    <td><span className={`badge ${statusClass(r.status)}`}>{r.status ?? "?"}</span></td>
+                    <td>{r.rounds ?? "?"}{r.max_rounds ? `/${r.max_rounds}` : ""}</td>
+                    <td>
+                      {link ? <a href={link} target="_blank" rel="noreferrer">pull request</a>
+                        : r.finding ? <span className="help">{r.finding.slice(0, 120)}</span>
+                        : <span className="dim">—</span>}
+                      {r.agent && r.id && <> · <Link to={`/agents/${encodeURIComponent(r.agent)}?run=${encodeURIComponent(r.id)}`} className="help">open run</Link></>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <div className="empty">
+            no runs yet; the agent runs when the trigger fires
+            {objects.find((o) => o.kind === "agent" && !o.missing) && (
+              <>; see <Link to={OBJECT_ROUTE.agent(objects.find((o) => o.kind === "agent")!.name)}>the agent</Link> for its history</>
+            )}
+          </div>
+        )}
+      </div>
+
+      </>)}
+
+      {tab === "config" && (<>
+      {(s.context_repo || typeof p.context_repo === "string") && (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Context repo</h2>
+          <table>
+            <thead><tr><th>repo</th><th>branch</th><th>path</th><th>pages</th><th>writes as</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><a href={`https://github.com/${s.context_repo ?? p.context_repo}`} target="_blank" rel="noreferrer" className="mono">{String(s.context_repo ?? p.context_repo)}</a></td>
+                <td className="mono">{String(s.context_branch ?? p.context_branch ?? "main")}</td>
+                <td className="mono">{String(s.context_path ?? p.context_path ?? "") || "/"}</td>
+                <td>{p.layout === "per_repo" ? "one page per source repo plus an index" : "the repo's existing pages, updated in place"}</td>
+                <td>{(s.write_mode ?? p.write_mode) === "commit_to_branch" ? "commits straight to the branch" : "pull requests"}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="panel">
-        <h2 style={{ marginTop: 0 }}>Repos</h2>
+        <h2 style={{ marginTop: 0 }}>Source repos</h2>
         {repos && repos.length > 0 ? (
           <table>
             <thead><tr><th>repo</th><th>branch</th><th>last commit</th><th>events</th><th>source</th></tr></thead>
@@ -157,41 +218,6 @@ export default function UsecaseDetail() {
       </div>
 
       <div className="panel">
-        <h2 style={{ marginTop: 0 }}>Runs</h2>
-        {runs && runs.length > 0 ? (
-          <table>
-            <thead><tr><th>when</th><th>repo</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
-            <tbody>
-              {runs.map((r, i) => {
-                const link = prLink(r);
-                return (
-                  <tr key={r.id ?? i}>
-                    <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={r.started_at ?? null} /></td>
-                    <td className="mono">{r.key ?? ""}</td>
-                    <td><span className={`badge ${statusClass(r.status)}`}>{r.status ?? "?"}</span></td>
-                    <td>{r.rounds ?? "?"}{r.max_rounds ? `/${r.max_rounds}` : ""}</td>
-                    <td>
-                      {link ? <a href={link} target="_blank" rel="noreferrer">pull request</a>
-                        : r.finding ? <span className="help">{r.finding.slice(0, 120)}</span>
-                        : <span className="dim">—</span>}
-                      {r.agent && <> · <Link to={`/agents/${encodeURIComponent(r.agent)}`} className="help">agent</Link></>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty">
-            no runs yet; the agent runs when the trigger fires
-            {objects.find((o) => o.kind === "agent" && !o.missing) && (
-              <>; see <Link to={OBJECT_ROUTE.agent(objects.find((o) => o.kind === "agent")!.name)}>the agent</Link> for its history</>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
         <h2 style={{ marginTop: 0 }}>What it created</h2>
         <p className="help" style={{ marginTop: 0 }}>
           Ordinary objects, on their normal pages. Edit them there; the use case keeps your version.
@@ -216,6 +242,8 @@ export default function UsecaseDetail() {
           </tbody>
         </table>
       </div>
+
+      </>)}
 
       <details className="panel uc-how">
         <summary>How it works</summary>
