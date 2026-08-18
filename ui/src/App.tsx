@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useUsecaseName } from "./components/UsecaseBadge";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { api, auth } from "./api";
@@ -74,6 +75,8 @@ type Crumb = { label: string; to?: string; mono?: boolean };
 function useCrumbs(): Crumb[] {
   const { pathname } = useLocation();
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+  const usecaseId = parts[0] === "usecases" && parts.length > 1 && parts[1] !== "new" ? decodeURIComponent(parts[1]) : undefined;
+  const usecaseName = useUsecaseName(usecaseId);
 
   if (parts.length === 0) return [{ label: "Overview" }];
 
@@ -90,7 +93,8 @@ function useCrumbs(): Crumb[] {
 
   if (parts[0] === "usecases" && parts.length > 1) {
     const sub = decodeURIComponent(parts[1]);
-    const last: Crumb = sub === "new" ? { label: "Set up" } : { label: "Use case" };
+    // the path carries the instance id; show its name once /api/usecases has answered
+    const last: Crumb = sub === "new" ? { label: "Set up" } : { label: usecaseName?.name ?? "\u2026" };
     return [{ label: "Use cases", to: "/usecases" }, last];
   }
 
