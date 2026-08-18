@@ -17,6 +17,7 @@ export default function AgentNew() {
   const [models, setModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
   const [slackWorkspace, setSlackWorkspace] = useState(false);
+  const [rounds, setRounds] = useState<{ d: number; m: number; l: number }>();
   const [keyOk, setKeyOk] = useState(true);
   const [err, setErr] = useState<string>();
 
@@ -27,6 +28,7 @@ export default function AgentNew() {
       setPresets(d.presets); setKeyOk(d.key_configured);
       setModels(d.models); setDefaultModel(d.default_model);
       setSlackWorkspace(d.slack_workspace);
+      setRounds({ d: d.default_max_rounds, m: d.default_max_rounds_with_mcp, l: d.max_rounds_limit });
     }).catch(() => {});
   }, []);
 
@@ -60,6 +62,8 @@ export default function AgentNew() {
             models={models}
             defaultModel={defaultModel}
             slackWorkspace={slackWorkspace}
+            defaultMaxRounds={rounds?.d} defaultMaxRoundsWithMcp={rounds?.m}
+            maxRoundsLimit={rounds?.l}
             onSaved={(name) => nav(`/agents/${encodeURIComponent(name)}`)}
             onCancel={() => nav(presetTrigger ? `/triggers/${encodeURIComponent(presetTrigger)}` : "/agents")}
           />

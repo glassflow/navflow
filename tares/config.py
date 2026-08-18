@@ -129,6 +129,7 @@ class AgentCfg:
     webhook_url: str = ""     # write-back: findings + run metadata POSTed here
     webhook_token: str = ""   # optional bearer token for the write-back (a secret)
     mcp_servers: list = dc_field(default_factory=list)   # registry names this agent may use
+    max_rounds: int | None = None   # model rounds per run; None = default for the agent's shape
     enabled: bool = False
 
 
@@ -234,6 +235,7 @@ def _agent_from_dict(a: dict, enabled: bool = False) -> AgentCfg:
         webhook_url=a.get("webhook_url") or "",
         webhook_token=a.get("webhook_token") or "",
         mcp_servers=list(a.get("mcp_servers") or []),
+        max_rounds=(int(a["max_rounds"]) if a.get("max_rounds") not in (None, "") else None),
         enabled=bool(a.get("enabled", enabled)),
     )
 
@@ -289,11 +291,25 @@ def validate_mcp_server_dict(m: dict) -> None:
     header = str(m.get("auth_header") or "").strip()
     if header and not re.fullmatch(r"[A-Za-z0-9-]+", header):
         raise CatalogError(f"mcp_server {m['name']!r}: auth_header must be a header name")
+    headers = m.get("headers") or {}
+    if not isinstance(headers, dict):
+        raise CatalogError(f"mcp_server {m['name']!r}: headers must be a map of name to value")
+    for k in headers:
+        if not re.fullmatch(r"[A-Za-z0-9-]+", str(k).strip()):
+            raise CatalogError(f"mcp_server {m['name']!r}: header {k!r} must be a header name")
 
 
-def import_yaml_to_db(store, text: str) -> dict:
-    """Validate and write a YAML catalog into the store. Returns counts."""
-    raw = yaml.safe_load(text) or {}
+def import_yaml_to_db(store, text: str, engine=None) -> dict:
+    """Validate and write a YAML catalog into the store. Returns counts.
+
+    `engine` (a usecases.engine.Engine) is needed only when the document carries a `usecases:`
+    section; without one, use cases in the document are an error rather than silently skipped."""
+    return import_catalog_dict(store, yaml.safe_load(text) or {}, engine=engine)
+
+
+def import_catalog_dict(store, raw: dict, engine=None) -> dict:
+    """The dict form of import_yaml_to_db; also what the use-case engine applies a plan through,
+    so a use case's objects go through exactly the validation and writes a catalog import does."""
     sources = raw.get("sources", []) or []
     views = raw.get("views", []) or []
     triggers = raw.get("triggers", []) or []
@@ -302,8 +318,9 @@ def import_yaml_to_db(store, text: str) -> dict:
     for m in mcp_servers:
         validate_mcp_server_dict(m)
 
-    # validate the whole document before writing anything
-    names = {s["name"] for s in sources}
+    # validate the whole document before writing anything. Names already in the store count as
+    # known (a merge import may add a view over existing sources).
+    names = {s["name"] for s in sources} | {s["name"] for s in store.list_catalog_sources()}
     for s in sources:
         validate_source_dict(s)
     for v in views:
@@ -342,7 +359,9 @@ def import_yaml_to_db(store, text: str) -> dict:
         store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"),
                                    a.get("model"), a.get("slack_channel"),
                                    a.get("webhook_url"), a.get("webhook_token"),
-                                   a.get("mcp_servers"))
+                                   a.get("mcp_servers"),
+                                   (int(a["max_rounds"]) if a.get("max_rounds") not in (None, "")
+                                    else None))
         # enabled ⟺ a subscription to the trigger. Reflect the document's state so an enabled agent
         # round-trips: add the internal subscription if enabled, remove it if not.
         url = agent_url(a["name"])
@@ -354,16 +373,37 @@ def import_yaml_to_db(store, text: str) -> dict:
             store.remove_subscription_by_url(url)
 
     for m in mcp_servers:
+        # blank-to-keep for the secret: a YAML without auth_value (an export without secrets
+        # re-imported) must not wipe a stored credential
+        existing = store.get_mcp_server(m["name"]) or {}
+        auth_value = m.get("auth_value") if m.get("auth_value") else existing.get("auth_value")
         store.upsert_mcp_server(m["name"], str(m["url"]).strip(),
-                                m.get("auth_header"), m.get("auth_value"))
+                                m.get("auth_header"), auth_value,
+                                {str(k): str(v) for k, v in (m.get("headers") or {}).items()})
+
+    # use cases: {recipe, name, params}. Created (or, by name, updated) through the engine so
+    # they own their objects like a console-created instance would.
+    usecases = raw.get("usecases", []) or []
+    if usecases and engine is None:
+        raise CatalogError("this catalog declares usecases but no engine was given to apply them")
+    for u in usecases:
+        for field in ("recipe", "name"):
+            if not u.get(field):
+                raise CatalogError(f"usecase is missing required field {field!r}")
+        existing = store.get_usecase_by_name(u["name"])
+        if existing is None:
+            engine.create(u["recipe"], u.get("params") or {}, name=u["name"])
+        else:
+            engine.update(existing["id"], u.get("params") or {})
 
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
-            "agents": len(agents), "mcp_servers": len(mcp_servers),
+            "agents": len(agents), "mcp_servers": len(mcp_servers), "usecases": len(usecases),
             "names": {"sources": [s["name"] for s in sources],
                       "views": [v["name"] for v in views],
                       "triggers": [t["name"] for t in triggers],
                       "agents": [a["name"] for a in agents],
-                      "mcp_servers": [m["name"] for m in mcp_servers]}}
+                      "mcp_servers": [m["name"] for m in mcp_servers],
+                      "usecases": [u["name"] for u in usecases]}}
 
 
 def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:
@@ -418,11 +458,16 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     enabled_urls = {s["url"] for s in store.all_subscriptions()}
     # MCP connections: the URL and header name are configuration, the value is a credential —
     # same rule as every other secret here.
+    # A `credential:github/<name>` reference is not a secret (the token lives in the credential),
+    # so it is exported either way; extra headers are plain configuration.
     mcp_out = [
         {"name": m["name"], "url": m["url"],
          **({"auth_header": m["auth_header"]} if m.get("auth_header") else {}),
          **({"auth_value": m["auth_value"]}
-            if include_secrets and m.get("auth_value") else {})}
+            if m.get("auth_value") and (include_secrets
+                                        or str(m["auth_value"]).startswith("credential:github/"))
+            else {}),
+         **({"headers": m["headers"]} if m.get("headers") else {})}
         for m in store.list_mcp_servers()
     ]
 
@@ -432,6 +477,7 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
          **({"slack_channel": a["slack_channel"]} if a.get("slack_channel") else {}),
          **({"webhook_url": a["webhook_url"]} if a.get("webhook_url") else {}),
          **({"mcp_servers": a["mcp_servers"]} if a.get("mcp_servers") else {}),
+         **({"max_rounds": a["max_rounds"]} if a.get("max_rounds") else {}),
          **({"slack_webhook": a["slack_webhook"]}
             if include_secrets and a.get("slack_webhook") else {}),
          **({"webhook_token": a["webhook_token"]}
@@ -446,6 +492,13 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
         doc["agents"] = agent_out
     if mcp_out:
         doc["mcp_servers"] = mcp_out
+    # Use cases: recipe + name + params. Their objects are already in the sections above (they are
+    # ordinary objects); on import the engine re-plans over them and re-claims ownership. Params
+    # may hold references to credentials but never credential values, so this is safe to share.
+    uc_out = [{"recipe": u["recipe"], "name": u["name"], "params": u["params"]}
+              for u in store.list_usecases()]
+    if uc_out and want is None:
+        doc["usecases"] = uc_out
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 
@@ -662,6 +715,7 @@ FINDINGS_SOURCE = "findings"
 
 _AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 MAX_PROMPT_CHARS = 8000
+MAX_AGENT_ROUNDS = 24   # upper bound for a per-agent max_rounds (see builtin_agents.MAX_ROUNDS_LIMIT)
 
 
 def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = None,
@@ -701,6 +755,15 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
             if x not in mcp_server_names:
                 raise CatalogError(f"agent {a['name']!r}: unknown mcp server {x!r} "
                                    "(add it to the MCP servers registry first)")
+    mr = a.get("max_rounds")
+    if mr not in (None, ""):
+        try:
+            mr = int(mr)
+        except (TypeError, ValueError):
+            raise CatalogError(f"agent {a['name']!r}: max_rounds must be a whole number")
+        if not 1 <= mr <= MAX_AGENT_ROUNDS:
+            raise CatalogError(f"agent {a['name']!r}: max_rounds must be between 1 and "
+                               f"{MAX_AGENT_ROUNDS} (or empty for the default)")
 
     # Loop guard: a Tares agent writes a finding into the `findings` source. If its trigger
     # watches a view containing that source, the finding re-fires the trigger, which runs the agent

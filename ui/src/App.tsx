@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { useUsecaseName } from "./components/UsecaseBadge";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { api, auth } from "./api";
 import CommandPalette from "./components/CommandPalette";
 import {
   Activity, Bolt, Book, Chat, ChevronRight, Database, Filter, GitHub, Grid, Lock, Moon,
-  Settings, SignOut, Sun, Terminal,
+  Settings, SignOut, Sun, Terminal, Zap,
 } from "./components/icons";
 import { applyTheme, currentTheme, type Theme } from "./theme";
 
@@ -27,6 +28,11 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "", items: [
     { to: "/", end: true, label: "Overview", icon: Grid },
     { to: "/ask", label: "Ask", icon: Chat, kbd: "⌘K" },
+  ] },
+  // Use cases sit above the primitives: the opinionated entry point (pick one, answer a few
+  // questions, Start) that creates ordinary sources, views, triggers and agents below it.
+  { section: "Use cases", items: [
+    { to: "/usecases", label: "Use cases", icon: Zap },
   ] },
   { section: "Data", items: [
     { to: "/sources", label: "Sources", icon: Database },
@@ -58,6 +64,7 @@ const SECTION_LABEL: Record<string, string> = {
   "mcp-servers": "MCP servers",
   ask: "Ask",
   settings: "Settings",
+  usecases: "Use cases",
 };
 
 type Crumb = { label: string; to?: string; mono?: boolean };
@@ -68,6 +75,8 @@ type Crumb = { label: string; to?: string; mono?: boolean };
 function useCrumbs(): Crumb[] {
   const { pathname } = useLocation();
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+  const usecaseId = parts[0] === "usecases" && parts.length > 1 && parts[1] !== "new" ? decodeURIComponent(parts[1]) : undefined;
+  const usecaseName = useUsecaseName(usecaseId);
 
   if (parts.length === 0) return [{ label: "Overview" }];
 
@@ -80,6 +89,13 @@ function useCrumbs(): Crumb[] {
       : sub === "claude-code" ? { label: "Claude Code" }
       : { label: sub, mono: true };
     return [{ label: "Sources", to: "/sources" }, last];
+  }
+
+  if (parts[0] === "usecases" && parts.length > 1) {
+    const sub = decodeURIComponent(parts[1]);
+    // the path carries the instance id; show its name once /api/usecases has answered
+    const last: Crumb = sub === "new" ? { label: "Set up" } : { label: usecaseName?.name ?? "\u2026" };
+    return [{ label: "Use cases", to: "/usecases" }, last];
   }
 
   if (parts[0] === "agents" && parts.length > 1) {

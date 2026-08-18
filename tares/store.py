@@ -154,6 +154,15 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   created_at  TIMESTAMPTZ,
   updated_at  TIMESTAMPTZ
 );
+CREATE TABLE IF NOT EXISTS github_credentials (
+  name        TEXT PRIMARY KEY,
+  kind        TEXT,
+  token       TEXT,
+  api_url     TEXT,
+  account     TEXT,
+  created_at  TIMESTAMPTZ,
+  updated_at  TIMESTAMPTZ
+);
 CREATE TABLE IF NOT EXISTS ask_sessions (
   id         TEXT PRIMARY KEY,
   title      TEXT,
@@ -180,6 +189,34 @@ CREATE TABLE IF NOT EXISTS dispatch_log (
   delivered   INTEGER,
   payload     TEXT
 );
+-- Use cases: a recipe (code) instantiated with params. The instance owns the ordinary catalog
+-- objects it created (owned_by on those tables). usecase_objects maps the recipe plan
+-- keys to the real object names so a re-plan can diff against what exists.
+CREATE TABLE IF NOT EXISTS usecases (
+  id         TEXT PRIMARY KEY,
+  recipe     TEXT,
+  name       TEXT,
+  params     JSON,
+  status     TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS usecase_objects (
+  usecase_id TEXT,
+  kind       TEXT,
+  key        TEXT,
+  name       TEXT,
+  customized BOOLEAN,
+  created_at TIMESTAMPTZ,
+  PRIMARY KEY (usecase_id, kind, key)
+);
+CREATE TABLE IF NOT EXISTS usecase_log (
+  usecase_id TEXT,
+  logged_at  TIMESTAMPTZ,
+  action     TEXT,
+  detail     TEXT
+);
 """
 
 # Columns added after the first release; bring pre-existing DBs up to the current schema.
@@ -200,6 +237,11 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_token TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS mcp_servers JSON",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS external_tools JSON",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
+    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
+    # extra, non-secret headers an MCP server wants on every request (toolset selection, read-only
+    # mode); the auth header stays its own column because it is the secret
+    "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS headers JSON",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -208,6 +250,18 @@ _MIGRATIONS = [
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
     "ALTER TABLE events DROP COLUMN IF EXISTS fields",
+    # Use-case ownership (see usecases tables). No DEFAULT for the same reason as paused above;
+    # NULL reads as "not owned" / "not customized".
+    "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS owned_by TEXT",
+    "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS customized BOOLEAN",
+    "ALTER TABLE catalog_views ADD COLUMN IF NOT EXISTS owned_by TEXT",
+    "ALTER TABLE catalog_views ADD COLUMN IF NOT EXISTS customized BOOLEAN",
+    "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS owned_by TEXT",
+    "ALTER TABLE catalog_triggers ADD COLUMN IF NOT EXISTS customized BOOLEAN",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS owned_by TEXT",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS customized BOOLEAN",
+    "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS owned_by TEXT",
+    "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS customized BOOLEAN",
 ]
 
 _FILTER_COLS = {"event_type", "source", "text", "key_value"}
@@ -696,13 +750,14 @@ class Store:
     def list_catalog_sources(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, type, connector, poll, config, paused, created_at, updated_at, ingest_key "
-                "FROM catalog_sources ORDER BY name"
+                "SELECT name, type, connector, poll, config, paused, created_at, updated_at, "
+                "ingest_key, owned_by, customized FROM catalog_sources ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "type": r[1], "connector": r[2], "poll": r[3],
              "config": json.loads(r[4]), "paused": bool(r[5]),
-             "created_at": r[6], "updated_at": r[7], "ingest_key": r[8]}
+             "created_at": r[6], "updated_at": r[7], "ingest_key": r[8],
+             "owned_by": r[9], "customized": bool(r[10])}
             for r in rows
         ]
 
@@ -735,13 +790,13 @@ class Store:
     def list_catalog_views(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, key_field, sources, filters, created_by "
+                "SELECT name, key_field, sources, filters, created_by, owned_by, customized "
                 "FROM catalog_views ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "key_field": r[1], "sources": json.loads(r[2]),
              "filters": json.loads(r[3]) if r[3] else [],
-             "created_by": r[4] or "human"}
+             "created_by": r[4] or "human", "owned_by": r[5], "customized": bool(r[6])}
             for r in rows
         ]
 
@@ -769,12 +824,13 @@ class Store:
     def list_catalog_triggers(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, view, condition, emit, cooldown, paused "
+                "SELECT name, view, condition, emit, cooldown, paused, owned_by, customized "
                 "FROM catalog_triggers ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "view": r[1], "condition": json.loads(r[2]),
-             "emit": json.loads(r[3]), "cooldown": r[4], "paused": bool(r[5])}
+             "emit": json.loads(r[3]), "cooldown": r[4], "paused": bool(r[5]),
+             "owned_by": r[6], "customized": bool(r[7])}
             for r in rows
         ]
 
@@ -802,36 +858,39 @@ class Store:
                              slack_webhook: str | None = None, model: str | None = None,
                              slack_channel: str | None = None, webhook_url: str | None = None,
                              webhook_token: str | None = None,
-                             mcp_servers: list[str] | None = None) -> None:
+                             mcp_servers: list[str] | None = None,
+                             max_rounds: int | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO catalog_agents "
                 "(name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "webhook_url, webhook_token, mcp_servers, max_rounds, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
                 "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
                 "model = excluded.model, slack_channel = excluded.slack_channel, "
                 "webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token, "
-                "mcp_servers = excluded.mcp_servers, updated_at = excluded.updated_at",
+                "mcp_servers = excluded.mcp_servers, max_rounds = excluded.max_rounds, "
+                "updated_at = excluded.updated_at",
                 [name, trigger, prompt, slack_webhook or "", model or "",
                  slack_channel or "", webhook_url or "", webhook_token or "",
-                 json.dumps(mcp_servers or []), ts, ts],
+                 json.dumps(mcp_servers or []), max_rounds, ts, ts],
             )
 
     def list_catalog_agents(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, updated_at "
+                "webhook_url, webhook_token, mcp_servers, updated_at, max_rounds, owned_by, customized "
                 "FROM catalog_agents ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "trigger": r[1], "prompt": r[2], "slack_webhook": r[3] or "",
              "model": r[4] or "", "slack_channel": r[5] or "",
              "webhook_url": r[6] or "", "webhook_token": r[7] or "",
-             "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9]}
+             "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9],
+             "max_rounds": r[10], "owned_by": r[11], "customized": bool(r[12])}
             for r in rows
         ]
 
@@ -845,13 +904,15 @@ class Store:
 
     # ── agent runs (the operational record; the finding is an event, not this) ──
     def start_agent_run(self, run_id: str, agent: str, trigger: str, dispatch_id: str,
-                        key: str, prompt_hash: str) -> None:
+                        key: str, prompt_hash: str, max_rounds: int | None = None) -> None:
+        # max_rounds is the cap this run will be held to (the effective value, not the agent's
+        # nullable setting), so the history stays honest if defaults change later.
         with self._lock:
             self.con.execute(
                 "INSERT INTO agent_runs (id, agent, trigger, dispatch_id, key_value, status, "
-                "rounds, tool_calls, prompt_hash, started_at) "
-                "VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?)",
-                [run_id, agent, trigger, dispatch_id, key, prompt_hash, now_utc()],
+                "rounds, tool_calls, prompt_hash, started_at, max_rounds) "
+                "VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?, ?)",
+                [run_id, agent, trigger, dispatch_id, key, prompt_hash, now_utc(), max_rounds],
             )
 
     def finish_agent_run(self, run_id: str, status: str, rounds: int = 0, tool_calls: int = 0,
@@ -869,7 +930,8 @@ class Store:
 
     def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
-               "started_at, duration_ms, finding, error, external_tools FROM agent_runs ")
+               "started_at, duration_ms, finding, error, external_tools, max_rounds "
+               "FROM agent_runs ")
         params: list = []
         if agent:
             sql += "WHERE agent = ? "
@@ -882,7 +944,7 @@ class Store:
             {"id": r[0], "agent": r[1], "trigger": r[2], "dispatch_id": r[3], "key": r[4],
              "status": r[5], "rounds": r[6], "tool_calls": r[7], "started_at": r[8],
              "duration_ms": r[9], "finding": r[10], "error": r[11],
-             "external_tools": json.loads(r[12]) if r[12] else []}
+             "external_tools": json.loads(r[12]) if r[12] else [], "max_rounds": r[13]}
             for r in rows
         ]
 
@@ -954,29 +1016,172 @@ class Store:
     def list_mcp_servers(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
-                "SELECT name, url, auth_header, auth_value, updated_at "
+                "SELECT name, url, auth_header, auth_value, updated_at, owned_by, customized, headers "
                 "FROM mcp_servers ORDER BY name").fetchall()
         return [{"name": r[0], "url": r[1], "auth_header": r[2] or "",
-                 "auth_value": r[3] or "", "updated_at": r[4]} for r in rows]
+                 "auth_value": r[3] or "", "updated_at": r[4],
+                 "owned_by": r[5], "customized": bool(r[6]),
+                 "headers": json.loads(r[7]) if r[7] else {}} for r in rows]
 
     def get_mcp_server(self, name: str) -> dict | None:
         return next((m for m in self.list_mcp_servers() if m["name"] == name), None)
 
     def upsert_mcp_server(self, name: str, url: str, auth_header: str | None = None,
-                          auth_value: str | None = None) -> None:
+                          auth_value: str | None = None, headers: dict | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
-                "INSERT INTO mcp_servers (name, url, auth_header, auth_value, "
-                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "INSERT INTO mcp_servers (name, url, auth_header, auth_value, headers, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET url = excluded.url, "
                 "auth_header = excluded.auth_header, auth_value = excluded.auth_value, "
-                "updated_at = excluded.updated_at",
-                [name, url, auth_header or "", auth_value or "", ts, ts])
+                "headers = excluded.headers, updated_at = excluded.updated_at",
+                [name, url, auth_header or "", auth_value or "", json.dumps(headers or {}),
+                 ts, ts])
 
     def delete_mcp_server(self, name: str) -> None:
         with self._lock:
             self.con.execute("DELETE FROM mcp_servers WHERE name = ?", [name])
+
+    # ── use cases (recipes instantiated with params; they own ordinary catalog objects) ──
+    _OWNED_TABLES = {"source": "catalog_sources", "view": "catalog_views",
+                     "trigger": "catalog_triggers", "agent": "catalog_agents",
+                     "mcp_server": "mcp_servers"}
+
+    def set_owned_by(self, kind: str, name: str, usecase_id: str | None) -> None:
+        """Mark an ordinary object as created by a use case (or clear it). Ownership is a badge and
+        a diff key, not a lock: the object stays editable and deletable everywhere."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            self.con.execute(f"UPDATE {table} SET owned_by = ?, customized = FALSE WHERE name = ?",
+                             [usecase_id, name])
+
+    def mark_customized(self, kind: str, name: str) -> bool:
+        """Called by the normal update paths: if the object is owned by a use case, flag it so the
+        engine keeps the user's version on the next re-plan. Returns whether it was owned."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            row = self.con.execute(f"SELECT owned_by FROM {table} WHERE name = ?", [name]).fetchone()
+            if not row or not row[0]:
+                return False
+            self.con.execute(f"UPDATE {table} SET customized = TRUE WHERE name = ?", [name])
+            self.con.execute("UPDATE usecase_objects SET customized = TRUE "
+                             "WHERE usecase_id = ? AND kind = ? AND name = ?", [row[0], kind, name])
+        return True
+
+    def create_usecase(self, uid: str, recipe: str, name: str, params: dict,
+                       status: str = "active") -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO usecases (id, recipe, name, params, status, created_at, updated_at, "
+                "last_error) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+                [uid, recipe, name, json.dumps(params), status, ts, ts])
+
+    def update_usecase(self, uid: str, params: dict | None = None, status: str | None = None,
+                       last_error: str | None = "", name: str | None = None) -> None:
+        """last_error: "" (default) leaves it unchanged; None clears it; a string sets it."""
+        sets, vals = ["updated_at = ?"], [now_utc()]
+        if params is not None:
+            sets.append("params = ?"); vals.append(json.dumps(params))
+        if status is not None:
+            sets.append("status = ?"); vals.append(status)
+        if name is not None:
+            sets.append("name = ?"); vals.append(name)
+        if last_error != "":
+            sets.append("last_error = ?"); vals.append(last_error)
+        vals.append(uid)
+        with self._lock:
+            self.con.execute(f"UPDATE usecases SET {', '.join(sets)} WHERE id = ?", vals)
+
+    @staticmethod
+    def _usecase_row(r) -> dict:
+        return {"id": r[0], "recipe": r[1], "name": r[2], "params": json.loads(r[3] or "{}"),
+                "status": r[4], "created_at": r[5], "updated_at": r[6], "last_error": r[7]}
+
+    def list_usecases(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT id, recipe, name, params, status, created_at, updated_at, last_error "
+                "FROM usecases ORDER BY created_at").fetchall()
+        return [self._usecase_row(r) for r in rows]
+
+    def get_usecase(self, uid: str) -> dict | None:
+        with self._lock:
+            r = self.con.execute(
+                "SELECT id, recipe, name, params, status, created_at, updated_at, last_error "
+                "FROM usecases WHERE id = ?", [uid]).fetchone()
+        return self._usecase_row(r) if r else None
+
+    def get_usecase_by_name(self, name: str) -> dict | None:
+        return next((u for u in self.list_usecases() if u["name"] == name), None)
+
+    def delete_usecase(self, uid: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM usecase_objects WHERE usecase_id = ?", [uid])
+            self.con.execute("DELETE FROM usecase_log WHERE usecase_id = ?", [uid])
+            self.con.execute("DELETE FROM usecases WHERE id = ?", [uid])
+
+    def upsert_usecase_object(self, uid: str, kind: str, key: str, name: str) -> None:
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO usecase_objects (usecase_id, kind, key, name, customized, created_at) "
+                "VALUES (?, ?, ?, ?, FALSE, ?) ON CONFLICT (usecase_id, kind, key) DO UPDATE SET "
+                "name = excluded.name", [uid, kind, key, name, now_utc()])
+
+    def list_usecase_objects(self, uid: str) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT kind, key, name, customized, created_at FROM usecase_objects "
+                "WHERE usecase_id = ? ORDER BY created_at, kind, key", [uid]).fetchall()
+        return [{"kind": r[0], "key": r[1], "name": r[2], "customized": bool(r[3]),
+                 "created_at": r[4]} for r in rows]
+
+    def delete_usecase_object(self, uid: str, kind: str, key: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM usecase_objects WHERE usecase_id = ? AND kind = ? "
+                             "AND key = ?", [uid, kind, key])
+
+    def log_usecase(self, uid: str, action: str, detail: str = "") -> None:
+        with self._lock:
+            self.con.execute("INSERT INTO usecase_log (usecase_id, logged_at, action, detail) "
+                             "VALUES (?, ?, ?, ?)", [uid, now_utc(), action, detail[:2000]])
+
+    def list_usecase_log(self, uid: str, limit: int = 100) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT logged_at, action, detail FROM usecase_log WHERE usecase_id = ? "
+                "ORDER BY logged_at DESC LIMIT ?", [uid, limit]).fetchall()
+        return [{"at": r[0], "action": r[1], "detail": r[2]} for r in rows]
+    # ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+    # The token is held verbatim like every other connector secret; redaction is the API's job.
+    def list_github_credentials(self) -> list[dict]:
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT name, kind, token, api_url, account, created_at, updated_at "
+                "FROM github_credentials ORDER BY name").fetchall()
+        return [{"name": r[0], "kind": r[1] or "token", "token": r[2] or "",
+                 "api_url": r[3] or "", "account": r[4] or "",
+                 "created_at": r[5], "updated_at": r[6]} for r in rows]
+
+    def get_github_credential(self, name: str) -> dict | None:
+        return next((c for c in self.list_github_credentials() if c["name"] == name), None)
+
+    def upsert_github_credential(self, name: str, token: str, kind: str = "token",
+                                 api_url: str = "", account: str = "") -> None:
+        ts = now_utc()
+        with self._lock:
+            self.con.execute(
+                "INSERT INTO github_credentials (name, kind, token, api_url, account, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (name) DO UPDATE SET kind = excluded.kind, token = excluded.token, "
+                "api_url = excluded.api_url, account = excluded.account, "
+                "updated_at = excluded.updated_at",
+                [name, kind, token or "", api_url or "", account or "", ts, ts])
+
+    def delete_github_credential(self, name: str) -> None:
+        with self._lock:
+            self.con.execute("DELETE FROM github_credentials WHERE name = ?", [name])
 
     # ── ask sessions (the in-app agent's chat history) ────────────────────────
     # `state` is an opaque JSON blob owned by the console (messages, tool calls, proposal

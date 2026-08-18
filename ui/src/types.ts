@@ -19,6 +19,8 @@ export interface Source {
   paused: boolean;
   health: SourceHealth | null;
   ingest_key?: string;   // stable path segment for push endpoints: /ingest/<ingest_key>
+  owned_by?: string | null;   // the use case that created it, if any
+  customized?: boolean;       // edited by hand since; the use case keeps that version
 }
 
 export interface ConnectorField {
@@ -204,6 +206,8 @@ export interface View {
   filters?: ViewFilter[];
   created_by?: string;
   usage?: ViewUsage | null;
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 export interface TriggerCondition {
@@ -221,6 +225,8 @@ export interface Trigger {
   emit: Record<string, unknown>;
   cooldown: string;
   paused?: boolean;   // paused triggers are not evaluated and never fire
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 // A Tares agent is a prompt attached to a trigger: when the trigger fires, the agent takes a
@@ -238,8 +244,12 @@ export interface BuiltinAgent {
   webhook_url: string;         // write-back target, "" = none
   webhook_token_configured: boolean;   // the token itself is never sent to the client
   mcp_servers: string[];       // registry names this agent may use
+  max_rounds: number | null;   // model rounds per run; null = the default for its shape
+  effective_max_rounds: number;   // the cap its next run will be held to
   updated_at?: string;
   last_run?: AgentRun | null;
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 export interface AgentRun {
@@ -248,8 +258,9 @@ export interface AgentRun {
   trigger: string;
   dispatch_id: string;
   key: string;
-  status: "running" | "ok" | "empty" | "failed" | "capped";
+  status: "running" | "ok" | "empty" | "failed" | "capped" | "exhausted";
   rounds: number;
+  max_rounds?: number | null;  // the cap this run was held to
   tool_calls: number;
   external_tools?: string[];   // prefixed server__tool names this run called
   started_at: string;
@@ -345,3 +356,72 @@ export interface TestResult {
   error?: string;
   note?: string;
 }
+
+// A GitHub token stored once (Settings > GitHub) and referenced by name from sources and MCP
+// servers. The token itself never comes back over the API.
+export interface GithubCredential {
+  name: string;
+  kind: string;
+  api_url: string;
+  account: string;
+  token_configured: boolean;
+  created_at: string;
+  updated_at: string;
+  sources: string[];
+  mcp_servers: string[];
+}
+
+// ── Use cases: a recipe (code) instantiated with params; the instance owns ordinary objects ──
+export interface RecipeParam {
+  type?: string;              // string | number | bool | list | json | choice
+  required?: boolean;
+  default?: unknown;
+  help?: string;
+  label?: string;
+  choices?: string[];
+  item?: Record<string, RecipeParam>;   // for lists of objects
+}
+export interface Recipe {
+  key: string;
+  title: string;
+  description: string;
+  params: Record<string, RecipeParam>;
+}
+export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
+export interface UsecaseObject {
+  kind: UsecaseObjectKind;
+  key: string;
+  name: string;
+  customized: boolean;
+  missing: boolean;
+  created_at: string;
+}
+export interface Usecase {
+  id: string;
+  recipe: string;
+  recipe_title: string;
+  name: string;
+  params: Record<string, unknown>;
+  status: "active" | "paused" | "error";
+  created_at: string;
+  updated_at: string;
+  last_error: string | null;
+  objects: UsecaseObject[];
+}
+export interface UsecaseLogEntry { at: string; action: string; detail: string }
+// summary = instance + log + whatever the recipe reports. The recipe part is free-form; the
+// shapes below are what the shared code context recipe returns and the page renders when present.
+export interface UsecaseSummary extends Usecase {
+  log: UsecaseLogEntry[];
+  summary_error?: string;
+  repos?: { repo: string; branch?: string; source?: string; last_commit?: string | null;
+            events?: number }[];
+  context_repo?: string; context_branch?: string; context_path?: string; write_mode?: string;
+  runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
+  runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
+           max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null }[];
+  prs?: { open?: number; merged?: number };
+  trigger_last_fired?: string | null;
+  [k: string]: unknown;
+}
+export interface UsecaseUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }

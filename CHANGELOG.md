@@ -3,6 +3,58 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-08-18
+
+### Added
+- **Use cases.** A new top-level console section and a framework behind it: a use case is a
+  ready-made setup (a recipe with parameters) that creates ordinary Tares objects and owns them.
+  Instances live in `usecases`; the sources, views, triggers, agents and MCP servers they create
+  carry `owned_by` and show a "part of use case" badge on their normal pages, stay fully editable
+  and deletable there (an edit marks the object customized and the engine keeps that version; a
+  hand delete shows as missing on the use case page with a Repair action). Engine operations:
+  create (all or nothing), update (re-plan and diff), pause and resume (trigger and agent off,
+  sources keep ingesting), delete (optionally purging events), repair. API under `/api/usecases`;
+  a `usecases:` section in catalog YAML seeds instances on first boot and export includes them.
+- **Console for use cases.** The Use cases page (recipe cards, existing instances), a four-step
+  wizard for the shared code context recipe (GitHub access with a token permissions guide, source
+  repos picked from the token's repositories or pasted, the context repo with a look inside it and
+  the page layout, trigger and agent with a preview of what Start creates), and the instance page
+  with Runs and Configuration tabs, first-look runs labelled, runs deep-linked to the agent run,
+  and the underlying objects with their state. The breadcrumb shows the use case name.
+- **GitHub credential stored once.** Settings > GitHub holds a token by name; `github` sources
+  take `credential: <name>` instead of a token per source, MCP servers take
+  `credential:github/<name>` as their auth value, and rotating the token in one place rotates
+  every user of it. Test shows the login and scopes; the credential lists what uses it. New API
+  under `/api/integrations/github`, including the repositories the token can see and a look into a
+  repository's tree.
+- **MCP servers take extra headers.** A non-secret `headers` map alongside the auth header, merged
+  into every request; used to send `X-MCP-Toolsets` and `X-MCP-Readonly` to GitHub's hosted MCP.
+  Console form has it under Advanced; catalog YAML round-trips it.
+- **Settings has tabs.** Access and API keys, Anthropic, GitHub, Slack; `?tab=` deep-links.
+- **Per-agent round cap.** A Tares agent has `max_rounds` (1 to 24; blank means the default). The
+  default is 6, or 12 once the agent uses external MCP servers, since a run that reads a diff or a
+  file and writes back needs more than the read-and-conclude budget. Every run records the cap it
+  was held to and shows `rounds/max`. When the budget runs out mid-investigation the model gets one
+  final call with tools disabled to conclude from what it has; if it still cannot, the run ends
+  `exhausted` (a new status, not a failure), keeps the last text as a partial note, and says to raise
+  max rounds. Catalog YAML imports and exports the field; the agent form has it under Advanced.
+- **Use case: shared code context.** The first recipe on the use-case framework. Given a stored
+  GitHub credential, a list of source repositories and a context repository, it creates one commits
+  source per repo, a `repo_activity` view keyed by repo, a trigger that fires on any new commit
+  (batched per repo, 5m cooldown), GitHub's hosted MCP server registered with the same credential
+  (toolsets `repos,pull_requests`), and a Tares agent that reads each diff and keeps the context repo
+  current, as a pull request (default) or direct commits. Two page layouts: keep the repo's existing
+  pages and update them in place (default; the wizard shows what is at the chosen path, root
+  allowed), or one page per source repository plus an index. On Start it can run once per repo over
+  the last 7 days (the "first look", on by default) so the context repo starts current without
+  waiting for a commit. The agent writes plain sentences with no em dashes and finishes with a
+  finding that says what it changed and links the pull request. `POST /api/usecases` with `recipe: shared_code_context`, or a `usecases:` entry in
+  the catalog.
+- **GitHub commits carry their changed files.** With a token or credential, the `github` connector
+  fetches each new commit's file list (paths, status, additions, deletions, patch) into the payload,
+  capped at 20 files and 4k characters per patch with a `files_truncated` flag; one extra API call
+  per commit, paused for 10 minutes when the rate limit runs low. Off with `files: false`.
+
 ## [1.7.1] — 2026-08-17
 
 No code changes; a version bump so managed cells can be re-provisioned through the upgrade path

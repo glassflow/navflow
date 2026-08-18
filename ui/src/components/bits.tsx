@@ -169,7 +169,7 @@ export function Combo({ value, onChange, options, placeholder, style, className,
 
   return (
     <div className={"combo" + (className ? ` ${className}` : "")} style={style}>
-      <input type="text" value={value} placeholder={placeholder}
+      <input type="text" value={value} placeholder={placeholder} autoComplete="off" data-1p-ignore data-lpignore="true"
              onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(0); }}
              onFocus={() => setOpen(true)}
              onBlur={() => setOpen(false)}

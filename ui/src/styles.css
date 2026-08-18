@@ -1277,3 +1277,52 @@ pre.payload {
 .connector-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .connector-card-head .name { font-weight: 600; }
 .connector-card .desc { white-space: normal; }
+
+/* ── use cases: the opinionated entry point; cards, a stepper, a repo picker ── */
+.uc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 12px; }
+.uc-card { margin-bottom: 0; display: flex; flex-direction: row; gap: 24px; align-items: flex-start; }
+.uc-card-main { flex: 1; min-width: 0; }
+.uc-card-side { flex: 0 0 auto; }
+.uc-card-title { font-weight: 600; font-size: 16px; }
+.uc-card-desc { margin: 4px 0 12px; max-width: 70ch; }
+.uc-card-facts { display: grid; grid-template-columns: 1fr 1.4fr; gap: 0 24px; }
+.uc-card-facts .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
+.main .uc-card-facts ul { margin: 0; padding-left: 16px; font-size: 13px; color: var(--ink-soft); }
+.uc-card-facts li { margin: 2px 0; }
+.uc-steps { list-style: none; display: flex; gap: 0; padding: 0; margin: 0 0 16px; border: 1px solid var(--line); }
+.uc-steps li { flex: 1; padding: 8px 12px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-faint); border-right: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+.uc-steps li:last-child { border-right: 0; }
+.uc-steps li .n { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border: 1px solid var(--line); font-size: 10px; }
+.uc-steps li.cur { color: var(--ink); background: var(--wash); }
+.uc-steps li.cur .n { background: var(--accent-soft); color: var(--accent-deep); border-color: var(--accent); }
+.uc-steps li.done { color: var(--ink-soft); cursor: pointer; }
+.uc-steps li.done .n { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.uc-repolist { max-height: 280px; overflow: auto; border: 1px solid var(--line); }
+.uc-repo { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.uc-repo:last-child { border-bottom: 0; }
+.uc-repo:hover { background: var(--wash); }
+.uc-repo .help { margin-left: auto; font-size: 11px; }
+.uc-badge { display: inline-flex; align-items: center; gap: 6px; }
+.uc-badge .help { font-size: 11px; }
+.uc-how summary { cursor: pointer; font-weight: 600; }
+
+/* use case wizard: the peek into the context repo */
+.uc-tree { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.main .uc-tree-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.uc-tree-list li { list-style: none; }
+.uc-tree { margin-top: 6px; }
+.uc-tree .linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+
+/* a hint inside a field label stays on the label's line */
+.lbl .help { display: inline; margin: 0 0 0 4px; font-weight: 400; }
+
+/* "?" beside a label, opens an InfoDialog */
+.help-btn {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;
+  width: 16px; height: 16px; margin-left: 6px; padding: 0; line-height: 1;
+  border: 1px solid var(--line); border-radius: 0; background: var(--panel);
+  color: var(--ink-soft); font: 600 11px/1 var(--mono); cursor: pointer;
+}
+.help-btn:hover { color: var(--ink); border-color: var(--border-strong); }
+.perm-table { width: 100%; }
+.perm-table td, .perm-table th { padding: 6px 8px; font-size: 13px; }

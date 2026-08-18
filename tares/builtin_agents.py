@@ -41,12 +41,28 @@ AGENT_MODELS = list(dict.fromkeys(
     [MODEL, "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]))
 # Overridable so the end-to-end test can point at a stub instead of the real API.
 API_BASE = os.getenv("TARES_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
-MAX_ROUNDS = 6            # model-call rounds per run
+# Model-call rounds per run. The default is sized for read timeline + a query or two + a finding;
+# an agent that also reaches external MCP servers (a diff, a file, a write) needs more, so its
+# default is higher. Either can be overridden per agent (`max_rounds`, 1..24). One extra tools-off
+# call is made when the budget runs out, so the real ceiling is max_rounds + 1 model calls.
+MAX_ROUNDS = 6
+MAX_ROUNDS_WITH_MCP = 12
+MAX_ROUNDS_LIMIT = 24
 MAX_TOKENS = 2048         # per model call
 TOOL_TIMEOUT = 120        # per Anthropic request
 # Cost ceiling. A trigger in a hot loop can fire far more often than anyone expects; without a cap
 # the first surprise is the bill. Per-agent and per-day, counted from the run log.
 DAILY_RUN_CAP = int(os.getenv("TARES_AGENT_DAILY_CAP", "50"))
+MAX_BOOTSTRAP_KEYS = 50    # a use case bootstraps at most this many entities in one go
+
+def effective_max_rounds(agent: dict) -> int:
+    """The round cap a run is held to: the agent's own setting when set, else the default for its
+    shape (higher when it reaches external MCP servers)."""
+    own = agent.get("max_rounds")
+    if own:
+        return max(1, min(int(own), MAX_ROUNDS_LIMIT))
+    return MAX_ROUNDS_WITH_MCP if agent.get("mcp_servers") else MAX_ROUNDS
+
 
 # Starting points offered in the form. A preset only seeds the prompt box — the user edits freely,
 # because we cannot know what sources they attached or what they need looked at.
@@ -183,6 +199,71 @@ class AgentRunner:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    # ── manual and bootstrap runs (no firing behind them) ────────────────────
+    def run_now(self, agent_name: str, trigger_name: str, key: str, payload: str) -> str | None:
+        """Run an agent once outside a firing (a use case bootstrapping its first pages, a manual
+        re-run). Same run record, same caps and dedupe as a firing; no delivery row, since there is
+        no dispatch. Returns the run id, or None when the agent does not exist or is already
+        running for this key."""
+        agent = self.store.get_catalog_agent(agent_name)
+        if agent is None or (agent_name, key) in self._inflight:
+            return None
+        run_id = "run_" + uuid.uuid4().hex[:12]
+        marker = (agent_name, key)
+        self._inflight.add(marker)
+        self.store.start_agent_run(run_id, agent_name, trigger_name, "", key,
+                                   prompt_hash(agent["prompt"]), effective_max_rounds(agent))
+
+        async def go():
+            try:
+                await self._run(agent, trigger_name, key, payload, run_id, None)
+            except Exception as e:
+                detail = f"{type(e).__name__}: {str(e) or repr(e)}"
+                self.store.finish_agent_run(run_id, "failed", error=detail[:500])
+                print(f"[agent {agent_name}] {detail}")
+            finally:
+                self._inflight.discard(marker)
+
+        task = asyncio.create_task(go())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return run_id
+
+    def bootstrap(self, agent_name: str, trigger_name: str, view_name: str, keys: list[str],
+                  window: str = "7d", limit: int = 20, delay_s: float = 90.0,
+                  concurrency: int = 10) -> None:
+        """Schedule one run per key over a wide window of the view, a little later (the sources
+        behind a fresh use case need their first poll before there is anything to read). Keys whose
+        timeline is empty at that point are skipped, so an idle repo costs nothing. Runs go through
+        run_now, so the daily cap and dedupe apply."""
+
+        async def go():
+            await asyncio.sleep(delay_s)
+            sem = asyncio.Semaphore(max(1, concurrency))
+
+            async def one(key: str):
+                async with sem:
+                    catalog = self.runtime.catalog
+                    if view_name not in catalog.views:
+                        return
+                    payload, count, _rows = resolve_query_full(self.store, catalog, view_name,
+                                                               key=key, window=window)
+                    if not count:
+                        print(f"[agent {agent_name}] bootstrap: no events for {key} yet, skipped")
+                        return
+                    rid = self.run_now(agent_name, trigger_name, key, payload)
+                    if rid:
+                        print(f"[agent {agent_name}] bootstrap run {rid} for {key} ({count} events)")
+                        # wait for the run so the semaphore really bounds concurrency
+                        while (agent_name, key) in self._inflight:
+                            await asyncio.sleep(2)
+
+            await asyncio.gather(*(one(k) for k in keys[:MAX_BOOTSTRAP_KEYS]))
+
+        task = asyncio.create_task(go())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     async def _guarded(self, agent: dict, subscription_id: str, trigger_name: str, key: str,
                        payload: str, dispatch_id: str) -> None:
         marker = (agent["name"], key)
@@ -192,7 +273,7 @@ class AgentRunner:
         self._inflight.add(marker)
         run_id = "run_" + uuid.uuid4().hex[:12]
         self.store.start_agent_run(run_id, agent["name"], trigger_name, dispatch_id, key,
-                                   prompt_hash(agent["prompt"]))
+                                   prompt_hash(agent["prompt"]), effective_max_rounds(agent))
         try:
             status, error = await self._run(agent, trigger_name, key, payload, run_id,
                                             dispatch_id)
@@ -225,8 +306,17 @@ class AgentRunner:
             self.store.finish_agent_run(run_id, "capped", error=msg)
             return "capped", msg
 
-        finding, rounds, tool_calls, external_used = await self._loop(
+        finding, rounds, tool_calls, external_used, exhausted, partial = await self._loop(
             agent, trigger_name, key, payload, api_key)
+        if exhausted:
+            # The round budget ran out before the model concluded. Keep whatever it said last as
+            # a partial note (in `finding`, so it is visible) and say plainly what to do.
+            cap = effective_max_rounds(agent)
+            msg = f"round budget of {cap} exhausted before a conclusion; raise max rounds"
+            self.store.finish_agent_run(run_id, "exhausted", rounds=rounds,
+                                        tool_calls=tool_calls, finding=partial or None,
+                                        error=msg, external_tools=external_used)
+            return "exhausted", msg
         if not finding:
             msg = "the model returned no conclusion"
             self.store.finish_agent_run(run_id, "empty", rounds=rounds, tool_calls=tool_calls,
@@ -252,21 +342,24 @@ class AgentRunner:
 
     # ── the bounded model loop ────────────────────────────────────────────────
     async def _loop(self, agent: dict, trigger_name: str, key: str, payload: str,
-                    api_key: str) -> tuple[str, int, int, list[str]]:
+                    api_key: str) -> tuple[str, int, int, list[str], bool, str]:
         # External tools: the agent's selected MCP servers, connected for the duration of this
         # run. A server that fails to connect is skipped (recorded below) — losing a tool server
         # must not lose the run.
-        from .mcp_client import RemoteToolbox
+        from .mcp_client import RemoteToolbox, resolve_servers
         selected = set(agent.get("mcp_servers") or [])
-        servers = [m for m in self.store.list_mcp_servers() if m["name"] in selected]
+        servers = resolve_servers(self.store, [m for m in self.store.list_mcp_servers()
+                                               if m["name"] in selected])
         async with RemoteToolbox(servers) as toolbox:
             for failure in toolbox.failures:
                 print(f"[agent {agent['name']}] mcp connect failed; {failure}")
             return await self._loop_with(agent, trigger_name, key, payload, api_key, toolbox)
 
     async def _loop_with(self, agent: dict, trigger_name: str, key: str, payload: str,
-                         api_key: str, toolbox) -> tuple[str, int, int, list[str]]:
+                         api_key: str, toolbox) -> tuple[str, int, int, list[str], bool, str]:
+        """Returns (finding, rounds, tool_calls, external_tools_used, exhausted, partial_text)."""
         tools = TOOL_DEFS + toolbox.tool_defs
+        max_rounds = effective_max_rounds(agent)
         external_used: list[str] = []
         messages = [{
             "role": "user",
@@ -277,24 +370,35 @@ class AgentRunner:
                 f"read again only if you need a wider window or a different entity."),
         }]
         rounds = tool_calls = 0
+        last_text = ""
         async with httpx.AsyncClient(timeout=TOOL_TIMEOUT) as cx:
-            for rounds in range(1, MAX_ROUNDS + 1):
+            async def call(with_tools: bool) -> dict:
+                # The tools stay declared on the final call (a conversation holding tool_use
+                # blocks must define them); tool_choice none is what disables them.
+                body = {"model": agent.get("model") or MODEL,
+                        "max_tokens": MAX_TOKENS, "system": agent["prompt"],
+                        "tools": tools, "messages": messages}
+                if not with_tools:
+                    body["tool_choice"] = {"type": "none"}
                 r = await cx.post(
                     f"{API_BASE}/v1/messages",
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                    json={"model": agent.get("model") or MODEL,
-                          "max_tokens": MAX_TOKENS, "system": agent["prompt"],
-                          "tools": tools, "messages": messages})
+                    json=body)
                 if r.status_code >= 400:
                     raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
-                msg = r.json()
+                return r.json()
+
+            for rounds in range(1, max_rounds + 1):
+                msg = await call(True)
                 messages.append({"role": "assistant", "content": msg["content"]})
+                text = "\n".join(b.get("text", "") for b in msg["content"]
+                                 if b.get("type") == "text").strip()
+                if text:
+                    last_text = text
 
                 uses = [b for b in msg["content"] if b.get("type") == "tool_use"]
                 if not uses:
-                    text = "\n".join(b.get("text", "") for b in msg["content"]
-                                     if b.get("type") == "text")
-                    return text.strip(), rounds, tool_calls, external_used
+                    return text, rounds, tool_calls, external_used, False, ""
 
                 results = []
                 for u in uses:
@@ -311,7 +415,22 @@ class AgentRunner:
                     results.append({"type": "tool_result", "tool_use_id": u["id"], "content": out})
                 messages.append({"role": "user", "content": results})
 
-        return "", rounds, tool_calls, external_used   # round budget exhausted without a conclusion
+            # Budget exhausted with tool calls still pending. Ask once more, tools disabled, for a
+            # conclusion from what it has (this is the +1 call). If it concludes, that is the
+            # finding; if not, the run is `exhausted` and the last text is kept as a partial note.
+            messages.append({"role": "user", "content": (
+                "You have used your round budget. Do not call any more tools. Conclude now from "
+                "the evidence you already have; if it is inconclusive, say what you found so far "
+                "and what you would look at next.")})
+            try:
+                msg = await call(False)
+            except RuntimeError:
+                return "", rounds, tool_calls, external_used, True, last_text
+            text = "\n".join(b.get("text", "") for b in msg["content"]
+                             if b.get("type") == "text").strip()
+            if text:
+                return text, rounds, tool_calls, external_used, False, ""
+        return "", rounds, tool_calls, external_used, True, last_text
 
     def _tool(self, agent_name: str, name: str, args: dict) -> str:
         """The two reads, in-process. No HTTP hop and no credential: a Tares agent IS Tares, so

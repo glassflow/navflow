@@ -19,14 +19,42 @@ RESULT_CAP = 8_000
 
 
 def _headers(server: dict) -> dict:
+    """The auth header plus any extra headers the registration carries (toolset selection,
+    read-only mode). The auth header wins on a name clash: it is the secret."""
+    out = {str(k): str(v) for k, v in (server.get("headers") or {}).items() if str(k).strip()}
     header = (server.get("auth_header") or "").strip() or "Authorization"
     value = (server.get("auth_value") or "").strip()
-    return {header: value} if value else {}
+    if value:
+        out[header] = value
+    return out
+
+
+def resolve_servers(store, servers: list[dict]) -> list[dict]:
+    """Copies of the server rows with `auth_value: credential:github/<name>` replaced by
+    `Bearer <token>` from the stored credential, resolved now so a rotated token is used on the
+    next connect. An unknown credential leaves the value empty and the connect fails with a
+    named reason (a down or unauthenticated server is skipped by the run, not fatal)."""
+    from .github_credentials import credential_name, is_credential_ref, resolve_github_token
+    out = []
+    for s in servers:
+        s = dict(s)
+        if is_credential_ref(s.get("auth_value")):
+            token = resolve_github_token(store, s["auth_value"])
+            if token:
+                s["auth_value"] = f"Bearer {token}"
+            else:
+                s["_auth_error"] = (f"GitHub credential {credential_name(s['auth_value'])!r} "
+                                    "not found (Settings > GitHub)")
+                s["auth_value"] = ""
+        out.append(s)
+    return out
 
 
 async def list_remote_tools(server: dict) -> list[dict]:
     """Connect, initialize, and list the server's tools. Raises on failure — the caller decides
     whether that is a 502 (a test button) or evidence (an agent run)."""
+    if server.get("_auth_error"):
+        raise ValueError(server["_auth_error"])
     async with streamablehttp_client(server["url"], headers=_headers(server),
                                      timeout=CONNECT_TIMEOUT) as (read, write, _):
         async with ClientSession(read, write) as session:
@@ -82,6 +110,8 @@ class RemoteToolbox:
         """Owns the connection end to end. Resolves `ready` with the tool list (or the connect
         error), then serves call requests until it is handed None."""
         try:
+            if server.get("_auth_error"):
+                raise ValueError(server["_auth_error"])
             async with streamablehttp_client(server["url"], headers=_headers(server),
                                              timeout=CONNECT_TIMEOUT) as (read, write, _):
                 async with ClientSession(read, write) as session:

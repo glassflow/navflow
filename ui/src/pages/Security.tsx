@@ -4,7 +4,7 @@ import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Close } from "../components/icons";
 import { TimeAgo } from "../components/bits";
-import type { ApiKey } from "../types";
+import type { ApiKey, GithubCredential } from "../types";
 
 // Four distinct credential concepts, one box each:
 //   · Access     — is this instance open, or does it require a login? (tares up --auth)
@@ -13,6 +13,14 @@ import type { ApiKey } from "../types";
 //   · Slack      — the bot token behind slack:// trigger subscriptions (outbound), and the
 //                  signing secret that authenticates the /tares slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
+type SettingsTab = "access" | "anthropic" | "github" | "slack";
+const TABS: { key: SettingsTab; label: string }[] = [
+  { key: "access", label: "Access and API keys" },
+  { key: "anthropic", label: "Anthropic" },
+  { key: "github", label: "GitHub" },
+  { key: "slack", label: "Slack" },
+];
+
 export default function Security() {
   // Cloud only (TR-142): the half of "settings" a user comes here looking for that lives in the
   // control plane, named and linked, so nobody has to know the control plane exists.
@@ -20,10 +28,19 @@ export default function Security() {
   useEffect(() => {
     api.health().then((h) => setWorkspaceUrl(h.workspace_url || undefined)).catch(() => {});
   }, []);
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return (TABS.find((x) => x.key === t)?.key ?? "access");
+  });
+  const pick = (t: SettingsTab) => {
+    setTab(t);
+    const url = new URL(window.location.href); url.searchParams.set("tab", t);
+    window.history.replaceState(null, "", url.toString());
+  };
   return (
     <>
       <h1>Settings</h1>
-      <p className="subtitle">access mode, API keys, and the instance credentials: Anthropic and Slack</p>
+      <p className="subtitle">access mode, API keys, and the instance credentials: Anthropic, GitHub and Slack</p>
       {workspaceUrl && (
         <div className="alert" style={{ marginBottom: 14 }}>
           <strong>Users, the Slack app, plan and storage</strong> are managed in your workspace, not
@@ -32,12 +49,203 @@ export default function Security() {
           <a href={workspaceUrl}>Open workspace ↗</a>
         </div>
       )}
-      <AccessPanel />
-      <ApiKeysPanel />
-      <AnthropicKeyPanel />
-      <SlackTokenPanel />
-      <SlackSigningSecretPanel />
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => pick(t.key)}>{t.label}</button>
+        ))}
+      </div>
+      {tab === "access" && <><AccessPanel /><ApiKeysPanel /></>}
+      {tab === "anthropic" && <AnthropicKeyPanel />}
+      {tab === "github" && <GithubPanel />}
+      {tab === "slack" && <><SlackTokenPanel /><SlackSigningSecretPanel /></>}
     </>
+  );
+}
+
+// GitHub: a token stored once, referenced by name from `github` sources (`credential: <name>`)
+// and from MCP servers (`credential:github/<name>`), so a rotation happens here and nowhere else.
+// Same write-only contract as the other credentials: the token never comes back.
+function GithubPanel() {
+  const [creds, setCreds] = useState<GithubCredential[]>();
+  const [err, setErr] = useState<string>();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [token, setToken] = useState("");
+  const [apiUrl, setApiUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [tests, setTests] = useState<Record<string, { busy?: boolean; ok?: boolean; error?: string;
+                                                     login?: string; scopes?: string[] }>>({});
+  const [confirmDelete, setConfirmDelete] = useState<GithubCredential>();
+  const [rotating, setRotating] = useState<string>();
+  const [newToken, setNewToken] = useState("");
+
+  const load = () =>
+    api.githubCredentials().then((r) => setCreds(r.credentials))
+      .catch((e) => setErr(String((e as Error).message ?? e)));
+  useEffect(() => { load(); }, []);
+
+  const add = async () => {
+    setBusy(true); setErr(undefined);
+    try {
+      await api.createGithubCredential({ name: name.trim(), token: token.trim(), api_url: apiUrl.trim() });
+      setName(""); setToken(""); setApiUrl(""); setAdding(false);
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  const rotate = async (n: string) => {
+    setBusy(true); setErr(undefined);
+    try {
+      await api.updateGithubCredential(n, { name: n, token: newToken.trim() });
+      setRotating(undefined); setNewToken("");
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  const test = async (n: string) => {
+    setTests((t) => ({ ...t, [n]: { busy: true } }));
+    try {
+      const r = await api.testGithubCredential(n);
+      setTests((t) => ({ ...t, [n]: { ok: r.ok, error: r.error, login: r.login, scopes: r.scopes } }));
+      if (r.ok) load();
+    } catch (e) {
+      setTests((t) => ({ ...t, [n]: { ok: false, error: String((e as Error).message ?? e) } }));
+    }
+  };
+
+  const remove = async (n: string) => {
+    setBusy(true); setErr(undefined);
+    try { await api.deleteGithubCredential(n); await load(); }
+    catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false); setConfirmDelete(undefined);
+  };
+
+  return (
+    <div className="panel">
+      <div className="btnrow" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <h2 style={{ margin: 0 }}>GitHub</h2>
+        {!adding && <button className="primary" onClick={() => setAdding(true)}>Add credential</button>}
+      </div>
+      <p className="help">
+        A GitHub token stored once. Pick it by name on a <em>GitHub</em> source instead of pasting a
+        token per repository, and on an MCP server as its authentication; rotate it here and every
+        source and server follows. Use a fine-grained token: the repositories you want, with{" "}
+        <strong>Contents</strong> read (read/write on a repository an agent should update),{" "}
+        <strong>Pull requests</strong> read/write, <strong>Metadata</strong> read. It is never
+        returned by the API and never included in a catalog export.
+      </p>
+
+      {err && <div className="alert error">{err}</div>}
+
+      {adding && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="row2">
+            <label className="field">
+              <span className="lbl">name</span>
+              <input type="text" className="mono" placeholder="e.g. github" value={name}
+                     onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="lbl">token</span>
+              <input type="password" className="mono" autoComplete="new-password"
+                     placeholder="github_pat_… or ghp_…" value={token}
+                     onChange={(e) => setToken(e.target.value)} />
+            </label>
+          </div>
+          <label className="field">
+            <span className="lbl">API URL <span className="help">(GitHub Enterprise only)</span></span>
+            <input type="text" className="mono" placeholder="https://github.example.com/api/v3"
+                   value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
+          </label>
+          <div className="btnrow">
+            <button className="primary" disabled={busy || !name.trim() || !token.trim()} onClick={add}>Save</button>
+            <button onClick={() => { setAdding(false); setErr(undefined); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!creds ? <div className="muted">loading…</div>
+        : creds.length === 0 ? (
+          !adding && <div className="empty">no GitHub credential yet. Add one to pick it on sources and MCP servers.</div>
+        ) : (
+          <table>
+            <thead><tr><th>name</th><th>account</th><th>used by</th><th>updated</th><th aria-label="actions" /></tr></thead>
+            <tbody>
+              {creds.map((c) => {
+                const t = tests[c.name];
+                const uses = c.sources.length + c.mcp_servers.length;
+                return (
+                  <>
+                    <tr key={c.name}>
+                      <td className="mono"><strong>{c.name}</strong>
+                        {c.api_url && <span className="help" style={{ marginLeft: 6 }}>{c.api_url}</span>}</td>
+                      <td>{c.account ? <span className="mono">{c.account}</span> : <span className="dim">unknown</span>}</td>
+                      <td>{uses === 0 ? <span className="dim">nothing yet</span> : (
+                        <span className="help" title={[...c.sources, ...c.mcp_servers].join("\n")}>
+                          {c.sources.length > 0 && <>{c.sources.length} source{c.sources.length === 1 ? "" : "s"}</>}
+                          {c.sources.length > 0 && c.mcp_servers.length > 0 && ", "}
+                          {c.mcp_servers.length > 0 && <>{c.mcp_servers.length} MCP server{c.mcp_servers.length === 1 ? "" : "s"}</>}
+                        </span>
+                      )}</td>
+                      <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={c.updated_at} /></td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <div className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                          <button onClick={() => test(c.name)} disabled={t?.busy}>{t?.busy ? "testing…" : "Test"}</button>
+                          <button onClick={() => { setRotating(rotating === c.name ? undefined : c.name); setNewToken(""); }}>Rotate</button>
+                          <button className="danger" onClick={() => setConfirmDelete(c)}>Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                    {t && !t.busy && (
+                      <tr key={c.name + "-test"}>
+                        <td colSpan={5} style={{ background: "var(--wash)" }}>
+                          {t.ok ? (
+                            <div style={{ padding: "6px 4px" }}>
+                              <span className="badge ok">token works</span>{" "}
+                              <span className="help">signed in as <span className="mono">{t.login}</span>
+                                {t.scopes && t.scopes.length > 0 && <> with scopes <span className="mono">{t.scopes.join(", ")}</span></>}</span>
+                            </div>
+                          ) : (
+                            <div style={{ padding: "6px 4px" }}>
+                              <span className="badge error">failed</span>{" "}
+                              <span className="help mono">{t.error}</span>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    {rotating === c.name && (
+                      <tr key={c.name + "-rotate"}>
+                        <td colSpan={5} style={{ background: "var(--wash)" }}>
+                          <div className="btnrow" style={{ alignItems: "center", maxWidth: 720, padding: "6px 4px" }}>
+                            <input type="password" className="mono" style={{ flex: 1 }} autoComplete="new-password"
+                                   placeholder="new token" value={newToken} onChange={(e) => setNewToken(e.target.value)} />
+                            <button className="primary" disabled={busy || !newToken.trim()} onClick={() => rotate(c.name)}>Save new token</button>
+                            <button onClick={() => setRotating(undefined)}>Cancel</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete GitHub credential ${confirmDelete.name}?`}
+          message={confirmDelete.sources.length + confirmDelete.mcp_servers.length > 0
+            ? `${confirmDelete.sources.length} source(s) and ${confirmDelete.mcp_servers.length} MCP server(s) reference it and will stop authenticating until you point them at another credential.`
+            : "Nothing references it."}
+          confirmLabel="Delete" danger
+          onConfirm={() => remove(confirmDelete.name)}
+          onCancel={() => setConfirmDelete(undefined)} />
+      )}
+    </div>
   );
 }
 

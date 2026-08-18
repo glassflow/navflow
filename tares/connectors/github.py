@@ -12,12 +12,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import time
+
 import httpx
 
 from ..envelope import Envelope, now_utc
 from .base import Connector
 
 _API_DEFAULT = "https://api.github.com"
+FILES_MAX = 20          # files kept per commit payload
+PATCH_MAX = 4_000       # chars kept per file patch
+RATELIMIT_FLOOR = 500   # below this many remaining requests, stop fetching file lists for a while
 
 
 def _parse_iso(s):
@@ -56,11 +61,19 @@ class GithubConnector(Connector):
                    "help": "branch to follow (empty = the repo's default branch, labeled by its "
                            "real name). One source follows one branch; add a source per branch "
                            "to watch several"},
+        "credential": {"type": "string", "discover_input": True,
+                       "help": "name of a stored GitHub credential (Settings > GitHub); the token "
+                               "is read from it at every poll, so rotating the credential rotates "
+                               "this source too. Set this or `token`, not both"},
         "token": {"type": "string", "secret": True, "discover_input": True,
-                  "help": "GitHub token; required for private repos, recommended otherwise: "
-                          "without one GitHub allows 60 API requests/hour per IP"},
+                  "help": "GitHub token for this source only; required for private repos, "
+                          "recommended otherwise: without one GitHub allows 60 API requests/hour "
+                          "per IP. Prefer a stored credential"},
         "limit": {"type": "number", "default": 20,
                   "help": "newest commits fetched per poll (the first poll imports this many)"},
+        "files": {"type": "boolean", "default": True, "advanced": True,
+                  "help": "with a token, fetch each new commit's changed files (paths and patches, "
+                          "capped) into the payload; one extra API call per commit"},
         "api_url": {"type": "string", "advanced": True,
                     "help": "GitHub API base for GitHub Enterprise (default https://api.github.com)"},
     }
@@ -102,11 +115,33 @@ class GithubConnector(Connector):
             etags[etag_key] = r.headers["etag"]
         return r.json()
 
+    def _token(self) -> str | None:
+        """The token to use: the stored credential named in `credential` (resolved now, so a
+        rotation is picked up on the next poll), else this source's own `token`."""
+        c = self.cfg.config
+        if c.get("credential"):
+            from ..github_credentials import resolve_github_token
+            token = resolve_github_token(self.store, c["credential"])
+            if not token:
+                raise ValueError(f"GitHub credential {c['credential']!r} not found or empty "
+                                 "(Settings > GitHub)")
+            return token
+        return c.get("token") or None
+
+    def _api(self) -> str:
+        c = self.cfg.config
+        if not c.get("api_url") and c.get("credential"):
+            from ..github_credentials import resolve_api_url
+            url = resolve_api_url(self.store, c["credential"])
+            if url:
+                return url.rstrip("/")
+        return (c.get("api_url") or _API_DEFAULT).rstrip("/")
+
     async def poll(self):
         c = self.cfg.config
         repo = _normalize_repo(c["repo"])
-        api = (c.get("api_url") or _API_DEFAULT).rstrip("/")
-        token = c.get("token")
+        api = self._api()
+        token = self._token()
         limit = int(c.get("limit", 20))
         async with httpx.AsyncClient(timeout=15) as cx:
             branch = str(c.get("branch") or "")
@@ -119,17 +154,61 @@ class GithubConnector(Connector):
                 branch = self._default_branch
             commits = await self._get(cx, f"{api}/repos/{repo}/commits", token,
                                       {"per_page": limit, "sha": branch}, f"c:{branch}", repo)
-        if not isinstance(commits, list) or not commits:
-            return []
-        cursor = self.store.get_cursor(self.cfg.name)
-        new = []
-        for commit in commits:           # newest first; stop at the last-seen SHA
-            if commit.get("sha") == cursor:
-                break
-            new.append(commit)
+            if not isinstance(commits, list) or not commits:
+                return []
+            cursor = self.store.get_cursor(self.cfg.name)
+            new = []
+            for commit in commits:           # newest first; stop at the last-seen SHA
+                if commit.get("sha") == cursor:
+                    break
+                new.append(commit)
+            if token and c.get("files", True):
+                # the list endpoint has no file list; one more call per new commit gives the agent
+                # what changed without a tool call. Only with a token (60/h unauthenticated would
+                # not survive it), and backed off when the quota runs low.
+                for commit in new:
+                    files = await self._files(cx, api, repo, commit.get("sha", ""), token)
+                    if files is not None:
+                        commit["files"] = files["files"]
+                        commit["files_truncated"] = files["truncated"]
         self.store.set_cursor(self.cfg.name, commits[0].get("sha"))
         return [self._commit_envelope({**commit, "_branch": branch}, repo)
                 for commit in reversed(new)]  # chronological
+
+    async def _files(self, cx, api: str, repo: str, sha: str, token: str) -> dict | None:
+        """The changed files of one commit (GET /repos/{repo}/commits/{sha}), trimmed so a payload
+        stays a payload: at most FILES_MAX files, each patch cut at PATCH_MAX chars, with a
+        `truncated` flag when anything was cut. None when the call fails or the rate limit is
+        nearly spent (the commit still lands, just without files)."""
+        if not sha:
+            return None
+        if getattr(self, "_ratelimit_low_until", 0) > time.monotonic():
+            return None
+        try:
+            r = await cx.get(f"{api}/repos/{repo}/commits/{sha}", headers=_headers(token))
+        except Exception:
+            return None
+        try:
+            remaining = int(r.headers.get("x-ratelimit-remaining", "1000"))
+        except ValueError:
+            remaining = 1000
+        if remaining < RATELIMIT_FLOOR:
+            print(f"[github {self.cfg.name}] rate limit low ({remaining} left); skipping commit "
+                  f"file lists for 10 minutes")
+            self._ratelimit_low_until = time.monotonic() + 600
+        if r.status_code != 200:
+            return None
+        raw = (r.json() or {}).get("files") or []
+        truncated = len(raw) > FILES_MAX
+        files = []
+        for f in raw[:FILES_MAX]:
+            patch = f.get("patch") or ""
+            if len(patch) > PATCH_MAX:
+                patch, truncated = patch[:PATCH_MAX], True
+            files.append({"filename": f.get("filename"), "status": f.get("status"),
+                          "additions": f.get("additions"), "deletions": f.get("deletions"),
+                          "patch": patch})
+        return {"files": files, "truncated": truncated}
 
     def label_context(self, commit: dict | None) -> dict:
         # repo comes from config; branch from config or the `_branch` the poller stamped into the
@@ -198,6 +277,9 @@ class GithubConnector(Connector):
             "recent_authors": authors[:8],
             "proposed_config": {
                 "repo": repo, "branch": branch,
+                # keep the credential reference the user chose (the daemon resolved it into a
+                # token for this call; the token itself must not land in the proposal)
+                **({"credential": config["credential"]} if config.get("credential") else {}),
                 "labels": [{"name": "repo", "field": "repo", "primary": True},
                            {"name": "author", "field": "author"},
                            {"name": "branch", "field": "branch"}],

@@ -3,7 +3,9 @@ import type {
   ApiKey,
   CatalogDescribe, CatalogList, ConnectorSpec, DiscoverProposal, DispatchDetail, DispatchLogEntry, Entity, EnvScan,
   AgentPreset, AgentRun, BuiltinAgent,
+  GithubCredential,
   LabelFacet, QueryLogEntry,
+  Recipe, Usecase, UsecaseSummary, UsecaseUpdateReport,
   Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
 } from "./types";
@@ -152,11 +154,13 @@ export const api = {
   builtinAgents: () =>
     request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
               models: string[]; default_model: string; slack_workspace: boolean;
+              default_max_rounds: number; default_max_rounds_with_mcp: number;
+              max_rounds_limit: number;
               presets: AgentPreset[] }>("/api/agents/builtin"),
-  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
+  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[]; max_rounds?: number | null }) =>
     request<{ ok: boolean; enabled: boolean }>("/api/agents/builtin",
       { method: "POST", body: JSON.stringify(body) }),
-  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
+  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[]; max_rounds?: number | null }) =>
     request(`/api/agents/builtin/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
   enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),
@@ -215,10 +219,14 @@ export const api = {
   // ── MCP connections: external tool servers agents can opt into ──
   mcpServers: () =>
     request<{ servers: { name: string; url: string; auth_header: string;
-                         auth_value_configured: boolean; updated_at: string }[] }>("/api/mcp-servers"),
-  createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+                         auth_value_configured: boolean; auth_credential: string;
+                         headers: Record<string, string>; updated_at: string;
+                         owned_by?: string | null; customized?: boolean }[] }>("/api/mcp-servers"),
+  createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string;
+                            headers?: Record<string, string> }) =>
     request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
-  updateMcpServer: (name: string, body: { name: string; url: string; auth_header?: string; auth_value?: string }) =>
+  updateMcpServer: (name: string, body: { name: string; url: string; auth_header?: string; auth_value?: string;
+                                          headers?: Record<string, string> }) =>
     request<{ ok: boolean }>(`/api/mcp-servers/${encodeURIComponent(name)}`,
       { method: "PUT", body: JSON.stringify(body) }),
   deleteMcpServer: (name: string) =>
@@ -226,6 +234,50 @@ export const api = {
   testMcpServer: (name: string) =>
     request<{ ok: boolean; error?: string; tools: { name: string; description: string }[] }>(
       `/api/mcp-servers/${encodeURIComponent(name)}/test`, { method: "POST" }),
+
+  // ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+  githubCredentials: () =>
+    request<{ credentials: GithubCredential[] }>("/api/integrations/github"),
+  createGithubCredential: (body: { name: string; token: string; api_url?: string }) =>
+    request<{ ok: boolean; account: string }>("/api/integrations/github",
+      { method: "POST", body: JSON.stringify(body) }),
+  updateGithubCredential: (name: string, body: { name: string; token?: string; api_url?: string }) =>
+    request<{ ok: boolean; account: string }>(`/api/integrations/github/${encodeURIComponent(name)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  deleteGithubCredential: (name: string) =>
+    request<{ ok: boolean }>(`/api/integrations/github/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  testGithubCredential: (name: string) =>
+    request<{ ok: boolean; error?: string; login?: string; name?: string; scopes?: string[] }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/test`, { method: "POST" }),
+  githubCredentialTree: (name: string, repo: string, ref = "", path = "") =>
+    request<{ ref: string; path: string; dirs: string[]; files: string[]; markdown: string[]; exists: boolean }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/tree?repo=${encodeURIComponent(repo)}&ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}`),
+  githubCredentialRepos: (name: string, query = "") =>
+    request<{ repos: { full_name: string; default_branch: string; private: boolean; pushed_at: string | null }[] }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/repos?query=${encodeURIComponent(query)}`),
+
+  // ── Use cases: recipes instantiated with params; each instance owns ordinary objects ──
+  recipes: () => request<{ recipes: Recipe[] }>("/api/usecases/recipes"),
+  usecases: () => request<{ usecases: Usecase[] }>("/api/usecases"),
+  usecase: (id: string) => request<Usecase>(`/api/usecases/${encodeURIComponent(id)}`),
+  usecaseSummary: (id: string) =>
+    request<UsecaseSummary>(`/api/usecases/${encodeURIComponent(id)}/summary`),
+  createUsecase: (body: { recipe: string; name?: string; params: Record<string, unknown> }) =>
+    request<Usecase>("/api/usecases", { method: "POST", body: JSON.stringify(body) }),
+  updateUsecase: (id: string, body: { params: Record<string, unknown>; name?: string }) =>
+    request<Usecase & { report?: UsecaseUpdateReport }>(`/api/usecases/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  deleteUsecase: (id: string, purgeEvents = false) =>
+    request<{ ok: boolean; deleted?: string[]; purged_events?: number }>(
+      `/api/usecases/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
+      { method: "DELETE" }),
+  pauseUsecase: (id: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/pause`, { method: "POST" }),
+  resumeUsecase: (id: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  repairUsecase: (id: string, key: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/repair`,
+      { method: "POST", body: JSON.stringify({ key }) }),
 
   // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──
   askSessions: () =>

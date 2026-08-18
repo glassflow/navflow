@@ -36,13 +36,17 @@ from .connectors import (SPECS, normalize_config, redact_config, restore_secrets
 from .dispatch import Dispatcher
 from .envelope import now_utc
 from .builtin_agents import (AGENT_MODELS, MODEL as AGENT_DEFAULT_MODEL,
-                             PRESETS as AGENT_PRESETS, AgentRunner,
+                             MAX_ROUNDS as AGENT_MAX_ROUNDS,
+                             MAX_ROUNDS_LIMIT as AGENT_MAX_ROUNDS_LIMIT,
+                             MAX_ROUNDS_WITH_MCP as AGENT_MAX_ROUNDS_WITH_MCP,
+                             PRESETS as AGENT_PRESETS, AgentRunner, effective_max_rounds,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
 from . import slack as slack_mod
 from . import slack_verify
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
 from .store import Store, StoreUnavailable
+from .usecases import Engine as UsecaseEngine, UsecaseError
 from .views import resolve_query_full, resolve_read
 
 CATALOG_PATH = os.getenv("TARES_CATALOG", "catalog.yaml")
@@ -273,6 +277,7 @@ class AgentIn(BaseModel):
     webhook_token: str = ""      # optional bearer for the write-back (secret; blank-to-keep)
     slack_webhook_clear: bool = False   # blank means keep (it is a secret), so clearing is explicit
     mcp_servers: list[str] = []  # registry names this agent may use
+    max_rounds: int | None = None   # model rounds per run; None = default (6, or 12 with MCP servers)
 
 
 class ImportReq(BaseModel):
@@ -280,11 +285,35 @@ class ImportReq(BaseModel):
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
 
 
+class UsecaseIn(BaseModel):
+    recipe: str
+    name: str = ""         # defaults to the recipe title
+    params: dict = {}
+
+
+class UsecaseUpdate(BaseModel):
+    params: dict
+    name: str = ""         # blank = unchanged
+
+
+class UsecaseRepair(BaseModel):
+    key: str               # a plan key (or "kind:key")
+
+
 class McpServerIn(BaseModel):
     name: str
     url: str
     auth_header: str = ""        # header name; empty means Authorization when a value is set
-    auth_value: str = ""         # the credential (secret; blank-to-keep on update)
+    auth_value: str = ""         # the credential (secret; blank-to-keep on update), or
+                                 # `credential:github/<name>` to use a stored GitHub credential
+    headers: dict[str, str] = {}  # extra non-secret headers sent on every request
+
+
+class GithubCredentialIn(BaseModel):
+    name: str
+    token: str = ""              # secret; blank-to-keep on update
+    api_url: str | None = None   # GitHub Enterprise API base; empty = github.com; omitted on
+                                 # update = keep
 
 
 class AskSessionIn(BaseModel):
@@ -319,13 +348,17 @@ def make_app() -> FastAPI:
     # seed the DB catalog from YAML on first boot — or on every boot when CATALOG_SYNC is set, so
     # the file stays the source of truth (the admin interface for a read-only demo: edit + restart).
     if Path(CATALOG_PATH).exists() and (store.catalog_empty() or CATALOG_SYNC):
-        counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text())
+        counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text(),
+                                   engine=UsecaseEngine(store))
         how = "synced" if CATALOG_SYNC else "imported"
         print(f"taresd: {how} {CATALOG_PATH} into catalog "
-              f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers)")
+              f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers"
+              f"{', ' + str(counts['usecases']) + ' usecases' if counts.get('usecases') else ''})")
 
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
+    # Use cases: recipes instantiated with params; they create and own ordinary catalog objects.
+    usecases = UsecaseEngine(store, reload=runtime.reload_catalog, runtime=runtime)
     # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
@@ -374,6 +407,8 @@ def make_app() -> FastAPI:
         runtime.shutdown()
 
     app = FastAPI(title="taresd", lifespan=lifespan)
+    app.state.store = store   # for in-process tests; DuckDB is single-writer, so no second Store
+    app.state.runtime = runtime
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                        allow_headers=["*"])
 
@@ -903,11 +938,22 @@ def make_app() -> FastAPI:
         connector = body.get("connector")
         if connector not in REGISTRY:
             _err(ValueError(f"unknown connector {connector!r}"), 404)
+        config = dict(body.get("config", {}) or {})
+        if config.get("credential") and not config.get("token"):
+            # discover() is a classmethod with no store: resolve the stored GitHub credential
+            # here so it can authenticate; the proposal keeps the reference, never the token
+            from .github_credentials import resolve_api_url, resolve_github_token
+            token = resolve_github_token(store, config["credential"])
+            if not token:
+                _err(ValueError(f"GitHub credential {config['credential']!r} not found "
+                                "(Settings > GitHub)"), 404)
+            config["token"] = token
+            config.setdefault("api_url", resolve_api_url(store, config["credential"]) or "")
         try:
             # bounded + catch-all: driver errors (asyncpg timeouts/auth/network) are not ValueError
             # and would otherwise 500 with nothing shown to the user
             proposal = await asyncio.wait_for(
-                REGISTRY[connector].discover(body.get("config", {}) or {}), timeout=30)
+                REGISTRY[connector].discover(config), timeout=30)
         except (TimeoutError, asyncio.TimeoutError):
             _err(ValueError("discover timed out; is the target reachable from the Tares "
                             "server? (a hosted Tares can only reach public endpoints)"))
@@ -977,6 +1023,7 @@ def make_app() -> FastAPI:
             _err(e)
         store.upsert_catalog_source(name, source_type_for(body.connector), body.connector,
                                     body.poll, config, paused=existing["paused"])
+        store.mark_customized("source", name)
         runtime.reload_catalog()
         # Label specs apply to NEW events going forward — ingest reads the current specs. Existing
         # events keep the labels they were ingested with. A retroactive relabel of stored events can
@@ -1133,8 +1180,25 @@ def make_app() -> FastAPI:
     # The registry: URL + optional auth header. The auth value is a secret: never returned,
     # blank-to-keep on update, exported only with secrets included.
     def _mcp_row(m: dict) -> dict:
+        from .github_credentials import credential_name, is_credential_ref
+        ref = m["auth_value"] if is_credential_ref(m["auth_value"]) else ""
         return {"name": m["name"], "url": m["url"], "auth_header": m["auth_header"],
-                "auth_value_configured": bool(m["auth_value"]), "updated_at": m["updated_at"]}
+                "auth_value_configured": bool(m["auth_value"]),
+                # a credential reference is not a secret: the console can show which one is used
+                "auth_credential": credential_name(ref) if ref else "",
+                "headers": m.get("headers") or {}, "updated_at": m["updated_at"],
+                "owned_by": m.get("owned_by"), "customized": bool(m.get("customized"))}
+
+    def _clean_headers(headers: dict | None) -> dict:
+        out = {}
+        for k, v in (headers or {}).items():
+            k = str(k).strip()
+            if not k:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9-]+", k):
+                _err(ValueError(f"header name {k!r} must be a header name"))
+            out[k] = str(v).strip()
+        return out
 
     @app.get("/api/mcp-servers")
     async def list_mcp_servers():
@@ -1149,8 +1213,17 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         store.upsert_mcp_server(body.name, body.url.strip(), body.auth_header.strip(),
-                                body.auth_value)
+                                _check_credential_ref(body.auth_value), _clean_headers(body.headers))
         return {"ok": True}
+
+    def _check_credential_ref(value: str) -> str:
+        """`credential:github/<name>` must name a stored credential; anything else passes through
+        as the literal header value."""
+        from .github_credentials import credential_name, is_credential_ref
+        if is_credential_ref(value) and store.get_github_credential(credential_name(value)) is None:
+            _err(ValueError(f"GitHub credential {credential_name(value)!r} not found "
+                            "(Settings > GitHub)"), 404)
+        return value
 
     @app.put("/api/mcp-servers/{name}")
     async def update_mcp_server(name: str, body: McpServerIn):
@@ -1164,7 +1237,9 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         value = body.auth_value or existing.get("auth_value", "")   # blank-to-keep
-        store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(), value)
+        store.upsert_mcp_server(name, body.url.strip(), body.auth_header.strip(),
+                                _check_credential_ref(value), _clean_headers(body.headers))
+        store.mark_customized("mcp_server", name)
         return {"ok": True}
 
     @app.delete("/api/mcp-servers/{name}")
@@ -1181,13 +1256,120 @@ def make_app() -> FastAPI:
         server = store.get_mcp_server(name)
         if server is None:
             _err(KeyError(f"unknown mcp server {name!r}"), 404)
-        from .mcp_client import list_remote_tools
+        from .mcp_client import list_remote_tools, resolve_servers
         try:
-            tools = await asyncio.wait_for(list_remote_tools(server), timeout=20)
+            tools = await asyncio.wait_for(
+                list_remote_tools(resolve_servers(store, [server])[0]), timeout=20)
         except Exception as e:
             detail = f"{type(e).__name__}: {str(e)[:200]}" if str(e).strip() else type(e).__name__
             return {"ok": False, "error": detail, "tools": []}
         return {"ok": True, "tools": tools}
+
+    # ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
+    # Same write-only contract as the other credentials: the token is never returned, blank-to-keep
+    # on update, and the console can list, test and delete.
+    from .github_credentials import (forget_repos, list_repos, list_tree, redact as _gh_redact,
+                                     test_credential)
+
+    def _gh_users(name: str) -> dict:
+        """Where a credential is used, so deleting one is an informed act."""
+        sources = [s["name"] for s in store.list_catalog_sources()
+                   if (s.get("config") or {}).get("credential") == name]
+        ref = f"credential:github/{name}"
+        servers = [m["name"] for m in store.list_mcp_servers() if m.get("auth_value") == ref]
+        return {"sources": sources, "mcp_servers": servers}
+
+    @app.get("/api/integrations/github")
+    async def list_github_credentials():
+        return {"credentials": [{**_gh_redact(c), **_gh_users(c["name"])}
+                                for c in store.list_github_credentials()]}
+
+    @app.post("/api/integrations/github", status_code=201)
+    async def create_github_credential(body: GithubCredentialIn):
+        name = body.name.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            _err(ValueError("name must be alphanumeric/_/-"))
+        if store.get_github_credential(name) is not None:
+            _err(ValueError(f"GitHub credential {name!r} already exists"), 409)
+        if not body.token.strip():
+            _err(ValueError("token is required"))
+        api_url = (body.api_url or "").strip()
+        account = ""
+        try:   # best effort: a bad token is still stored, the Test button explains it
+            account = (await test_credential(body.token.strip(), api_url or None))["login"]
+        except ValueError:
+            pass
+        store.upsert_github_credential(name, body.token.strip(), "token", api_url, account)
+        return {"ok": True, "account": account}
+
+    @app.put("/api/integrations/github/{name}")
+    async def update_github_credential(name: str, body: GithubCredentialIn):
+        existing = store.get_github_credential(name)
+        if existing is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        token = body.token.strip() or existing["token"]     # blank-to-keep
+        api_url = (existing.get("api_url") or "") if body.api_url is None else body.api_url.strip()
+        account = existing.get("account") or ""
+        if body.token.strip():
+            try:
+                account = (await test_credential(token, api_url or None))["login"]
+            except ValueError:
+                pass
+        store.upsert_github_credential(name, token, existing.get("kind") or "token",
+                                       api_url, account)
+        forget_repos(name)
+        return {"ok": True, "account": account}
+
+    @app.delete("/api/integrations/github/{name}")
+    async def delete_github_credential(name: str):
+        if store.get_github_credential(name) is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        store.delete_github_credential(name)
+        forget_repos(name)
+        return {"ok": True, **_gh_users(name)}
+
+    @app.post("/api/integrations/github/{name}/test")
+    async def test_github_credential(name: str):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        try:
+            info = await test_credential(cred["token"], cred.get("api_url") or None)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        if info["login"] and info["login"] != cred.get("account"):
+            store.upsert_github_credential(name, cred["token"], cred.get("kind") or "token",
+                                           cred.get("api_url") or "", info["login"])
+        return {"ok": True, **info}
+
+    @app.get("/api/integrations/github/{name}/repos")
+    async def github_credential_repos(name: str, query: str = ""):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        try:
+            repos = await asyncio.wait_for(
+                list_repos(name, cred["token"], cred.get("api_url") or None, query), timeout=60)
+        except ValueError as e:
+            _err(e, 502)
+        except (TimeoutError, asyncio.TimeoutError):
+            _err(ValueError("GitHub took too long to list repositories"), 504)
+        return {"repos": repos}
+
+    @app.get("/api/integrations/github/{name}/tree")
+    async def github_credential_tree(name: str, repo: str, ref: str = "", path: str = ""):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        if not repo or "/" not in repo:
+            _err(ValueError("repo must be owner/name"))
+        try:
+            return await asyncio.wait_for(
+                list_tree(cred["token"], repo, ref, path, cred.get("api_url") or None), timeout=30)
+        except ValueError as e:
+            _err(e, 502)
+        except (TimeoutError, asyncio.TimeoutError):
+            _err(ValueError("GitHub took too long to list the repository"), 504)
 
     # ── Ask sessions — server-side chat history, so a conversation survives navigation and a
     # console reopened tomorrow can pick up where it left off. The console PUTs the whole session
@@ -1257,6 +1439,7 @@ def make_app() -> FastAPI:
             _err(e)
         store.upsert_catalog_view(name, body.key_field, body.sources, body.filters,
                                   created_by=runtime.catalog.views[name].created_by)
+        store.mark_customized("view", name)
         runtime.reload_catalog()
         return {"ok": True}
 
@@ -1300,6 +1483,7 @@ def make_app() -> FastAPI:
         except CatalogError as e:
             _err(e)
         store.upsert_catalog_trigger(name, body.view, body.condition, body.emit, body.cooldown)
+        store.mark_customized("trigger", name)
         runtime.reload_catalog()
         return {"ok": True}
 
@@ -1363,10 +1547,16 @@ def make_app() -> FastAPI:
                          "webhook_url": a.get("webhook_url") or "",
                          "webhook_token_configured": bool(a.get("webhook_token")),
                          "mcp_servers": a.get("mcp_servers") or [],
+                         "max_rounds": a.get("max_rounds"),
+                         "effective_max_rounds": effective_max_rounds(a),
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
+                         "owned_by": a.get("owned_by"), "customized": bool(a.get("customized")),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
                 "models": AGENT_MODELS, "default_model": AGENT_DEFAULT_MODEL,
+                "default_max_rounds": AGENT_MAX_ROUNDS,
+                "default_max_rounds_with_mcp": AGENT_MAX_ROUNDS_WITH_MCP,
+                "max_rounds_limit": AGENT_MAX_ROUNDS_LIMIT,
                 "slack_workspace": bool(resolve_slack_token(store)[0]),
                 "presets": [{"id": k, **v} for k, v in AGENT_PRESETS.items()]}
 
@@ -1377,7 +1567,8 @@ def make_app() -> FastAPI:
         _agent_payload(body)
         store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, body.webhook_token, body.mcp_servers)
+                                   body.webhook_url, body.webhook_token, body.mcp_servers,
+                                   body.max_rounds)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled; enable it to run on the next firing"}
@@ -1400,7 +1591,8 @@ def make_app() -> FastAPI:
         # so what the body says is what the user wants — including blank (removed).
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, wtoken, body.mcp_servers)
+                                   body.webhook_url, wtoken, body.mcp_servers, body.max_rounds)
+        store.mark_customized("agent", name)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):
@@ -1805,6 +1997,84 @@ def make_app() -> FastAPI:
     async def subscriptions():
         return store.list_all_subscriptions()
 
+    # ── management API: use cases (recipes instantiated with params) ─────────
+    # A use case creates and owns ordinary objects; those stay editable and deletable on their own
+    # pages. These routes are the instance's lifecycle and its combined view.
+    def _uc_err(e: Exception):
+        if isinstance(e, KeyError):
+            _err(e, 404)
+        if isinstance(e, (UsecaseError, CatalogError, ValueError)):
+            _err(e, 400)
+        raise e
+
+    @app.get("/api/usecases/recipes")
+    async def usecase_recipes():
+        return {"recipes": usecases.list_recipes()}
+
+    @app.get("/api/usecases")
+    async def list_usecases():
+        return {"usecases": usecases.list()}
+
+    @app.post("/api/usecases", status_code=201)
+    async def create_usecase(body: UsecaseIn):
+        try:
+            return usecases.create(body.recipe, body.params, name=body.name or None)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.get("/api/usecases/{uid}")
+    async def get_usecase(uid: str):
+        inst = usecases.get(uid)
+        if inst is None:
+            _err(KeyError(f"unknown use case {uid!r}"), 404)
+        return inst
+
+    @app.put("/api/usecases/{uid}")
+    async def update_usecase(uid: str, body: UsecaseUpdate):
+        try:
+            out = usecases.update(uid, body.params)
+            if body.name.strip():
+                store.update_usecase(uid, name=body.name.strip())
+                out = {**usecases.get(uid), "report": out["report"]}
+            return out
+        except Exception as e:
+            _uc_err(e)
+
+    @app.delete("/api/usecases/{uid}")
+    async def delete_usecase(uid: str, purge_events: bool = False):
+        try:
+            return usecases.delete(uid, purge_events=purge_events)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/pause")
+    async def pause_usecase(uid: str):
+        try:
+            return usecases.pause(uid)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/resume")
+    async def resume_usecase(uid: str):
+        try:
+            return usecases.resume(uid)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.post("/api/usecases/{uid}/repair")
+    async def repair_usecase(uid: str, body: UsecaseRepair):
+        try:
+            return usecases.repair(uid, body.key)
+        except Exception as e:
+            _uc_err(e)
+
+    @app.get("/api/usecases/{uid}/summary")
+    async def usecase_summary(uid: str):
+        try:
+            return usecases.summary(uid)
+        except Exception as e:
+            _uc_err(e)
+
     # ── management API: catalog import/export ────────────────────────────────
     @app.get("/api/catalog/export")
     async def catalog_export(sources: str | None = None, include_secrets: bool = False):
@@ -1820,8 +2090,8 @@ def make_app() -> FastAPI:
         if body.mode == "replace":
             store.clear_catalog()
         try:
-            counts = import_yaml_to_db(store, body.yaml)
-        except CatalogError as e:
+            counts = import_yaml_to_db(store, body.yaml, engine=usecases)
+        except (CatalogError, UsecaseError) as e:
             _err(e)
         except Exception as e:
             _err(ValueError(f"invalid YAML: {e}"))
