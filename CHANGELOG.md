@@ -3,6 +3,15 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Auto-discover (Docker) works again.** The environment scan still read the Prometheus
+  connector's old one-shot discover shape and failed with an internal error whenever a
+  Prometheus container was running. It now proposes a reachable starter metrics source (`up`,
+  keyed by `service` when the server has that label) and says how many metrics wait to be picked
+  on the source page; an unreachable or unexpected server never fails the scan.
+
 ## [1.8.0] - 2026-08-18
 
 ### Added

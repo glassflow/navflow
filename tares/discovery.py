@@ -77,17 +77,25 @@ async def scan_docker() -> dict:
     if prom:
         port = _published_port(prom["ports"], 9090) or 9090
         url = f"http://localhost:{port}"
+        # discover() in its default (catalog) mode lists the metrics and labels the server has;
+        # picking which metrics to poll is the source page's job (the by-label picker + finalize),
+        # so the scan proposes a reachable starter config and says how many metrics wait there.
         try:
             p = await PrometheusConnector.discover({"url": url})
-            cfg = normalize_config("prometheus", p["proposed_config"])
-            k = p["suggested_key"]
-            summary = (f"{p['summary']['relevant']} metrics · key={k['name']} "
-                       f"({k['cardinality']} entities) · derived "
-                       f"{', '.join(d['label'] for d in p['derived_suggestions'])}")
-        except ValueError:
+            catalog = p.get("catalog") or {}
+            n_metrics = len(catalog.get("metrics") or [])
+            key = "service" if "service" in (catalog.get("labels") or []) else "instance"
+            cfg = normalize_config("prometheus", {
+                "url": url,
+                "queries": [{"promql": "up", "event_type": "up", "text": "up {instance}={val}"}],
+                "labels": [{"name": key, "field": key, "primary": True},
+                           {"name": "value", "field": "value", "type": "number"}]})
+            summary = (f"{n_metrics} metrics available at {url} · key={key} · "
+                       f"starts with `up`; pick more metrics on the source page")
+        except Exception as e:   # unreachable, or a shape the scan does not know: never fail the scan
             cfg = normalize_config("prometheus", {"url": url, "default_key": "api-server",
                                                   "queries": [{"promql": "up"}]})
-            summary = f"detected at {url} but couldn't introspect; confirm it's reachable"
+            summary = f"detected at {url} but couldn't introspect ({type(e).__name__}); confirm it's reachable"
         proposed.append({
             "connector": "prometheus", "name": "metrics", "config": cfg,
             "summary": summary, "preselect": True, "from": f"container {prom['name']}"})
