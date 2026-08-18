@@ -117,6 +117,16 @@ export default function UsecaseDetail() {
       </div>
 
 
+      <details className="panel uc-how" style={{ marginBottom: 14 }}>
+        <summary>How it works</summary>
+        <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+          <li>Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.</li>
+          <li>The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.</li>
+          <li>The agent reads each diff through the GitHub MCP server, updates that repo's page in the context repo, and writes a finding on the timeline.</li>
+          <li>Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.</li>
+        </ol>
+      </details>
+
       <div className="tabs">
         <button className={tab === "runs" ? "active" : ""} onClick={() => setTab("runs")}>Runs</button>
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
@@ -243,21 +253,9 @@ export default function UsecaseDetail() {
         </table>
       </div>
 
-      </>)}
-
-      <details className="panel uc-how">
-        <summary>How it works</summary>
-        <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-          <li>Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.</li>
-          <li>The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.</li>
-          <li>The agent reads each diff through the GitHub MCP server, updates that repo's page in the context repo, and writes a finding on the timeline.</li>
-          <li>Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.</li>
-        </ol>
-      </details>
-
       {s.log && s.log.length > 0 && (
         <details className="panel uc-how">
-          <summary>History</summary>
+          <summary>Change history</summary>
           <table style={{ marginTop: 8 }}>
             <tbody>
               {s.log.map((l, i) => (
@@ -271,6 +269,9 @@ export default function UsecaseDetail() {
           </table>
         </details>
       )}
+      </>)}
+
+
 
       {confirmDel && (
         <ConfirmDialog
