@@ -540,13 +540,13 @@ export default function UsecaseNewSharedContext() {
         <InfoDialog title="Token permissions" onClose={() => setTokenHelp(false)}>
           <p className="help" style={{ margin: 0 }}>
             Create a fine-grained personal access token on GitHub (Settings, Developer settings, Personal access tokens, Fine-grained tokens).
-            Under Repository access pick the source repos and the context repo. Then add these repository permissions:
+            Under Repository access pick the source repos and the context repo. Then add these repository permissions, and check each one's access level after adding it (GitHub starts every permission at Read-only):
           </p>
           <table className="perm-table">
             <thead><tr><th>permission</th><th>access</th><th>why</th></tr></thead>
             <tbody>
-              <tr><td>Contents</td><td>Read and write</td><td>read commits and diffs in the source repos; create branches and files in the context repo</td></tr>
-              <tr><td>Pull requests</td><td>Read and write</td><td>open the pull request in the context repo</td></tr>
+              <tr><td>Contents</td><td><strong>Read and write</strong></td><td>read commits and diffs in the source repos; create branches and files in the context repo</td></tr>
+              <tr><td>Pull requests</td><td><strong>Read and write</strong></td><td>open the pull request in the context repo. GitHub defaults this to Read-only when you add it; with Read-only the agent can push the branch but the pull request fails</td></tr>
               <tr><td>Metadata</td><td>Read-only</td><td>added by GitHub automatically; lists the repos</td></tr>
             </tbody>
           </table>
