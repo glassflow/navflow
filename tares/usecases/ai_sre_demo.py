@@ -27,7 +27,9 @@ Produce a tight incident note: (1) what is failing and since when, (2) the most 
 tied to the specific evidence lines (which signal crossed, what the logs show), (3) a suggested \
 next action. If the timeline is too narrow, read a wider window (1h) once before concluding. Do \
 not speculate beyond the evidence; if it is inconclusive, say what you would look at next. Plain \
-sentences, no em dashes.
+sentences, no em dashes. The incident note is your final message and nothing else: reason through \
+tool calls, and only write the note once you have concluded; never narrate what you are about to \
+check.
 """
 
 
@@ -66,10 +68,20 @@ class AiSreDemo(Recipe):
 
     ACTIONS = [
         {"name": "inject", "label": "Cause an incident",
-         "help": "flips the api-server's fault switch; HighErrorRate, HighLatency or DependencyDown "
-                 "fires within about 30 seconds and the agent wakes",
-         "params": {"scenario": {"label": "scenario",
-                                 "options": ["error_spike", "latency", "dependency_outage"]}}},
+         "intro": "Break the demo api-server on purpose and watch the AI SRE work: the fault shows up "
+                  "in the metrics and logs, Prometheus fires an alert, the incident trigger wakes "
+                  "the agent, and its incident note lands under Runs.",
+         "help": "flips the api-server's fault switch; the matching Prometheus alert fires within "
+                 "about 30 seconds and the agent wakes",
+         "docs": {"label": "Build an AI SRE guide, step 4", "url": "https://docs.glassflow.ai/tares/guides/ai-sre#cause-an-incident-and-watch-the-sre-work"},
+         "params": {"scenario": {"label": "scenario", "options": [
+             {"value": "error_spike", "label": "error spike",
+              "help": "a share of requests start returning 5xx; the 5xx rate climbs and HighErrorRate fires"},
+             {"value": "latency", "label": "latency",
+              "help": "responses slow past the timeout; p99 climbs and HighLatency fires"},
+             {"value": "dependency_outage", "label": "dependency outage",
+              "help": "the api-server's database dependency goes down; dependency_up drops to 0 and DependencyDown fires"},
+         ]}}},
         {"name": "clear", "label": "Clear the fault",
          "help": "rolls the fault back; the alert resolves and a resolved event lands on the timeline"},
     ]

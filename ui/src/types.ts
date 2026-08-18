@@ -382,9 +382,11 @@ export interface RecipeParam {
   item?: Record<string, RecipeParam>;   // for lists of objects
 }
 export interface RecipeSetupStep { title: string; text?: string; command?: string; check?: "anthropic_key" | "detect" }
+export interface RecipeActionOption { value: string; label?: string; help?: string }
 export interface RecipeAction {
-  name: string; label: string; help?: string;
-  params?: Record<string, { label?: string; options?: string[] }>;
+  name: string; label: string; help?: string; intro?: string;
+  docs?: { label: string; url: string };
+  params?: Record<string, { label?: string; options?: (string | RecipeActionOption)[] }>;
 }
 export interface Recipe {
   key: string;

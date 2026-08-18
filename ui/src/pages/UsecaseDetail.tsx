@@ -4,7 +4,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
-import type { Recipe, UsecaseObject, UsecaseSummary } from "../types";
+import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
+import InfoDialog, { HelpButton } from "../components/InfoDialog";
 
 // One use case instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
@@ -69,14 +70,17 @@ export default function UsecaseDetail() {
   const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
   const [actionMsg, setActionMsg] = useState<string>();
   const [actionBusy, setActionBusy] = useState<string>();
+  const [actionHelp, setActionHelp] = useState(false);
   useEffect(() => {
     if (!s?.recipe) return;
     api.recipes().then((r) => setRecipe(r.recipes.find((x) => x.key === s.recipe))).catch(() => {});
   }, [s?.recipe]);
-  const runAction = async (name: string, params?: Record<string, { options?: string[] }>) => {
+  const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
+    (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
+  const runAction = async (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
     setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
     const args: Record<string, unknown> = {};
-    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? spec.options?.[0];
+    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
     try { const r = await api.usecaseAction(id, name, args); setActionMsg(r.message); reload(); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
     setActionBusy(undefined);
@@ -161,14 +165,25 @@ export default function UsecaseDetail() {
 
       {recipe?.actions && recipe.actions.length > 0 && (
         <div className="panel" style={{ marginBottom: 14 }}>
+          {recipe.actions.some((a) => a.intro) && (
+            <p className="help" style={{ margin: "0 0 10px" }}>
+              {recipe.actions.find((a) => a.intro)?.intro}
+              <HelpButton onClick={() => setActionHelp(true)} label="What do these do?" />
+            </p>
+          )}
           <div className="uc-actions">
             {recipe.actions.map((a) => (
               <span key={a.name} className="uc-actions" title={a.help}>
-                {Object.entries(a.params ?? {}).map(([k, spec]) => (
-                  <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? spec.options?.[0] ?? ""}
-                          onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
-                          options={spec.options ?? []} ariaLabel={spec.label ?? k} style={{ width: 200 }} />
-                ))}
+                {Object.entries(a.params ?? {}).map(([k, spec]) => {
+                  const o = opts(spec.options);
+                  return (
+                    <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
+                            onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
+                            options={o.map((x) => x.value)}
+                            labels={Object.fromEntries(o.map((x) => [x.value, x.label ?? x.value]))}
+                            ariaLabel={spec.label ?? k} style={{ width: 200 }} />
+                  );
+                })}
                 <button className="primary" disabled={!!actionBusy || s.status !== "active"} onClick={() => runAction(a.name, a.params)}>
                   {actionBusy === a.name ? "working…" : a.label}
                 </button>
@@ -176,7 +191,38 @@ export default function UsecaseDetail() {
             ))}
             {actionMsg && <span className="help">{actionMsg}</span>}
           </div>
+          {(() => {
+            const cur = recipe.actions.find((a) => a.params?.scenario);
+            const o = cur ? opts(cur.params!.scenario.options) : [];
+            const sel = cur ? (actionArgs[`${cur.name}.scenario`] ?? o[0]?.value) : undefined;
+            const h = o.find((x) => x.value === sel)?.help;
+            return h ? <p className="help" style={{ margin: "8px 0 0" }}>{h}</p> : null;
+          })()}
         </div>
+      )}
+
+      {actionHelp && recipe?.actions && (
+        <InfoDialog title="Causing an incident" onClose={() => setActionHelp(false)}>
+          {recipe.actions.filter((a) => a.intro).map((a) => <p key={a.name} className="help" style={{ margin: 0 }}>{a.intro}</p>)}
+          {recipe.actions.filter((a) => a.params?.scenario).map((a) => (
+            <table key={a.name} className="perm-table">
+              <thead><tr><th>scenario</th><th>what happens</th></tr></thead>
+              <tbody>
+                {opts(a.params!.scenario.options).map((x) => (
+                  <tr key={x.value}><td className="mono">{x.value}</td><td>{x.help ?? ""}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+          <ul className="help" style={{ margin: 0, paddingLeft: 18 }}>
+            {recipe.actions.filter((a) => a.help).map((a) => <li key={a.name}><strong>{a.label}</strong>: {a.help}</li>)}
+          </ul>
+          {recipe.actions.find((a) => a.docs)?.docs && (
+            <p className="help" style={{ margin: 0 }}>
+              Walkthrough: <a href={recipe.actions.find((a) => a.docs)!.docs!.url} target="_blank" rel="noreferrer">{recipe.actions.find((a) => a.docs)!.docs!.label}</a>
+            </p>
+          )}
+        </InfoDialog>
       )}
 
       <div className="tabs">
