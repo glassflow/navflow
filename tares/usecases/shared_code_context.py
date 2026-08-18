@@ -53,7 +53,9 @@ makes false, add what is new. Every claim carries the short sha of the commit it
 6. If nothing needs updating, do not write anything; say why.
 
 Finish with a finding for the timeline: what changed in the context repo and the pull request or \
-commit link, or "no update needed" with the reason. Keep the finding under 12 lines.
+commit link, or "no update needed" with the reason. Keep the finding under 12 lines. The finding is \
+your final message and nothing else: do your reasoning through tool calls, and only write the \
+finding once you have decided; never narrate what you are about to check.
 
 Style, everywhere you write (pages, PR titles and bodies, the finding): plain sentences, no em \
 dashes; use a comma, a colon or a full stop instead.
@@ -168,6 +170,10 @@ class SharedCodeContext(Recipe):
                                     "label": "commits straight to the context branch"}],
                        "help": "pull requests keep a human in the loop; commits keep the repo "
                                "current with no review"},
+        "bootstrap": {"type": "boolean", "default": True, "label": "First look on start",
+                      "help": "when the use case starts, run the agent once per source repo over "
+                              "the last 7 days of commits so the context repo starts current; turn "
+                              "off if it already is or to save model spend"},
         "model": {"type": "string", "default": "", "label": "Model",
                   "help": "model for the agent (empty = the instance default)"},
         "max_rounds": {"type": "number", "default": 12, "label": "Max rounds",
@@ -204,6 +210,7 @@ class SharedCodeContext(Recipe):
         p["context_branch"] = str(p.get("context_branch") or "main").strip() or "main"
         path = str(p.get("context_path") or "").strip().strip("/")
         p["context_path"] = (path + "/") if path else ""
+        p["bootstrap"] = bool(p.get("bootstrap", True))
         if p.get("layout") not in LAYOUTS:
             raise UsecaseError(f"layout must be one of {sorted(LAYOUTS)}")
         if p.get("trigger") not in TRIGGERS:
@@ -304,6 +311,7 @@ class SharedCodeContext(Recipe):
         for r in store.list_agent_runs(n["agent"], limit=10):
             runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
                          "repo": r.get("key"), "key": r.get("key"), "agent": n["agent"],
+                         "first_look": not r.get("dispatch_id"),
                          "status": r.get("status"),
                          "rounds": r.get("rounds"), "max_rounds": r.get("max_rounds"),
                          "pr_url": _pr_link(r.get("finding")), "finding": r.get("finding"),
@@ -325,6 +333,8 @@ class SharedCodeContext(Recipe):
         gets its first pages now instead of at the next commit. Best effort: the sources need a
         first poll to have anything to read, so this schedules the runs a little later and skips
         repos with no commits yet."""
+        if instance["params"].get("bootstrap") is False:
+            return
         agents = getattr(getattr(runtime, "dispatcher", None), "agents", None)
         if agents is None or not hasattr(agents, "run_now"):
             return

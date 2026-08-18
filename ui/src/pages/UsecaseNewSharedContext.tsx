@@ -74,6 +74,7 @@ export default function UsecaseNewSharedContext() {
   const [models, setModels] = useState<string[]>([]);
   const [defaultModel, setDefaultModel] = useState("");
   const [maxRounds, setMaxRounds] = useState("12");
+  const [bootstrap, setBootstrap] = useState(true);
 
   useEffect(() => {
     api.recipes()
@@ -114,6 +115,7 @@ export default function UsecaseNewSharedContext() {
       if (typeof p.context_branch === "string") setContextBranch(p.context_branch);
       if (typeof p.context_path === "string") setContextPath(p.context_path);
       if (p.layout === "per_repo") setLayout("per_repo");
+      if (p.bootstrap === false) setBootstrap(false);
       if (p.write_mode === "commit_to_branch") setWriteMode("commit_to_branch");
       if (typeof p.trigger === "string") setTrigger(p.trigger);
       if (typeof p.model === "string") setModel(p.model);
@@ -227,6 +229,7 @@ export default function UsecaseNewSharedContext() {
       context_repo: contextRepo,
       context_path: contextPath.trim(),
       layout,
+      bootstrap,
       trigger,
       write_mode: writeMode,
     };
@@ -511,11 +514,11 @@ export default function UsecaseNewSharedContext() {
               ))}
             </tbody>
           </table>
-          <p className="help" style={{ marginTop: 10 }}>
-            First run: the agent reads the recent commits of each source repo once and writes the first
-            pages, so the context repo is filled right away. Everything created shows on its own page with
-            a "part of use case" badge and stays editable there.
-          </p>
+          <label className="check" style={{ display: "block", marginTop: 8 }}>
+            <input type="checkbox" checked={bootstrap} onChange={(e) => setBootstrap(e.target.checked)} />{" "}
+            <strong>First look on start:</strong> run the agent once per source repo over the last 7 days of commits, so the context repo starts current. Turn off if it already is, or to save model spend.
+          </label>
+          <p className="help">Everything created shows on its own page with a "part of use case" badge and stays editable there.</p>
         </div>
       )}
 

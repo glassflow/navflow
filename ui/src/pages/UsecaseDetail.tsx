@@ -135,6 +135,12 @@ export default function UsecaseDetail() {
       {tab === "runs" && (<>
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Runs</h2>
+        {runs && runs.some((r) => r.first_look) && (
+          <p className="help" style={{ marginTop: 0 }}>
+            Runs marked <span className="badge">first look</span> ran once when the use case started, over each repo's
+            recent commits, so the context repo starts current. Every later run is the trigger firing on new commits.
+          </p>
+        )}
         {runs && runs.length > 0 ? (
           <table>
             <thead><tr><th>when</th><th>repo</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
@@ -149,7 +155,10 @@ export default function UsecaseDetail() {
                         : <TimeAgo ts={r.started_at ?? null} />}
                     </td>
                     <td className="mono">{r.repo ?? r.key ?? ""}</td>
-                    <td><span className={`badge ${statusClass(r.status)}`}>{r.status ?? "?"}</span></td>
+                    <td>
+                      <span className={`badge ${statusClass(r.status)}`}>{r.status ?? "?"}</span>
+                      {r.first_look && <span className="badge" style={{ marginLeft: 6 }}>first look</span>}
+                    </td>
                     <td>{r.rounds ?? "?"}{r.max_rounds ? `/${r.max_rounds}` : ""}</td>
                     <td>
                       {link ? <a href={link} target="_blank" rel="noreferrer">pull request</a>

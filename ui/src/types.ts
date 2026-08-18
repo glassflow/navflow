@@ -418,7 +418,7 @@ export interface UsecaseSummary extends Usecase {
             events?: number }[];
   context_repo?: string; context_branch?: string; context_path?: string; write_mode?: string;
   runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
-  runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number;
+  runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
            max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null }[];
   prs?: { open?: number; merged?: number };
   trigger_last_fired?: string | null;
