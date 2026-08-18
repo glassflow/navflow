@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { TimeAgo, usePolling } from "../components/bits";
+import UsecaseBadge from "../components/UsecaseBadge";
 
 // The MCP connections registry: external tool servers a Tares agent can opt into. This page owns
 // the connection (URL + credential, entered once); which agent uses which server is chosen on the
@@ -10,7 +11,8 @@ import { TimeAgo, usePolling } from "../components/bits";
 
 type Server = { name: string; url: string; auth_header: string;
                 auth_value_configured: boolean; auth_credential: string;
-                headers: Record<string, string>; updated_at: string };
+                headers: Record<string, string>; updated_at: string;
+                owned_by?: string | null; customized?: boolean };
 type Tool = { name: string; description: string };
 
 const headersToText = (h: Record<string, string> | undefined) =>
@@ -192,7 +194,11 @@ export default function McpServers() {
                 return (
                   <>
                     <tr key={s.name}>
-                      <td className="mono"><strong>{s.name}</strong></td>
+                      <td className="mono"><strong>{s.name}</strong>
+                        {s.owned_by && <span style={{ marginLeft: 8 }}>
+                          <UsecaseBadge ownedBy={s.owned_by} customized={s.customized} compact />
+                        </span>}
+                      </td>
                       <td className="mono">{s.url}</td>
                       <td>{s.auth_credential
                         ? <span className="badge ok">GitHub credential {s.auth_credential}</span>

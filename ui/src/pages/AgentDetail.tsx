@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import AgentForm from "../components/AgentForm";
 import ConfirmDialog from "../components/ConfirmDialog";
+import UsecaseBadge from "../components/UsecaseBadge";
 import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
@@ -68,7 +69,9 @@ export default function AgentDetail() {
         <div>
           <h1><span className="mono">{agent.name}</span>{" "}
             <span className="badge">Tares agent</span></h1>
-          <p className="subtitle">a prompt that takes a first look when its trigger fires</p>
+          <p className="subtitle">a prompt that takes a first look when its trigger fires
+            {agent.owned_by && <> · <UsecaseBadge ownedBy={agent.owned_by} customized={agent.customized} /></>}
+          </p>
         </div>
         {!editing && (
           <span className="btnrow">
