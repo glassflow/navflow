@@ -5,8 +5,6 @@ the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Fixed
 - **Auto-discover (Docker) works again.** The environment scan still read the Prometheus
   connector's old one-shot discover shape and failed with an internal error whenever a
