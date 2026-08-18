@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { Picker } from "../components/bits";
+import { Combo, Picker } from "../components/bits";
 import type { GithubCredential, Recipe, Usecase } from "../types";
 
 // The shared code context wizard: pick the GitHub repos that are the sources of context, pick
@@ -58,7 +58,11 @@ export default function UsecaseNewSharedContext() {
   // step 3: context repo
   const [contextRepo, setContextRepo] = useState("");
   const [contextBranch, setContextBranch] = useState("");
-  const [contextPath, setContextPath] = useState("context/");
+  const [contextPath, setContextPath] = useState("");
+  const [layout, setLayout] = useState<"existing" | "per_repo">("existing");
+  const [tree, setTree] = useState<{ path: string; dirs: string[]; markdown: string[]; files: string[]; exists: boolean }>();
+  const [treeErr, setTreeErr] = useState<string>();
+  const [treeBusy, setTreeBusy] = useState(false);
   const [writeMode, setWriteMode] = useState<"pull_request" | "commit_to_branch">("pull_request");
 
   // step 4: trigger and agent
@@ -107,6 +111,7 @@ export default function UsecaseNewSharedContext() {
       if (typeof p.context_repo === "string") setContextRepo(p.context_repo);
       if (typeof p.context_branch === "string") setContextBranch(p.context_branch);
       if (typeof p.context_path === "string") setContextPath(p.context_path);
+      if (p.layout === "per_repo") setLayout("per_repo");
       if (p.write_mode === "commit_to_branch") setWriteMode("commit_to_branch");
       if (typeof p.trigger === "string") setTrigger(p.trigger);
       if (typeof p.model === "string") setModel(p.model);
@@ -188,7 +193,7 @@ export default function UsecaseNewSharedContext() {
     { kind: "view", name: `ctx_${slug}_repo_activity`, note: "one timeline per repo" },
     { kind: "trigger", name: `ctx_${slug}_changes`, note: "fires when commits land, once per repo per 5 minutes" },
     { kind: "mcp server", name: `ctx_${slug}_github`, note: `GitHub's hosted MCP with credential ${credential || "?"}; the agent writes to ${contextRepo || "the context repo"} through it` },
-    { kind: "agent", name: `ctx_${slug}_maintainer`, note: `reads each diff, updates ${contextPath || "context/"} in ${contextRepo || "the context repo"}, ${writeMode === "pull_request" ? "opens a pull request" : "commits to the branch"}` },
+    { kind: "agent", name: `ctx_${slug}_maintainer`, note: `reads each diff, updates the pages under ${contextPath.trim() || "/"} in ${contextRepo || "the context repo"}, ${writeMode === "pull_request" ? "opens a pull request" : "commits to the branch"}` },
   ];
 
   const canNext = [
@@ -198,13 +203,28 @@ export default function UsecaseNewSharedContext() {
     !!name.trim(),
   ];
 
+  // Look inside the context repo once it is picked, so the path and layout default to what is
+  // there instead of assuming a fresh folder.
+  const treeKey = `${credential}|${contextRepo}|${contextBranch}|${contextPath}`;
+  useEffect(() => {
+    if (!credential || !REPO_RE.test(contextRepo)) { setTree(undefined); return; }
+    let live = true;
+    setTreeBusy(true); setTreeErr(undefined);
+    api.githubCredentialTree(credential, contextRepo, contextBranch.trim(), contextPath.trim())
+      .then((t) => { if (live) setTree(t); })
+      .catch((e) => { if (live) { setTree(undefined); setTreeErr(String((e as Error).message ?? e)); } })
+      .finally(() => { if (live) setTreeBusy(false); });
+    return () => { live = false; };
+  }, [treeKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   const submit = async () => {
     setBusy(true); setErr(undefined);
     const p: Record<string, unknown> = {
       credential,
       source_repos: sources.map((s) => (s.branch ? s : { repo: s.repo })),
       context_repo: contextRepo,
-      context_path: contextPath || "context/",
+      context_path: contextPath.trim(),
+      layout,
       trigger,
       write_mode: writeMode,
     };
@@ -279,11 +299,11 @@ export default function UsecaseNewSharedContext() {
               <div className="row2">
                 <label className="field">
                   <span className="lbl">name</span>
-                  <input type="text" value={credName} onChange={(e) => setCredName(e.target.value)} />
+                  <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" value={credName} onChange={(e) => setCredName(e.target.value)} />
                 </label>
                 <label className="field">
                   <span className="lbl">GitHub Enterprise URL <span className="help">(optional)</span></span>
-                  <input type="text" className="mono" value={credApi} placeholder="https://github.example.com/api/v3"
+                  <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="mono" value={credApi} placeholder="https://github.example.com/api/v3"
                          onChange={(e) => setCredApi(e.target.value)} />
                 </label>
               </div>
@@ -318,7 +338,7 @@ export default function UsecaseNewSharedContext() {
           {repos && (
             <div className="field">
               <span className="lbl">pick from your repos <span className="help">({repos.length} visible to the token)</span></span>
-              <input type="text" className="search" placeholder="filter by name" value={query}
+              <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="search" placeholder="filter by name" value={query}
                      onChange={(e) => setQuery(e.target.value)} style={{ marginBottom: 8 }} />
               <div className="uc-repolist">
                 {filtered.slice(0, 200).map((r) => (
@@ -335,7 +355,7 @@ export default function UsecaseNewSharedContext() {
           {!repos && !reposErr && credential && <div className="dim">loading repos…</div>}
           <label className="field">
             <span className="lbl">or paste repos <span className="help">(owner/name, one per line)</span></span>
-            <textarea className="mono" rows={3} value={paste} onChange={(e) => setPaste(e.target.value)}
+            <textarea data-1p-ignore data-lpignore="true" className="mono" rows={3} value={paste} onChange={(e) => setPaste(e.target.value)}
                       placeholder={"glassflow/tares\nglassflow/tares-cookbooks"} />
           </label>
           <div className="btnrow" style={{ marginBottom: 12 }}>
@@ -349,7 +369,7 @@ export default function UsecaseNewSharedContext() {
                   <tr key={s.repo}>
                     <td className="mono">{s.repo}</td>
                     <td>
-                      <input type="text" className="mono" value={s.branch} placeholder="default branch"
+                      <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="mono" value={s.branch} placeholder="default branch"
                              onChange={(e) => setBranch(s.repo, e.target.value)} style={{ width: 160 }} />
                     </td>
                     <td><button onClick={() => removeRepo(s.repo)}>Remove</button></td>
@@ -366,32 +386,70 @@ export default function UsecaseNewSharedContext() {
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>Context repo</h2>
           <p className="help">
-            The repo the agent maintains: one page per source repo under the path below, plus an index.
-            The credential needs write access on this repo only.
+            The repo the agent keeps current. The credential needs write access on this repo only.
           </p>
           <div className="row2">
             <label className="field">
               <span className="lbl">repo</span>
-              <input type="text" className="mono" value={contextRepo} placeholder="owner/name" list="uc-context-candidates"
-                     onChange={(e) => setContextRepo(e.target.value.trim())} />
-              <datalist id="uc-context-candidates">
-                {contextCandidates.map((c) => <option key={c} value={c} />)}
-              </datalist>
+              <Combo className="mono" value={contextRepo} options={contextCandidates} placeholder="owner/name"
+                     onChange={(v) => setContextRepo(v.trim())} />
               {selected(contextRepo) && <span className="help" style={{ color: "var(--err)" }}>this repo is one of the sources; pick a different one</span>}
             </label>
             <label className="field">
-              <span className="lbl">branch <span className="help">(blank = default branch)</span></span>
-              <input type="text" className="mono" value={contextBranch} onChange={(e) => setContextBranch(e.target.value)} />
+              <span className="lbl">branch</span>
+              <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="mono" value={contextBranch} placeholder="main"
+                     onChange={(e) => setContextBranch(e.target.value)} />
+              <span className="help">where pull requests target</span>
             </label>
           </div>
           <div className="row2">
-            <label className="field">
-              <span className="lbl">path</span>
-              <input type="text" className="mono" value={contextPath} onChange={(e) => setContextPath(e.target.value)} />
-              <span className="help">where the pages live, e.g. <code>context/</code></span>
-            </label>
             <div className="field">
-              <span className="lbl">how it writes</span>
+              <span className="lbl">path</span>
+              <input type="text" className="mono" value={contextPath} placeholder="/ (root of the repo)" autoComplete="off" data-1p-ignore data-lpignore="true"
+                     onChange={(e) => setContextPath(e.target.value)} />
+              <span className="help">folder where the pages live; leave empty for the root</span>
+              {REPO_RE.test(contextRepo) && (
+                <div className="uc-tree">
+                  <span className="lbl">what is at <code>{contextPath.trim() || "/"}</code>{treeBusy ? " (looking)" : ""}</span>
+                  {treeErr && <span className="help" style={{ color: "var(--err)" }}>{treeErr}</span>}
+                  {tree && !tree.exists && <span className="help">nothing there yet; the agent creates the folder on its first write</span>}
+                  {tree && tree.exists && tree.markdown.length === 0 && tree.dirs.length === 0 && (
+                    <span className="help">no pages here yet</span>
+                  )}
+                  {tree && tree.exists && (tree.markdown.length > 0 || tree.dirs.length > 0) && (
+                    <ul className="uc-tree-list">
+                      {tree.dirs.map((d) => (
+                        <li key={"d:" + d}>
+                          <button type="button" className="linklike mono"
+                                  onClick={() => setContextPath((contextPath.trim().replace(/\/+$/, "") ? contextPath.trim().replace(/\/+$/, "") + "/" : "") + d + "/")}>
+                            {d}/
+                          </button>
+                        </li>
+                      ))}
+                      {tree.markdown.map((f) => <li key={"f:" + f} className="mono">{f}</li>)}
+                      {tree.files.length > tree.markdown.length && (
+                        <li className="help">and {tree.files.length - tree.markdown.length} other file{tree.files.length - tree.markdown.length === 1 ? "" : "s"}</li>
+                      )}
+                    </ul>
+                  )}
+                  {tree && tree.exists && tree.markdown.length > 0 && layout === "per_repo" && (
+                    <span className="help">this folder already has pages; "keep the existing pages" fits it better</span>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="field">
+              <span className="lbl">pages</span>
+              <Picker value={layout} onChange={(v) => setLayout(v as "existing")}
+                      options={["existing", "per_repo"]}
+                      labels={{ existing: "keep the existing pages, update them in place", per_repo: "one page per source repo plus an index" }}
+                      ariaLabel="page layout" />
+              <span className="help">
+                {layout === "existing"
+                  ? "the agent reads what is there and edits the page that covers the change"
+                  : "the agent keeps <repo-name>.md pages and a README index under the path"}
+              </span>
+              <span className="lbl" style={{ marginTop: 14 }}>how it writes</span>
               <Picker value={writeMode} onChange={(v) => setWriteMode(v as "pull_request")}
                       options={["pull_request", "commit_to_branch"]}
                       labels={{ pull_request: "open a pull request (recommended)", commit_to_branch: "commit straight to the branch" }}
@@ -407,7 +465,7 @@ export default function UsecaseNewSharedContext() {
           <div className="row2">
             <label className="field">
               <span className="lbl">name</span>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
+              <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" value={name} onChange={(e) => setName(e.target.value)} />
               <span className="help">shown on the Use cases page; object names derive from it</span>
             </label>
             <div className="field">
@@ -433,7 +491,7 @@ export default function UsecaseNewSharedContext() {
             </div>
             <label className="field">
               <span className="lbl">max rounds per run</span>
-              <input type="number" min={1} max={24} value={maxRounds} onChange={(e) => setMaxRounds(e.target.value)} style={{ width: 100 }} />
+              <input type="number" min={1} max={24} value={maxRounds} onChange={(e) => setMaxRounds(e.target.value)} />
               <span className="help">reading diffs, a page, writing it and opening a PR takes about 12</span>
             </label>
           </div>

@@ -30,9 +30,10 @@ TRIGGERS = {
                      "window": "2m", "cooldown": "5m"},
 }
 WRITE_MODES = ("pull_request", "commit_to_branch")
+LAYOUTS = ("existing", "per_repo")
 
 PROMPT = """You maintain the shared context repository `{context_repo}` (branch `{context_branch}`, \
-under `{context_path}`) for the team. Its pages tell teammates and agents working in other repos \
+pages under `{context_dir}`) for the team. Its pages tell teammates and agents working in other repos \
 what each repository does and how it is used. Your input is the attached timeline of recent commits \
 to `{repo_hint}`; the source repositories are: {source_repos}.
 
@@ -44,9 +45,7 @@ diff. If the diff comes back truncated, fetch the specific files you need with \
 know: public interfaces, APIs and contracts, config and environment variables, data schemas, \
 deployment or runtime behaviour, dependencies between repos, conventions. Ignore pure refactors, \
 tests, formatting and version bumps unless they change behaviour.
-3. Read `{context_path}<repo-name>.md` (repo-name is the part after the slash) with \
-`github__get_file_contents` from `{context_repo}` on `{context_branch}`; if it does not exist, \
-create it from the page template below. Read `{context_path}README.md` (the index) the same way.
+3. {layout_instructions}
 4. Rewrite only the sections the change affects. Keep facts that still hold, drop what the diff \
 makes false, add what is new. Every claim carries the short sha of the commit it comes from, like \
 (abc1234). Keep the page short and factual; no filler.
@@ -56,7 +55,25 @@ makes false, add what is new. Every claim carries the short sha of the commit it
 Finish with a finding for the timeline: what changed in the context repo and the pull request or \
 commit link, or "no update needed" with the reason. Keep the finding under 12 lines.
 
-Page template for `{context_path}<repo-name>.md`:
+Style, everywhere you write (pages, PR titles and bodies, the finding): plain sentences, no em \
+dashes; use a comma, a colon or a full stop instead.
+
+{layout_templates}"""
+
+LAYOUT_EXISTING = (
+    "The context repo already has its own pages under `{context_dir}` on `{context_branch}` (the "
+    "team's layout, not one page per repository). First list that folder with "
+    "`github__get_file_contents` on the folder path, read the index or README if there is one, then "
+    "read the page or pages that cover what the commit changed. Update those pages in place, keeping "
+    "their structure, headings and voice. Create a new page only when nothing existing covers the "
+    "topic, name it like its neighbours, and add it to the index if the repo keeps one. Never create "
+    "a parallel set of per-repository pages next to the team's own.")
+LAYOUT_PER_REPO = (
+    "Read `{context_path}<repo-name>.md` (repo-name is the part after the slash) with "
+    "`github__get_file_contents` from `{context_repo}` on `{context_branch}`; if it does not exist, "
+    "create it from the page template below. Read `{context_path}README.md` (the index) the same "
+    "way and keep it listing every repository page.")
+TEMPLATES_PER_REPO = """Page template for `{context_path}<repo-name>.md`:
 # <repo-name>
 Purpose: one paragraph.
 ## How to run
@@ -69,6 +86,10 @@ Purpose: one paragraph.
 
 Index template for `{context_path}README.md`: a title, one sentence saying Tares keeps these pages \
 current, then one line per repository linking its page.
+"""
+TEMPLATES_EXISTING = """When you do create a page, match the existing pages in shape; when in doubt, \
+short sections with a purpose paragraph, how it is used, configuration, and a recent changes list \
+with short shas.
 """
 
 WRITE_PR = ("Write the changed pages with `github__create_or_update_file` on a branch named "
@@ -127,8 +148,17 @@ class SharedCodeContext(Recipe):
                                  "of the source repos"},
         "context_branch": {"type": "string", "default": "main", "label": "Context branch",
                            "help": "branch of the context repo pull requests target"},
-        "context_path": {"type": "string", "default": "context/", "label": "Context path",
-                         "help": "folder inside the context repo holding one page per repository"},
+        "context_path": {"type": "string", "default": "", "label": "Context path",
+                         "help": "folder inside the context repo where the pages live; empty or / "
+                                 "means the root of the repo"},
+        "layout": {"type": "string", "default": "existing", "label": "Page layout",
+                   "options": [{"value": "existing",
+                                "label": "keep the repo's existing pages and update them in place"},
+                               {"value": "per_repo",
+                                "label": "one page per source repository plus an index"}],
+                   "help": "existing: the agent reads what is there and edits the page that covers "
+                           "the change; per_repo: the agent keeps <repo-name>.md pages and a "
+                           "README index under the path"},
         "trigger": {"type": "string", "default": "every_commit", "label": "Run when",
                     "options": [{"value": k, "label": v["label"]} for k, v in TRIGGERS.items()],
                     "help": "what wakes the agent"},
@@ -172,8 +202,10 @@ class SharedCodeContext(Recipe):
         if p["context_repo"].lower() in seen:
             raise UsecaseError("the context repository cannot also be a source repository")
         p["context_branch"] = str(p.get("context_branch") or "main").strip() or "main"
-        path = str(p.get("context_path") or "context/").strip().strip("/")
+        path = str(p.get("context_path") or "").strip().strip("/")
         p["context_path"] = (path + "/") if path else ""
+        if p.get("layout") not in LAYOUTS:
+            raise UsecaseError(f"layout must be one of {sorted(LAYOUTS)}")
         if p.get("trigger") not in TRIGGERS:
             raise UsecaseError(f"trigger must be one of {sorted(TRIGGERS)}")
         if p.get("write_mode") not in WRITE_MODES:
@@ -243,11 +275,16 @@ class SharedCodeContext(Recipe):
     def render_prompt(self, params: dict) -> str:
         write = WRITE_PR if params["write_mode"] == "pull_request" else WRITE_DIRECT
         fmt = {"context_repo": params["context_repo"], "context_branch": params["context_branch"],
-               "context_path": params["context_path"]}
+               "context_path": params["context_path"],
+               "context_dir": params["context_path"].rstrip("/") or "/"}
+        per_repo = params.get("layout", "existing") == "per_repo"
+        layout = (LAYOUT_PER_REPO if per_repo else LAYOUT_EXISTING).format(**fmt)
+        templates = (TEMPLATES_PER_REPO if per_repo else TEMPLATES_EXISTING).format(**fmt)
         return PROMPT.format(
             repo_hint="one of the source repositories (the timeline says which)",
             source_repos=", ".join(f"`{r['repo']}`" for r in params["source_repos"]),
-            write_instructions=write.format(**fmt), **fmt)
+            write_instructions=write.format(**fmt), layout_instructions=layout,
+            layout_templates=templates, **fmt)
 
     # ── summary (the use case page) ──────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
@@ -279,7 +316,7 @@ class SharedCodeContext(Recipe):
                 "runs_ok": sum(1 for r in all_runs if r.get("status") == "ok"),
                 "prs_opened": len(set(prs)),
                 "last_fired": max((r["last_fired"] for r in repos if r["last_fired"]), default=None),
-                "objects": n}
+                "names": n}
 
     # ── bootstrap: first pages right after Start ─────────────────────────────
     def after_create(self, instance: dict, store, runtime) -> None:

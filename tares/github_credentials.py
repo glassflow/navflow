@@ -132,3 +132,33 @@ def forget_repos(name: str) -> None:
     """Drop the cached listing for a credential (called when it is updated or deleted)."""
     for key in [k for k in _repos_cache if k.startswith(f"{name}@")]:
         _repos_cache.pop(key, None)
+
+
+async def list_tree(token: str, repo: str, ref: str = "", path: str = "",
+                    api_url: str | None = None) -> dict:
+    """What is at `path` in `repo` at `ref`: `{ref, path, dirs: [...], files: [...], markdown: [...],
+    exists: bool}`. One call to the contents API (a directory listing), used by the use case wizard
+    to show the layout of a context repo before the agent is asked to maintain it."""
+    api = (api_url or API_DEFAULT).rstrip("/")
+    clean = path.strip("/")
+    url = f"{api}/repos/{repo}/contents/{clean}" if clean else f"{api}/repos/{repo}/contents"
+    params = {"ref": ref} if ref else {}
+    async with httpx.AsyncClient(timeout=20) as cx:
+        try:
+            r = await cx.get(url, headers=_headers(token), params=params)
+        except Exception as e:
+            raise ValueError(f"could not reach GitHub: {e}")
+    if r.status_code == 404:
+        return {"ref": ref, "path": clean, "dirs": [], "files": [], "markdown": [], "exists": False}
+    if r.status_code == 401:
+        raise ValueError("GitHub rejected the token (401 unauthorized)")
+    if r.status_code != 200:
+        raise ValueError(f"GitHub returned {r.status_code} for {repo}/{clean or '/'}")
+    entries = r.json()
+    if isinstance(entries, dict):      # a file, not a directory
+        return {"ref": ref, "path": clean, "dirs": [], "files": [entries.get("name", clean)],
+                "markdown": [], "exists": True}
+    dirs = sorted(e["name"] for e in entries if isinstance(e, dict) and e.get("type") == "dir")
+    files = sorted(e["name"] for e in entries if isinstance(e, dict) and e.get("type") == "file")
+    md = [f for f in files if f.lower().endswith((".md", ".mdx"))]
+    return {"ref": ref, "path": clean, "dirs": dirs, "files": files, "markdown": md, "exists": True}

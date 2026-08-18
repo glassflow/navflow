@@ -119,7 +119,8 @@ async def main():
               json.dumps(d["params"].get(name)))
     check("required flags", d["params"]["credential"].get("required") and
           d["params"]["source_repos"].get("required") and d["params"]["context_repo"].get("required"))
-    check("defaults", d["params"]["context_path"]["default"] == "context/" and
+    check("defaults", d["params"]["context_path"]["default"] == "" and
+          d["params"]["layout"]["default"] == "existing" and
           d["params"]["max_rounds"]["default"] == 12 and d["params"]["write_mode"]["default"] == "pull_request")
     check("trigger offers every_commit only",
           [o["value"] for o in d["params"]["trigger"]["options"]] == ["every_commit"])
@@ -130,7 +131,7 @@ async def main():
     p = recipe.validate(base)
     check("normalizes repos and fills defaults",
           [r["repo"] for r in p["source_repos"]] == ["acme/app", "acme/lib"] and p["context_branch"] == "main"
-          and p["context_path"] == "context/" and p["max_rounds"] == 12, json.dumps(p))
+          and p["context_path"] == "" and p["layout"] == "existing" and p["max_rounds"] == 12, json.dumps(p))
     check("context_path gets a trailing slash",
           recipe.validate({**base, "context_path": "/docs/ctx"})["context_path"] == "docs/ctx/")
 
@@ -182,8 +183,12 @@ async def main():
     prompt = agent["prompt"]
     check("prompt renders params",
           "`acme/context`" in prompt and "`acme/app`" in prompt and "`acme/lib`" in prompt
-          and "context/<repo-name>.md" in prompt and "github__create_pull_request" in prompt
+          and "its own pages under `/`" in prompt and "github__create_pull_request" in prompt
           and "github__get_commit" in prompt and "tares/context-<repo-name>" in prompt)
+    per_repo = recipe.render_prompt(recipe.validate({**base, "context_path": "context", "layout": "per_repo"}))
+    check("per_repo layout keeps the page template",
+          "context/<repo-name>.md" in per_repo and "Page template" in per_repo)
+    check("existing layout has no per-repo template", "Page template" not in prompt)
     check("no em dashes in prompt", "—" not in prompt)
     direct = recipe.render_prompt(recipe.validate({**base, "write_mode": "commit_to_branch"}))
     check("commit_to_branch prompt has no PR step",
@@ -270,7 +275,7 @@ async def main():
             s = r.json()
             check("summary shape", r.status_code == 200 and s["context_repo"] == "acme/context"
                   and isinstance(s["repos"], list) and len(s["repos"]) == 2 and "runs" in s
-                  and "prs_opened" in s and s["objects"]["agent"] == "ctx_acme_context_maintainer", r.text[:400])
+                  and "prs_opened" in s and s["names"]["agent"] == "ctx_acme_context_maintainer", r.text[:400])
             app_row = next(x for x in s["repos"] if x["repo"] == "acme/app")
             check("summary counts events per repo", app_row["events"] == 2 and app_row["last_commit"], json.dumps(app_row))
 

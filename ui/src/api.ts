@@ -249,6 +249,9 @@ export const api = {
   testGithubCredential: (name: string) =>
     request<{ ok: boolean; error?: string; login?: string; name?: string; scopes?: string[] }>(
       `/api/integrations/github/${encodeURIComponent(name)}/test`, { method: "POST" }),
+  githubCredentialTree: (name: string, repo: string, ref = "", path = "") =>
+    request<{ ref: string; path: string; dirs: string[]; files: string[]; markdown: string[]; exists: boolean }>(
+      `/api/integrations/github/${encodeURIComponent(name)}/tree?repo=${encodeURIComponent(repo)}&ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}`),
   githubCredentialRepos: (name: string, query = "") =>
     request<{ repos: { full_name: string; default_branch: string; private: boolean; pushed_at: string | null }[] }>(
       `/api/integrations/github/${encodeURIComponent(name)}/repos?query=${encodeURIComponent(query)}`),

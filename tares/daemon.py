@@ -1268,7 +1268,7 @@ def make_app() -> FastAPI:
     # ── GitHub credentials: a token stored once, referenced by sources and MCP servers ──
     # Same write-only contract as the other credentials: the token is never returned, blank-to-keep
     # on update, and the console can list, test and delete.
-    from .github_credentials import (forget_repos, list_repos, redact as _gh_redact,
+    from .github_credentials import (forget_repos, list_repos, list_tree, redact as _gh_redact,
                                      test_credential)
 
     def _gh_users(name: str) -> dict:
@@ -1355,6 +1355,21 @@ def make_app() -> FastAPI:
         except (TimeoutError, asyncio.TimeoutError):
             _err(ValueError("GitHub took too long to list repositories"), 504)
         return {"repos": repos}
+
+    @app.get("/api/integrations/github/{name}/tree")
+    async def github_credential_tree(name: str, repo: str, ref: str = "", path: str = ""):
+        cred = store.get_github_credential(name)
+        if cred is None:
+            _err(KeyError(f"unknown GitHub credential {name!r}"), 404)
+        if not repo or "/" not in repo:
+            _err(ValueError("repo must be owner/name"))
+        try:
+            return await asyncio.wait_for(
+                list_tree(cred["token"], repo, ref, path, cred.get("api_url") or None), timeout=30)
+        except ValueError as e:
+            _err(e, 502)
+        except (TimeoutError, asyncio.TimeoutError):
+            _err(ValueError("GitHub took too long to list the repository"), 504)
 
     # ── Ask sessions — server-side chat history, so a conversation survives navigation and a
     # console reopened tomorrow can pick up where it left off. The console PUTs the whole session

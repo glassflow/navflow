@@ -70,7 +70,10 @@ class Engine:
                 extra = recipe.summary(inst, self.store) or {}
             except Exception as e:   # a summary must never take the page down
                 extra = {"summary_error": f"{type(e).__name__}: {e}"}
-        return {**inst, "log": self.store.list_usecase_log(uid), **extra}
+        # the instance's own fields win: a recipe summary adds detail, it never replaces
+        # id/objects/status/log that the pages depend on
+        base = {**inst, "log": self.store.list_usecase_log(uid)}
+        return {**{k: v for k, v in extra.items() if k not in base}, **base}
 
     # ── write side ───────────────────────────────────────────────────────────
     def create(self, recipe_key: str, params: dict, name: str | None = None) -> dict:

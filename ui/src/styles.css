@@ -1299,3 +1299,10 @@ pre.payload {
 .uc-badge { display: inline-flex; align-items: center; gap: 6px; }
 .uc-badge .help { font-size: 11px; }
 .uc-how summary { cursor: pointer; font-weight: 600; }
+
+/* use case wizard: the peek into the context repo */
+.uc-tree { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.main .uc-tree-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.uc-tree-list li { list-style: none; }
+.uc-tree { margin-top: 6px; }
+.uc-tree .linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
