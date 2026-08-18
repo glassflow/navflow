@@ -48,7 +48,10 @@ function RecipeCard({ r }: { r: Recipe }) {
           {r.title}
           {(r.tags ?? []).map((t) => <span key={t} className="badge" style={{ marginLeft: 8, verticalAlign: "middle" }}>{t}</span>)}
         </div>
-        <p className="help uc-card-desc">{r.description}</p>
+        <p className="help uc-card-desc">
+          {r.description}
+          {r.guide && <> Follows the <a href={r.guide.url} target="_blank" rel="noreferrer">{r.guide.label}</a>.</>}
+        </p>
         {facts && (
           <div className="uc-card-facts">
             <div>

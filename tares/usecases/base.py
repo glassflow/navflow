@@ -44,6 +44,8 @@ class Recipe:
     # Free-form labels the console shows on the card ("demo" marks a use case that needs the demo
     # stack rather than your systems).
     tags: tuple = ()
+    # An optional walkthrough the console links next to the description: {label, url}.
+    guide: dict | None = None
     # Steps a user must do outside Tares before Start (start a stack, export a key), each
     # {title, text?, command?}; the wizard shows them above the Start button.
     SETUP: list = []
@@ -95,4 +97,4 @@ class Recipe:
     def describe(self) -> dict:
         return {"key": self.key, "title": self.title, "description": self.description,
                 "params": self.PARAMS, "tags": list(self.tags), "setup": list(self.SETUP),
-                "actions": list(self.ACTIONS)}
+                "actions": list(self.ACTIONS), "guide": dict(self.guide) if self.guide else None}

@@ -392,6 +392,7 @@ export interface Recipe {
   description: string;
   params: Record<string, RecipeParam>;
   tags?: string[];
+  guide?: { label: string; url: string } | null;
   setup?: RecipeSetupStep[];
   actions?: RecipeAction[];
 }

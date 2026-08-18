@@ -35,9 +35,9 @@ class AiSreDemo(Recipe):
     key = "ai_sre_demo"
     title = "AI SRE demo"
     description = ("Watch a small demo system, correlate its metrics, logs and alerts on one timeline, "
-                   "and let an agent write the first incident note when Prometheus fires. The same setup "
-                   "as the Build an AI SRE guide, without importing a catalog.")
+                   "and let an agent write the first incident note when Prometheus fires.")
     tags = ("demo",)
+    guide = {"label": "Build an AI SRE guide", "url": "https://docs.glassflow.ai/tares/guides/ai-sre"}
 
     PARAMS = {
         "prometheus_url": {"type": "string", "default": "http://localhost:9090", "label": "Prometheus URL",

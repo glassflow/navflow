@@ -97,7 +97,10 @@ export default function UsecaseNewGeneric() {
       <div className="pagehead">
         <div>
           <h1>{recipe?.title ?? key}</h1>
-          <p className="subtitle">{recipe?.description}</p>
+          <p className="subtitle">
+            {recipe?.description}
+            {recipe?.guide && <> Follows the <a href={recipe.guide.url} target="_blank" rel="noreferrer">{recipe.guide.label}</a>.</>}
+          </p>
         </div>
       </div>
       {err && <div className="alert error">{err}</div>}
