@@ -36,7 +36,10 @@ from .connectors import (SPECS, normalize_config, redact_config, restore_secrets
 from .dispatch import Dispatcher
 from .envelope import now_utc
 from .builtin_agents import (AGENT_MODELS, MODEL as AGENT_DEFAULT_MODEL,
-                             PRESETS as AGENT_PRESETS, AgentRunner,
+                             MAX_ROUNDS as AGENT_MAX_ROUNDS,
+                             MAX_ROUNDS_LIMIT as AGENT_MAX_ROUNDS_LIMIT,
+                             MAX_ROUNDS_WITH_MCP as AGENT_MAX_ROUNDS_WITH_MCP,
+                             PRESETS as AGENT_PRESETS, AgentRunner, effective_max_rounds,
                              resolve_key as resolve_anthropic_key)
 from .runtime import Runtime
 from . import slack as slack_mod
@@ -273,6 +276,7 @@ class AgentIn(BaseModel):
     webhook_token: str = ""      # optional bearer for the write-back (secret; blank-to-keep)
     slack_webhook_clear: bool = False   # blank means keep (it is a secret), so clearing is explicit
     mcp_servers: list[str] = []  # registry names this agent may use
+    max_rounds: int | None = None   # model rounds per run; None = default (6, or 12 with MCP servers)
 
 
 class ImportReq(BaseModel):
@@ -1363,10 +1367,15 @@ def make_app() -> FastAPI:
                          "webhook_url": a.get("webhook_url") or "",
                          "webhook_token_configured": bool(a.get("webhook_token")),
                          "mcp_servers": a.get("mcp_servers") or [],
+                         "max_rounds": a.get("max_rounds"),
+                         "effective_max_rounds": effective_max_rounds(a),
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
                          "last_run": runs[0] if runs else None})
         return {"agents": rows, "key_configured": bool(key), "key_source": origin,
                 "models": AGENT_MODELS, "default_model": AGENT_DEFAULT_MODEL,
+                "default_max_rounds": AGENT_MAX_ROUNDS,
+                "default_max_rounds_with_mcp": AGENT_MAX_ROUNDS_WITH_MCP,
+                "max_rounds_limit": AGENT_MAX_ROUNDS_LIMIT,
                 "slack_workspace": bool(resolve_slack_token(store)[0]),
                 "presets": [{"id": k, **v} for k, v in AGENT_PRESETS.items()]}
 
@@ -1377,7 +1386,8 @@ def make_app() -> FastAPI:
         _agent_payload(body)
         store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, body.webhook_token, body.mcp_servers)
+                                   body.webhook_url, body.webhook_token, body.mcp_servers,
+                                   body.max_rounds)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled; enable it to run on the next firing"}
@@ -1400,7 +1410,7 @@ def make_app() -> FastAPI:
         # so what the body says is what the user wants — including blank (removed).
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, wtoken, body.mcp_servers)
+                                   body.webhook_url, wtoken, body.mcp_servers, body.max_rounds)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).
         if body.trigger != existing["trigger"] and _agent_enabled(name):

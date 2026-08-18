@@ -238,6 +238,8 @@ export interface BuiltinAgent {
   webhook_url: string;         // write-back target, "" = none
   webhook_token_configured: boolean;   // the token itself is never sent to the client
   mcp_servers: string[];       // registry names this agent may use
+  max_rounds: number | null;   // model rounds per run; null = the default for its shape
+  effective_max_rounds: number;   // the cap its next run will be held to
   updated_at?: string;
   last_run?: AgentRun | null;
 }
@@ -248,8 +250,9 @@ export interface AgentRun {
   trigger: string;
   dispatch_id: string;
   key: string;
-  status: "running" | "ok" | "empty" | "failed" | "capped";
+  status: "running" | "ok" | "empty" | "failed" | "capped" | "exhausted";
   rounds: number;
+  max_rounds?: number | null;  // the cap this run was held to
   tool_calls: number;
   external_tools?: string[];   // prefixed server__tool names this run called
   started_at: string;

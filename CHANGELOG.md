@@ -3,6 +3,17 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Per-agent round cap.** A Tares agent has `max_rounds` (1 to 24; blank means the default). The
+  default is 6, or 12 once the agent uses external MCP servers, since a run that reads a diff or a
+  file and writes back needs more than the read-and-conclude budget. Every run records the cap it
+  was held to and shows `rounds/max`. When the budget runs out mid-investigation the model gets one
+  final call with tools disabled to conclude from what it has; if it still cannot, the run ends
+  `exhausted` (a new status, not a failure), keeps the last text as a partial note, and says to raise
+  max rounds. Catalog YAML imports and exports the field; the agent form has it under Advanced.
+
 ## [1.7.1] — 2026-08-17
 
 No code changes; a version bump so managed cells can be re-provisioned through the upgrade path

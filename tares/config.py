@@ -129,6 +129,7 @@ class AgentCfg:
     webhook_url: str = ""     # write-back: findings + run metadata POSTed here
     webhook_token: str = ""   # optional bearer token for the write-back (a secret)
     mcp_servers: list = dc_field(default_factory=list)   # registry names this agent may use
+    max_rounds: int | None = None   # model rounds per run; None = default for the agent's shape
     enabled: bool = False
 
 
@@ -234,6 +235,7 @@ def _agent_from_dict(a: dict, enabled: bool = False) -> AgentCfg:
         webhook_url=a.get("webhook_url") or "",
         webhook_token=a.get("webhook_token") or "",
         mcp_servers=list(a.get("mcp_servers") or []),
+        max_rounds=(int(a["max_rounds"]) if a.get("max_rounds") not in (None, "") else None),
         enabled=bool(a.get("enabled", enabled)),
     )
 
@@ -342,7 +344,9 @@ def import_yaml_to_db(store, text: str) -> dict:
         store.upsert_catalog_agent(a["name"], a["trigger"], a["prompt"], a.get("slack_webhook"),
                                    a.get("model"), a.get("slack_channel"),
                                    a.get("webhook_url"), a.get("webhook_token"),
-                                   a.get("mcp_servers"))
+                                   a.get("mcp_servers"),
+                                   (int(a["max_rounds"]) if a.get("max_rounds") not in (None, "")
+                                    else None))
         # enabled ⟺ a subscription to the trigger. Reflect the document's state so an enabled agent
         # round-trips: add the internal subscription if enabled, remove it if not.
         url = agent_url(a["name"])
@@ -432,6 +436,7 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
          **({"slack_channel": a["slack_channel"]} if a.get("slack_channel") else {}),
          **({"webhook_url": a["webhook_url"]} if a.get("webhook_url") else {}),
          **({"mcp_servers": a["mcp_servers"]} if a.get("mcp_servers") else {}),
+         **({"max_rounds": a["max_rounds"]} if a.get("max_rounds") else {}),
          **({"slack_webhook": a["slack_webhook"]}
             if include_secrets and a.get("slack_webhook") else {}),
          **({"webhook_token": a["webhook_token"]}
@@ -662,6 +667,7 @@ FINDINGS_SOURCE = "findings"
 
 _AGENT_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 MAX_PROMPT_CHARS = 8000
+MAX_AGENT_ROUNDS = 24   # upper bound for a per-agent max_rounds (see builtin_agents.MAX_ROUNDS_LIMIT)
 
 
 def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = None,
@@ -701,6 +707,15 @@ def validate_agent_dict(a: dict, trigger_names: set, triggers: dict | None = Non
             if x not in mcp_server_names:
                 raise CatalogError(f"agent {a['name']!r}: unknown mcp server {x!r} "
                                    "(add it to the MCP servers registry first)")
+    mr = a.get("max_rounds")
+    if mr not in (None, ""):
+        try:
+            mr = int(mr)
+        except (TypeError, ValueError):
+            raise CatalogError(f"agent {a['name']!r}: max_rounds must be a whole number")
+        if not 1 <= mr <= MAX_AGENT_ROUNDS:
+            raise CatalogError(f"agent {a['name']!r}: max_rounds must be between 1 and "
+                               f"{MAX_AGENT_ROUNDS} (or empty for the default)")
 
     # Loop guard: a Tares agent writes a finding into the `findings` source. If its trigger
     # watches a view containing that source, the finding re-fires the trigger, which runs the agent

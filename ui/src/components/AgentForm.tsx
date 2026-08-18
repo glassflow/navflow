@@ -53,7 +53,9 @@ function OptionRow({ title, desc, on, disabled, disabledHint, onToggle, children
 // its bearer token render as one connected control (.hook-group): they are one credential pair,
 // not two settings.
 export default function AgentForm({ initial, presetTrigger, triggers, presets, models,
-                                    defaultModel, slackWorkspace, onSaved, onCancel }: {
+                                    defaultModel, slackWorkspace, onSaved, onCancel,
+                                    defaultMaxRounds = 6, defaultMaxRoundsWithMcp = 12,
+                                    maxRoundsLimit = 24 }: {
   initial?: BuiltinAgent;              // absent = create
   presetTrigger?: string;              // create: trigger preselected (came from a trigger page)
   triggers: string[];
@@ -61,6 +63,9 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
   models: string[];                    // curated choices; [0] is the instance default
   defaultModel: string;
   slackWorkspace: boolean;             // a workspace bot token is configured
+  defaultMaxRounds?: number;           // round cap when the agent has no external MCP servers
+  defaultMaxRoundsWithMcp?: number;    // round cap once it does
+  maxRoundsLimit?: number;             // upper bound for a per-agent override
   onSaved: (name: string) => void;
   onCancel: () => void;
 }) {
@@ -80,6 +85,10 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
   const [webhookUrl, setWebhookUrl] = useState(initial?.webhook_url ?? "");
   const [webhookToken, setWebhookToken] = useState("");
   const [mcpSel, setMcpSel] = useState<string[]>(initial?.mcp_servers ?? []);
+  // "" = default (6 rounds, or 12 once the agent uses external MCP servers).
+  const [maxRounds, setMaxRounds] = useState<string>(
+    initial?.max_rounds ? String(initial.max_rounds) : "");
+  const [advancedOpen, setAdvancedOpen] = useState(!!initial?.max_rounds);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -124,6 +133,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
       webhook_url: writebackOn ? webhookUrl.trim() : "",
       webhook_token: writebackOn ? webhookToken.trim() : "",
       mcp_servers: mcpSel,
+      max_rounds: maxRounds.trim() ? Number(maxRounds) : null,
     };
     try {
       if (isNew) await api.createBuiltinAgent(body);
@@ -262,11 +272,37 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
         </OptionRow>
       </div>
 
+      <div className="field">
+        <button type="button" onClick={() => setAdvancedOpen((o) => !o)}
+                style={{ padding: 0, border: 0, background: "none", cursor: "pointer" }}
+                className="help">
+          {advancedOpen ? "Hide advanced" : "Advanced"}
+        </button>
+        {advancedOpen && (
+          <div style={{ marginTop: 8 }}>
+            <span className="lbl">max rounds</span>
+            <input type="number" min={1} max={maxRoundsLimit} value={maxRounds}
+                   placeholder={String(mcpSel.length ? defaultMaxRoundsWithMcp : defaultMaxRounds)}
+                   onChange={(e) => setMaxRounds(e.target.value)}
+                   style={{ width: 90 }} aria-label="max rounds" />
+            <span className="help" style={{ display: "block", marginTop: 4 }}>
+              model rounds per run; raise it for agents that use external MCP servers.
+              Blank means the default: {defaultMaxRounds}, or {defaultMaxRoundsWithMcp} when
+              external MCP servers are enabled. Limit {maxRoundsLimit}. One extra call is made
+              when the budget runs out, to ask for a conclusion.
+            </span>
+          </div>
+        )}
+      </div>
+
       <div className="btnrow">
         <button className="primary" onClick={save}
                 disabled={busy || !name.trim() || !trigger.trim() || !prompt.trim()
                           || (writebackOn && !webhookUrl.trim())
-                          || (channelOn && !channel)}>
+                          || (channelOn && !channel)
+                          || (!!maxRounds.trim() && (Number(maxRounds) < 1
+                              || Number(maxRounds) > maxRoundsLimit
+                              || !Number.isInteger(Number(maxRounds))))}>
           {isNew ? "Create agent" : "Save changes"}
         </button>
         <button onClick={onCancel}>Cancel</button>

@@ -152,11 +152,13 @@ export const api = {
   builtinAgents: () =>
     request<{ agents: BuiltinAgent[]; key_configured: boolean; key_source: string;
               models: string[]; default_model: string; slack_workspace: boolean;
+              default_max_rounds: number; default_max_rounds_with_mcp: number;
+              max_rounds_limit: number;
               presets: AgentPreset[] }>("/api/agents/builtin"),
-  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
+  createBuiltinAgent: (body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[]; max_rounds?: number | null }) =>
     request<{ ok: boolean; enabled: boolean }>("/api/agents/builtin",
       { method: "POST", body: JSON.stringify(body) }),
-  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[] }) =>
+  updateBuiltinAgent: (name: string, body: { name: string; trigger: string; prompt: string; slack_webhook?: string; slack_webhook_clear?: boolean; model?: string; slack_channel?: string; webhook_url?: string; webhook_token?: string; mcp_servers?: string[]; max_rounds?: number | null }) =>
     request(`/api/agents/builtin/${name}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
   enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),

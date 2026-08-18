@@ -200,6 +200,8 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS webhook_token TEXT",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS mcp_servers JSON",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS external_tools JSON",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
+    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
     # `reviews` were renamed to Tares agents before release; drop the old-named tables if a dev
     # DB still carries them (the definitions are re-created under the new names).
     "DROP TABLE IF EXISTS catalog_reviews",
@@ -802,36 +804,39 @@ class Store:
                              slack_webhook: str | None = None, model: str | None = None,
                              slack_channel: str | None = None, webhook_url: str | None = None,
                              webhook_token: str | None = None,
-                             mcp_servers: list[str] | None = None) -> None:
+                             mcp_servers: list[str] | None = None,
+                             max_rounds: int | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO catalog_agents "
                 "(name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "webhook_url, webhook_token, mcp_servers, max_rounds, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
                 "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
                 "model = excluded.model, slack_channel = excluded.slack_channel, "
                 "webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token, "
-                "mcp_servers = excluded.mcp_servers, updated_at = excluded.updated_at",
+                "mcp_servers = excluded.mcp_servers, max_rounds = excluded.max_rounds, "
+                "updated_at = excluded.updated_at",
                 [name, trigger, prompt, slack_webhook or "", model or "",
                  slack_channel or "", webhook_url or "", webhook_token or "",
-                 json.dumps(mcp_servers or []), ts, ts],
+                 json.dumps(mcp_servers or []), max_rounds, ts, ts],
             )
 
     def list_catalog_agents(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, updated_at "
+                "webhook_url, webhook_token, mcp_servers, updated_at, max_rounds "
                 "FROM catalog_agents ORDER BY name"
             ).fetchall()
         return [
             {"name": r[0], "trigger": r[1], "prompt": r[2], "slack_webhook": r[3] or "",
              "model": r[4] or "", "slack_channel": r[5] or "",
              "webhook_url": r[6] or "", "webhook_token": r[7] or "",
-             "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9]}
+             "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9],
+             "max_rounds": r[10]}
             for r in rows
         ]
 
@@ -845,13 +850,15 @@ class Store:
 
     # ── agent runs (the operational record; the finding is an event, not this) ──
     def start_agent_run(self, run_id: str, agent: str, trigger: str, dispatch_id: str,
-                        key: str, prompt_hash: str) -> None:
+                        key: str, prompt_hash: str, max_rounds: int | None = None) -> None:
+        # max_rounds is the cap this run will be held to (the effective value, not the agent's
+        # nullable setting), so the history stays honest if defaults change later.
         with self._lock:
             self.con.execute(
                 "INSERT INTO agent_runs (id, agent, trigger, dispatch_id, key_value, status, "
-                "rounds, tool_calls, prompt_hash, started_at) "
-                "VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?)",
-                [run_id, agent, trigger, dispatch_id, key, prompt_hash, now_utc()],
+                "rounds, tool_calls, prompt_hash, started_at, max_rounds) "
+                "VALUES (?, ?, ?, ?, ?, 'running', 0, 0, ?, ?, ?)",
+                [run_id, agent, trigger, dispatch_id, key, prompt_hash, now_utc(), max_rounds],
             )
 
     def finish_agent_run(self, run_id: str, status: str, rounds: int = 0, tool_calls: int = 0,
@@ -869,7 +876,8 @@ class Store:
 
     def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
-               "started_at, duration_ms, finding, error, external_tools FROM agent_runs ")
+               "started_at, duration_ms, finding, error, external_tools, max_rounds "
+               "FROM agent_runs ")
         params: list = []
         if agent:
             sql += "WHERE agent = ? "
@@ -882,7 +890,7 @@ class Store:
             {"id": r[0], "agent": r[1], "trigger": r[2], "dispatch_id": r[3], "key": r[4],
              "status": r[5], "rounds": r[6], "tool_calls": r[7], "started_at": r[8],
              "duration_ms": r[9], "finding": r[10], "error": r[11],
-             "external_tools": json.loads(r[12]) if r[12] else []}
+             "external_tools": json.loads(r[12]) if r[12] else [], "max_rounds": r[13]}
             for r in rows
         ]
 

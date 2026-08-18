@@ -16,7 +16,8 @@ import type { AgentRun } from "../types";
 function statusBadge(r: AgentRun) {
   if (r.status === "ok") return <span className="badge ok">ok</span>;
   if (r.status === "running") return <span className="badge starting">running</span>;
-  // "empty"/"capped" ran and declined to conclude, or hit the daily cap — not failures.
+  // "empty"/"capped"/"exhausted" ran and declined to conclude, hit the daily cap, or ran out of
+  // rounds. Not failures.
   const cls = r.status === "failed" ? "error" : "";
   return <span className={`badge ${cls}`}>{r.status}</span>;
 }
@@ -88,6 +89,9 @@ export default function AgentDetail() {
           models={data.models}
           defaultModel={data.default_model}
           slackWorkspace={data.slack_workspace}
+          defaultMaxRounds={data.default_max_rounds}
+          defaultMaxRoundsWithMcp={data.default_max_rounds_with_mcp}
+          maxRoundsLimit={data.max_rounds_limit}
           onSaved={() => { setEditing(false); reload(); }}
           onCancel={() => setEditing(false)}
         />
@@ -119,6 +123,9 @@ export default function AgentDetail() {
                 <tr><td className="help">model</td>
                     <td><span className="mono">{agent.model || data.default_model}</span>
                         {!agent.model && <span className="help"> · instance default</span>}</td></tr>
+                <tr><td className="help">max rounds</td>
+                    <td><span className="mono">{agent.effective_max_rounds}</span>
+                        {!agent.max_rounds && <span className="help"> · default{agent.mcp_servers.length ? " for an agent with external MCP servers" : ""}</span>}</td></tr>
                 <tr><td className="help">Slack</td>
                     <td>{agent.slack_channel
                       ? <><span className="badge ok">channel</span> <span className="help">posted by the workspace bot</span></>
@@ -149,7 +156,7 @@ export default function AgentDetail() {
                 <span className="help">
                   · <TimeAgo ts={r.started_at} />
                   {r.dispatch_id && <> · <Link to={`/dispatches/${encodeURIComponent(r.dispatch_id)}`}>firing</Link></>}
-                  {r.rounds ? ` · ${r.rounds} round${r.rounds === 1 ? "" : "s"}` : ""}
+                  {r.rounds ? ` · ${r.rounds}${r.max_rounds ? `/${r.max_rounds}` : ""} round${r.rounds === 1 && !r.max_rounds ? "" : "s"}` : ""}
                   {r.duration_ms != null ? ` · ${(r.duration_ms / 1000).toFixed(1)}s` : ""}
                 </span>
                 {(r.external_tools ?? []).length > 0 && (
@@ -162,11 +169,18 @@ export default function AgentDetail() {
                 )}
               </>
             );
+            const exhaustedNote = r.status === "exhausted" && (
+              <p className="help" style={{ margin: "8px 0 0" }}>
+                ran out of rounds before concluding ({r.rounds}{r.max_rounds ? `/${r.max_rounds}` : ""});
+                raise max rounds under Edit, Advanced.
+                {r.finding ? " What it had so far:" : ""}
+              </p>
+            );
             const body = r.finding
-              ? <div className="md" style={{ marginTop: 8 }}>
+              ? <>{exhaustedNote}<div className="md" style={{ marginTop: 8 }}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.finding}</ReactMarkdown>
-                </div>
-              : <p className="help" style={{ margin: "8px 0 0" }}>
+                </div></>
+              : exhaustedNote || <p className="help" style={{ margin: "8px 0 0" }}>
                   {r.status === "running" ? "investigating…" : (r.error ?? "no finding")}
                 </p>;
             // Newest run expanded by default; older ones collapse so the page stays readable as
