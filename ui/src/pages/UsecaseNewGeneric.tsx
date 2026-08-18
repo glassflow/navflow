@@ -13,6 +13,15 @@ function initial(p: RecipeParam): string {
   return typeof p.default === "string" ? p.default : JSON.stringify(p.default);
 }
 
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button type="button" onClick={() => { navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+      {copied ? "copied" : "copy"}
+    </button>
+  );
+}
+
 export default function UsecaseNewGeneric() {
   const { recipe: key = "" } = useParams();
   const navigate = useNavigate();
@@ -60,6 +69,25 @@ export default function UsecaseNewGeneric() {
         </div>
       </div>
       {err && <div className="alert error">{err}</div>}
+      {recipe && recipe.setup && recipe.setup.length > 0 && (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Before you start</h2>
+          <ol className="uc-setup">
+            {recipe.setup.map((st, i) => (
+              <li key={i}>
+                <div className="uc-setup-title">{st.title}</div>
+                {st.text && <p className="help" style={{ margin: "2px 0 6px" }}>{st.text}</p>}
+                {st.command && (
+                  <div className="uc-setup-cmd">
+                    <pre className="mono">{st.command}</pre>
+                    <CopyBtn text={st.command} />
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       {recipe && (
         <div className="panel">
           <label className="field">

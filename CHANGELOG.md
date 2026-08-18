@@ -3,6 +3,18 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **AI SRE demo as a use case.** Use cases > AI SRE demo (tagged demo) creates the same three sources,
+  `service_timeline` view, `incident` trigger and `incident-first-look` agent that
+  `demo/catalog.demo.yaml` seeds, with one click and no catalog import; an existing unowned demo
+  catalog is adopted rather than duplicated. The wizard lists what to do first (start the stack,
+  set an Anthropic key) with copyable commands, and the use case page has Cause an incident
+  (error_spike, latency, dependency_outage) and Clear the fault buttons that flip the api-server's
+  fault switch. Recipes can now declare `tags`, `SETUP` steps and `ACTIONS` (served at
+  `POST /api/usecases/{id}/actions/{name}`).
+
 ## [1.8.0] - 2026-08-18
 
 ### Added

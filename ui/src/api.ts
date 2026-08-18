@@ -275,6 +275,10 @@ export const api = {
     request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/pause`, { method: "POST" }),
   resumeUsecase: (id: string) =>
     request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  usecaseAction: (id: string, name: string, args: Record<string, unknown> = {}) =>
+    request<{ ok: boolean; action: string; message?: string }>(
+      `/api/usecases/${encodeURIComponent(id)}/actions/${encodeURIComponent(name)}`,
+      { method: "POST", body: JSON.stringify(args) }),
   repairUsecase: (id: string, key: string) =>
     request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/repair`,
       { method: "POST", body: JSON.stringify({ key }) }),

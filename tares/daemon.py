@@ -2068,6 +2068,17 @@ def make_app() -> FastAPI:
         except Exception as e:
             _uc_err(e)
 
+    @app.post("/api/usecases/{uid}/actions/{name}")
+    async def usecase_action(uid: str, name: str, request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        try:
+            return await asyncio.to_thread(usecases.action, uid, name, body if isinstance(body, dict) else {})
+        except Exception as e:
+            _uc_err(e)
+
     @app.get("/api/usecases/{uid}/summary")
     async def usecase_summary(uid: str):
         try:

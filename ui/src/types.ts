@@ -381,11 +381,19 @@ export interface RecipeParam {
   choices?: string[];
   item?: Record<string, RecipeParam>;   // for lists of objects
 }
+export interface RecipeSetupStep { title: string; text?: string; command?: string }
+export interface RecipeAction {
+  name: string; label: string; help?: string;
+  params?: Record<string, { label?: string; options?: string[] }>;
+}
 export interface Recipe {
   key: string;
   title: string;
   description: string;
   params: Record<string, RecipeParam>;
+  tags?: string[];
+  setup?: RecipeSetupStep[];
+  actions?: RecipeAction[];
 }
 export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
 export interface UsecaseObject {
@@ -418,6 +426,8 @@ export interface UsecaseSummary extends Usecase {
             events?: number }[];
   context_repo?: string; context_branch?: string; context_path?: string; write_mode?: string;
   runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
+  sources?: Record<string, { events: number; last: string | null }>;
+  guide?: string;
   runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
            max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null }[];
   prs?: { open?: number; merged?: number };

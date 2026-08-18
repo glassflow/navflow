@@ -36,6 +36,14 @@ curl -s 'localhost:9090/api/v1/query?query=up'   # prometheus is scraping
 
 ## 2. Install and run Tares
 
+Two ways to wire Tares to the stack: one click in the console, or the catalog file.
+
+**In the console:** start Tares (`tares up`), open **Use cases**, pick **AI SRE demo** (tagged
+demo), click Start. That creates the same three sources, view, trigger and agent the catalog below
+does, and the use case page gets a "Cause an incident" button so you never need `curl` for step 4.
+
+**With the catalog file:**
+
 Install Tares the normal way (not in Docker) and point it at the demo catalog — from any
 directory:
 

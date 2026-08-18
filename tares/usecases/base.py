@@ -41,6 +41,15 @@ class Recipe:
     title: str = ""
     description: str = ""
     PARAMS: dict = {}
+    # Free-form labels the console shows on the card ("demo" marks a use case that needs the demo
+    # stack rather than your systems).
+    tags: tuple = ()
+    # Steps a user must do outside Tares before Start (start a stack, export a key), each
+    # {title, text?, command?}; the wizard shows them above the Start button.
+    SETUP: list = []
+    # Buttons the instance page offers, each {name, label, help?, params?: {name: {label, options}}};
+    # the engine routes them to run_action().
+    ACTIONS: list = []
 
     def validate(self, params: dict) -> dict:
         """Check required params and fill defaults; return the normalized params. Recipes may
@@ -71,6 +80,12 @@ class Recipe:
         instance and never undoes the create."""
         return None
 
+    def run_action(self, instance: dict, action: str, args: dict, store, runtime) -> dict:
+        """Perform one of ACTIONS for a running instance; return what the page should show.
+        Raise UsecaseError for a bad action or arguments."""
+        raise UsecaseError(f"{self.key}: no action {action!r}")
+
     def describe(self) -> dict:
         return {"key": self.key, "title": self.title, "description": self.description,
-                "params": self.PARAMS}
+                "params": self.PARAMS, "tags": list(self.tags), "setup": list(self.SETUP),
+                "actions": list(self.ACTIONS)}
