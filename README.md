@@ -14,6 +14,7 @@ Tares is open source (MIT), runs on your own machine or server, and starts with 
 - **Agents that show up already informed.** Any MCP client gets the same correlated view you see in the console. Ask "what happened to api-server in the last 15 minutes?" and the agent starts from the full incident, not from scratch.
 - **From reacting to being ahead.** Triggers watch your data and fire on conditions you define. They can push the timeline to a subscribed agent, post to Slack, or run a Tares agent that investigates and writes its diagnosis back as a **finding** — so the next reader starts ahead.
 - **Two minutes to running, nothing to operate.** One install, one command, everything stored locally in a single file. Your data never leaves your infrastructure.
+- **Ready-made use cases.** Pick one under **Use cases** in the console (the AI SRE demo, or shared code context that keeps a context repository current from your commits), answer a few questions, click Start; Tares creates the sources, view, trigger and agent, each on its own page and editable there. See [Use cases](https://docs.glassflow.ai/tares/use-cases).
 
 ## Get running
 
@@ -35,7 +36,7 @@ curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compo
 docker compose up -d                      # start the stack to ingest from
 ```
 
-Stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog — three sources, a correlated view, and two triggers:
+In the console, open **Use cases**, pick **AI SRE demo**, click Start: the setup page detects the running stack and creates the three sources, the correlated view, the trigger and the agent, and gives you a Cause an incident button. Or do the same from a file: stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog:
 
 ```bash
 curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/catalog.demo.yaml
