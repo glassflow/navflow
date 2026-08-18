@@ -109,7 +109,7 @@ export default function AgentDetail() {
                   <td>
                     {agent.enabled ? <span className="badge ok">enabled</span> : <span className="badge">disabled</span>}
                     {!data.key_configured
-                      ? <span className="help"> · no Anthropic key: set one under <Link to="/settings">Settings</Link> to run</span>
+                      ? <span className="help"> · no Anthropic key: set one under <Link to="/settings?tab=anthropic">Settings</Link> to run</span>
                       : <span className="help"> · key from <span className="mono">{data.key_source}</span></span>}
                   </td>
                 </tr>

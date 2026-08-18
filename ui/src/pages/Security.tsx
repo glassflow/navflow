@@ -13,6 +13,14 @@ import type { ApiKey, GithubCredential } from "../types";
 //   · Slack      — the bot token behind slack:// trigger subscriptions (outbound), and the
 //                  signing secret that authenticates the /tares slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
+type SettingsTab = "access" | "anthropic" | "github" | "slack";
+const TABS: { key: SettingsTab; label: string }[] = [
+  { key: "access", label: "Access and API keys" },
+  { key: "anthropic", label: "Anthropic" },
+  { key: "github", label: "GitHub" },
+  { key: "slack", label: "Slack" },
+];
+
 export default function Security() {
   // Cloud only (TR-142): the half of "settings" a user comes here looking for that lives in the
   // control plane, named and linked, so nobody has to know the control plane exists.
@@ -20,6 +28,15 @@ export default function Security() {
   useEffect(() => {
     api.health().then((h) => setWorkspaceUrl(h.workspace_url || undefined)).catch(() => {});
   }, []);
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return (TABS.find((x) => x.key === t)?.key ?? "access");
+  });
+  const pick = (t: SettingsTab) => {
+    setTab(t);
+    const url = new URL(window.location.href); url.searchParams.set("tab", t);
+    window.history.replaceState(null, "", url.toString());
+  };
   return (
     <>
       <h1>Settings</h1>
@@ -32,12 +49,15 @@ export default function Security() {
           <a href={workspaceUrl}>Open workspace ↗</a>
         </div>
       )}
-      <AccessPanel />
-      <ApiKeysPanel />
-      <AnthropicKeyPanel />
-      <GithubPanel />
-      <SlackTokenPanel />
-      <SlackSigningSecretPanel />
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button key={t.key} className={tab === t.key ? "active" : ""} onClick={() => pick(t.key)}>{t.label}</button>
+        ))}
+      </div>
+      {tab === "access" && <><AccessPanel /><ApiKeysPanel /></>}
+      {tab === "anthropic" && <AnthropicKeyPanel />}
+      {tab === "github" && <GithubPanel />}
+      {tab === "slack" && <><SlackTokenPanel /><SlackSigningSecretPanel /></>}
     </>
   );
 }
@@ -163,17 +183,15 @@ function GithubPanel() {
                         {c.api_url && <span className="help" style={{ marginLeft: 6 }}>{c.api_url}</span>}</td>
                       <td>{c.account ? <span className="mono">{c.account}</span> : <span className="dim">unknown</span>}</td>
                       <td>{uses === 0 ? <span className="dim">nothing yet</span> : (
-                        <span className="help">
-                          {c.sources.length > 0 && <>{c.sources.length} source{c.sources.length === 1 ? "" : "s"}
-                            {" "}(<span className="mono">{c.sources.slice(0, 3).join(", ")}{c.sources.length > 3 ? ", …" : ""}</span>)</>}
+                        <span className="help" title={[...c.sources, ...c.mcp_servers].join("\n")}>
+                          {c.sources.length > 0 && <>{c.sources.length} source{c.sources.length === 1 ? "" : "s"}</>}
                           {c.sources.length > 0 && c.mcp_servers.length > 0 && ", "}
-                          {c.mcp_servers.length > 0 && <>{c.mcp_servers.length} MCP server{c.mcp_servers.length === 1 ? "" : "s"}
-                            {" "}(<span className="mono">{c.mcp_servers.join(", ")}</span>)</>}
+                          {c.mcp_servers.length > 0 && <>{c.mcp_servers.length} MCP server{c.mcp_servers.length === 1 ? "" : "s"}</>}
                         </span>
                       )}</td>
                       <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={c.updated_at} /></td>
-                      <td>
-                        <div className="btnrow" style={{ justifyContent: "flex-end" }}>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <div className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                           <button onClick={() => test(c.name)} disabled={t?.busy}>{t?.busy ? "testing…" : "Test"}</button>
                           <button onClick={() => { setRotating(rotating === c.name ? undefined : c.name); setNewToken(""); }}>Rotate</button>
                           <button className="danger" onClick={() => setConfirmDelete(c)}>Delete</button>

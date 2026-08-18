@@ -275,7 +275,7 @@ export default function UsecaseNewSharedContext() {
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>GitHub access</h2>
           <p className="help">
-            One token, stored once under Settings, used by every source this use case creates and by
+            One token, stored once under <Link to="/settings?tab=github">Settings</Link>, used by every source this use case creates and by
             the agent when it writes to the context repo.
           </p>
           {credentials === undefined && <div className="dim">loading…</div>}
