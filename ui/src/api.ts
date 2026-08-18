@@ -5,6 +5,7 @@ import type {
   AgentPreset, AgentRun, BuiltinAgent,
   GithubCredential,
   LabelFacet, QueryLogEntry,
+  Recipe, Usecase, UsecaseSummary, UsecaseUpdateReport,
   Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
 } from "./types";
@@ -219,7 +220,8 @@ export const api = {
   mcpServers: () =>
     request<{ servers: { name: string; url: string; auth_header: string;
                          auth_value_configured: boolean; auth_credential: string;
-                         headers: Record<string, string>; updated_at: string }[] }>("/api/mcp-servers"),
+                         headers: Record<string, string>; updated_at: string;
+                         owned_by?: string | null; customized?: boolean }[] }>("/api/mcp-servers"),
   createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string;
                             headers?: Record<string, string> }) =>
     request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
@@ -250,6 +252,29 @@ export const api = {
   githubCredentialRepos: (name: string, query = "") =>
     request<{ repos: { full_name: string; default_branch: string; private: boolean; pushed_at: string | null }[] }>(
       `/api/integrations/github/${encodeURIComponent(name)}/repos?query=${encodeURIComponent(query)}`),
+
+  // ── Use cases: recipes instantiated with params; each instance owns ordinary objects ──
+  recipes: () => request<{ recipes: Recipe[] }>("/api/usecases/recipes"),
+  usecases: () => request<{ usecases: Usecase[] }>("/api/usecases"),
+  usecase: (id: string) => request<Usecase>(`/api/usecases/${encodeURIComponent(id)}`),
+  usecaseSummary: (id: string) =>
+    request<UsecaseSummary>(`/api/usecases/${encodeURIComponent(id)}/summary`),
+  createUsecase: (body: { recipe: string; name?: string; params: Record<string, unknown> }) =>
+    request<Usecase>("/api/usecases", { method: "POST", body: JSON.stringify(body) }),
+  updateUsecase: (id: string, body: { params: Record<string, unknown>; name?: string }) =>
+    request<Usecase & { report?: UsecaseUpdateReport }>(`/api/usecases/${encodeURIComponent(id)}`,
+      { method: "PUT", body: JSON.stringify(body) }),
+  deleteUsecase: (id: string, purgeEvents = false) =>
+    request<{ ok: boolean; deleted?: string[]; purged_events?: number }>(
+      `/api/usecases/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
+      { method: "DELETE" }),
+  pauseUsecase: (id: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/pause`, { method: "POST" }),
+  resumeUsecase: (id: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  repairUsecase: (id: string, key: string) =>
+    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/repair`,
+      { method: "POST", body: JSON.stringify({ key }) }),
 
   // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──
   askSessions: () =>

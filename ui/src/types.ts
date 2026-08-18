@@ -19,6 +19,8 @@ export interface Source {
   paused: boolean;
   health: SourceHealth | null;
   ingest_key?: string;   // stable path segment for push endpoints: /ingest/<ingest_key>
+  owned_by?: string | null;   // the use case that created it, if any
+  customized?: boolean;       // edited by hand since; the use case keeps that version
 }
 
 export interface ConnectorField {
@@ -204,6 +206,8 @@ export interface View {
   filters?: ViewFilter[];
   created_by?: string;
   usage?: ViewUsage | null;
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 export interface TriggerCondition {
@@ -221,6 +225,8 @@ export interface Trigger {
   emit: Record<string, unknown>;
   cooldown: string;
   paused?: boolean;   // paused triggers are not evaluated and never fire
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 // A Tares agent is a prompt attached to a trigger: when the trigger fires, the agent takes a
@@ -242,6 +248,8 @@ export interface BuiltinAgent {
   effective_max_rounds: number;   // the cap its next run will be held to
   updated_at?: string;
   last_run?: AgentRun | null;
+  owned_by?: string | null;
+  customized?: boolean;
 }
 
 export interface AgentRun {
@@ -362,3 +370,56 @@ export interface GithubCredential {
   sources: string[];
   mcp_servers: string[];
 }
+
+// ── Use cases: a recipe (code) instantiated with params; the instance owns ordinary objects ──
+export interface RecipeParam {
+  type?: string;              // string | number | bool | list | json | choice
+  required?: boolean;
+  default?: unknown;
+  help?: string;
+  label?: string;
+  choices?: string[];
+  item?: Record<string, RecipeParam>;   // for lists of objects
+}
+export interface Recipe {
+  key: string;
+  title: string;
+  description: string;
+  params: Record<string, RecipeParam>;
+}
+export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
+export interface UsecaseObject {
+  kind: UsecaseObjectKind;
+  key: string;
+  name: string;
+  customized: boolean;
+  missing: boolean;
+  created_at: string;
+}
+export interface Usecase {
+  id: string;
+  recipe: string;
+  recipe_title: string;
+  name: string;
+  params: Record<string, unknown>;
+  status: "active" | "paused" | "error";
+  created_at: string;
+  updated_at: string;
+  last_error: string | null;
+  objects: UsecaseObject[];
+}
+export interface UsecaseLogEntry { at: string; action: string; detail: string }
+// summary = instance + log + whatever the recipe reports. The recipe part is free-form; the
+// shapes below are what the shared code context recipe returns and the page renders when present.
+export interface UsecaseSummary extends Usecase {
+  log: UsecaseLogEntry[];
+  summary_error?: string;
+  repos?: { repo: string; branch?: string; source?: string; last_commit?: string | null;
+            events?: number }[];
+  runs?: { id?: string; started_at?: string; key?: string; status?: string; rounds?: number;
+           max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null }[];
+  prs?: { open?: number; merged?: number };
+  trigger_last_fired?: string | null;
+  [k: string]: unknown;
+}
+export interface UsecaseUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }

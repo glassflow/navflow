@@ -27,6 +27,10 @@ import Home from "./pages/Home";
 import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
+import Usecases from "./pages/Usecases";
+import UsecaseDetail from "./pages/UsecaseDetail";
+import UsecaseNewGeneric from "./pages/UsecaseNewGeneric";
+import UsecaseNewSharedContext from "./pages/UsecaseNewSharedContext";
 import "./styles.css";
 
 /** /activity?tab=dispatches (and the bare page, whose default tab was dispatches) → Deliveries;
@@ -46,6 +50,10 @@ const router = createBrowserRouter([
       // `/` is Overview, not the source list. The cloud login handoff (TARES_LOGIN_URL) lands
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
+      { path: "usecases", element: <Usecases /> },
+      { path: "usecases/new/shared_code_context", element: <UsecaseNewSharedContext /> },
+      { path: "usecases/new/:recipe", element: <UsecaseNewGeneric /> },
+      { path: "usecases/:id", element: <UsecaseDetail /> },
       { path: "sources", element: <Sources /> },
       { path: "sources/discover", element: <SourceDiscover /> },
       { path: "sources/claude-code", element: <SourceClaudeCode /> },

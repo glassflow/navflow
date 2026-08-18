@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorState, formatBytes, usePolling } from "../components/bits";
-import type { Usage } from "../types";
+import { ErrorState, TimeAgo, formatBytes, usePolling } from "../components/bits";
+import type { Usage, Usecase } from "../types";
 
 // The instance at a glance. This exists because the numbers that describe the WHOLE instance —
 // how full the disk is, how much has been ingested, how hard the agents are working — were living
@@ -27,6 +27,7 @@ let emptyRedirectDone = false;
 export default function Home() {
   const { data: u, error: usageError, reload: reloadUsage } = usePolling(() => api.usage(), 30000);
   const { data: sources, error: sourcesError } = usePolling(() => api.sources(), 30000);
+  const { data: uc } = usePolling(() => api.usecases(), 30000);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -85,6 +86,8 @@ export default function Home() {
       {/* A failed load is never rendered as a zero: the cards above fall back to "—", and the
           reason is said out loud here. See the rule in components/bits.tsx. */}
       {sourcesError && <ErrorState error={sourcesError} what="the source list" />}
+
+      {uc && uc.usecases.length > 0 && <UsecasesPanel usecases={uc.usecases} />}
 
       <StoragePanel
         usage={u}
@@ -168,6 +171,37 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// Use cases at a glance: one line per instance, because a use case is the thing a user set up on
+// purpose and the first thing they will ask "is it running?" about.
+function UsecasesPanel({ usecases }: { usecases: Usecase[] }) {
+  return (
+    <div className="panel">
+      <div className="pagehead" style={{ marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Use cases</h2>
+        <Link className="btn" to="/usecases">All use cases</Link>
+      </div>
+      <table>
+        <tbody>
+          {usecases.map((u) => {
+            const missing = u.objects.filter((o) => o.missing).length;
+            return (
+              <tr key={u.id}>
+                <td><Link to={`/usecases/${encodeURIComponent(u.id)}`}><strong>{u.name}</strong></Link></td>
+                <td className="help">{u.recipe_title}</td>
+                <td>
+                  <span className={`badge ${u.status === "active" ? "ok" : u.status === "paused" ? "paused" : "error"}`}>{u.status}</span>
+                  {missing > 0 && <span className="help" style={{ marginLeft: 6 }}>{missing} missing</span>}
+                </td>
+                <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={u.updated_at} /></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
