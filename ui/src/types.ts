@@ -381,7 +381,7 @@ export interface RecipeParam {
   choices?: string[];
   item?: Record<string, RecipeParam>;   // for lists of objects
 }
-export interface RecipeSetupStep { title: string; text?: string; command?: string }
+export interface RecipeSetupStep { title: string; text?: string; command?: string; check?: "anthropic_key" }
 export interface RecipeAction {
   name: string; label: string; help?: string;
   params?: Record<string, { label?: string; options?: string[] }>;

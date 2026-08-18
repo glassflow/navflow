@@ -30,8 +30,23 @@ export default function UsecaseNewGeneric() {
   const [name, setName] = useState("");
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [keyStatus, setKeyStatus] = useState<{ configured: boolean; source: string }>();
+  const [keyInput, setKeyInput] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyErr, setKeyErr] = useState<string>();
+  const loadKey = () => api.anthropicKeyStatus().then((k) => setKeyStatus(k)).catch(() => setKeyStatus(undefined));
+  const saveKey = async () => {
+    setKeyBusy(true); setKeyErr(undefined);
+    try { await api.setAnthropicKey(keyInput.trim()); setKeyInput(""); await loadKey(); }
+    catch (e) { setKeyErr(String((e as Error).message ?? e)); }
+    setKeyBusy(false);
+  };
 
   useEffect(() => {
+    loadKey();
+    api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
     api.recipes().then((r) => {
       const found = r.recipes.find((x) => x.key === key);
       if (!found) { setErr(`this instance has no use case named ${key}`); return; }
@@ -73,10 +88,32 @@ export default function UsecaseNewGeneric() {
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>Before you start</h2>
           <ol className="uc-setup">
-            {recipe.setup.map((st, i) => (
-              <li key={i}>
-                <div className="uc-setup-title">{st.title}</div>
-                {st.text && <p className="help" style={{ margin: "2px 0 6px" }}>{st.text}</p>}
+            {recipe.setup.map((st, i) => {
+              const keyStep = st.check === "anthropic_key";
+              const done = keyStep && keyStatus?.configured;
+              return (
+              <li key={i} className={done ? "uc-setup-done" : undefined}>
+                <div className="uc-setup-title">
+                  {st.title}
+                  {done && <span className="badge ok" style={{ marginLeft: 8 }}>done</span>}
+                </div>
+                {done ? (
+                  <p className="help" style={{ margin: "2px 0 0" }}>
+                    an Anthropic key is set{keyStatus?.source ? ` (${keyStatus.source})` : ""}; the agent can run. Change it under Settings.
+                  </p>
+                ) : (
+                  <>
+                    {st.text && <p className="help" style={{ margin: "2px 0 6px" }}>{st.text}</p>}
+                    {keyStep && (
+                      <div className="btnrow" style={{ alignItems: "center", maxWidth: 640 }}>
+                        <input type="password" className="mono" style={{ flex: 1 }} autoComplete="new-password" data-1p-ignore data-lpignore="true"
+                               placeholder="sk-ant-..." value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
+                        <button className="primary" disabled={keyBusy || !keyInput.trim()} onClick={saveKey}>{keyBusy ? "saving..." : "Save key"}</button>
+                        {keyErr && <span className="help" style={{ color: "var(--err)" }}>{keyErr}</span>}
+                      </div>
+                    )}
+                  </>
+                )}
                 {st.command && (
                   <div className="uc-setup-cmd">
                     <pre className="mono">{st.command}</pre>
@@ -84,7 +121,8 @@ export default function UsecaseNewGeneric() {
                   </div>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ol>
         </div>
       )}
@@ -100,6 +138,11 @@ export default function UsecaseNewGeneric() {
               {p.type === "bool" ? (
                 <Picker value={vals[k] ?? "false"} onChange={(v) => setVals({ ...vals, [k]: v })}
                         options={["true", "false"]} ariaLabel={k} />
+              ) : k === "model" ? (
+                <Picker value={vals[k] ?? ""} onChange={(v) => setVals({ ...vals, [k]: v })}
+                        options={["", ...models.filter((m) => m !== defaultModel)]}
+                        labels={{ "": defaultModel ? `${defaultModel} · instance default` : "instance default" }}
+                        ariaLabel="model" />
               ) : p.choices?.length ? (
                 <Picker value={vals[k] ?? ""} onChange={(v) => setVals({ ...vals, [k]: v })}
                         options={p.choices} ariaLabel={k} />

@@ -57,9 +57,10 @@ class AiSreDemo(Recipe):
                     "docker compose up -d"},
         {"title": "Check it is alive",
          "command": "curl -s localhost:8080/api/stats\ncurl -s 'localhost:9090/api/v1/query?query=up'"},
-        {"title": "Give the agent a key",
-         "text": "The incident-first-look agent is a real agent: set an Anthropic key under Settings > "
-                 "Anthropic (or ANTHROPIC_API_KEY before tares up). Without one its runs log \"no key\"."},
+        {"title": "Give the agent a key", "check": "anthropic_key",
+         "text": "The incident-first-look agent is a real agent: it needs an Anthropic key. Set one here "
+                 "or under Settings > Anthropic (or ANTHROPIC_API_KEY before tares up). Without one its "
+                 "runs log \"no key\"."},
     ]
 
     ACTIONS = [

@@ -1333,3 +1333,4 @@ pre.payload {
 .uc-setup-cmd { display: flex; align-items: flex-start; gap: 10px; }
 .uc-setup-cmd pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); background: var(--wash); font-size: 12px; flex: 1; overflow-x: auto; white-space: pre; }
 .uc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.uc-setup-done .uc-setup-title { color: var(--ink-soft); }
