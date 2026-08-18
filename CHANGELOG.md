@@ -5,6 +5,15 @@ the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [Unreleased]
+
+### Fixed
+- **Auto-discover (Docker) works again.** The environment scan still read the Prometheus
+  connector's old one-shot discover shape and failed with an internal error whenever a
+  Prometheus container was running. It now proposes a reachable starter metrics source (`up`,
+  keyed by `service` when the server has that label) and says how many metrics wait to be picked
+  on the source page; an unreachable or unexpected server never fails the scan.
+
 ### Added
 - **AI SRE demo as a use case.** Use cases > AI SRE demo (tagged demo) creates the same three sources,
   `service_timeline` view, `incident` trigger and `incident-first-look` agent that
