@@ -53,7 +53,7 @@ still empty; been running Tares already? Restart on a fresh `--data-dir`.)
 
 The catalog also ships a **Tares agent** (`incident-first-look`) wired to the `incident` trigger —
 so the loop closes with nothing to deploy. It needs an Anthropic key (the `ANTHROPIC_API_KEY` above,
-or set one in the console → Security); without a key it stays enabled but each run is logged as
+or set one in the console → Settings); without a key it stays enabled but each run is logged as
 "no key" and no finding is written.
 
 ## 3. Look around
