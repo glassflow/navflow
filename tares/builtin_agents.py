@@ -256,9 +256,10 @@ class AgentRunner:
         # External tools: the agent's selected MCP servers, connected for the duration of this
         # run. A server that fails to connect is skipped (recorded below) — losing a tool server
         # must not lose the run.
-        from .mcp_client import RemoteToolbox
+        from .mcp_client import RemoteToolbox, resolve_servers
         selected = set(agent.get("mcp_servers") or [])
-        servers = [m for m in self.store.list_mcp_servers() if m["name"] in selected]
+        servers = resolve_servers(self.store, [m for m in self.store.list_mcp_servers()
+                                               if m["name"] in selected])
         async with RemoteToolbox(servers) as toolbox:
             for failure in toolbox.failures:
                 print(f"[agent {agent['name']}] mcp connect failed; {failure}")

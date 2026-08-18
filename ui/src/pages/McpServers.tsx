@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { TimeAgo, usePolling } from "../components/bits";
@@ -9,8 +9,22 @@ import { TimeAgo, usePolling } from "../components/bits";
 // commands, which is off the table on a hosted cell and a footgun anywhere.
 
 type Server = { name: string; url: string; auth_header: string;
-                auth_value_configured: boolean; updated_at: string };
+                auth_value_configured: boolean; auth_credential: string;
+                headers: Record<string, string>; updated_at: string };
 type Tool = { name: string; description: string };
+
+const headersToText = (h: Record<string, string> | undefined) =>
+  Object.entries(h ?? {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+const textToHeaders = (t: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const line of t.split("\n")) {
+    const i = line.indexOf(":");
+    if (i <= 0) continue;
+    const k = line.slice(0, i).trim(); const v = line.slice(i + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+};
 
 function ServerForm({ initial, onSaved, onCancel }: {
   initial?: Server; onSaved: () => void; onCancel: () => void;
@@ -20,13 +34,25 @@ function ServerForm({ initial, onSaved, onCancel }: {
   const [url, setUrl] = useState(initial?.url ?? "");
   const [header, setHeader] = useState(initial?.auth_header ?? "");
   const [value, setValue] = useState("");
+  // auth can be a literal header value, or a stored GitHub credential (Settings > GitHub) that
+  // the daemon resolves at connect time, so rotating the token there rotates this server too
+  const [credential, setCredential] = useState(initial?.auth_credential ?? "");
+  const [credentials, setCredentials] = useState<string[]>([]);
+  const [headersText, setHeadersText] = useState(headersToText(initial?.headers));
+  const [advanced, setAdvanced] = useState(!!initial && Object.keys(initial.headers ?? {}).length > 0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
+
+  useEffect(() => {
+    api.githubCredentials().then((r) => setCredentials(r.credentials.map((c) => c.name))).catch(() => {});
+  }, []);
 
   const save = async () => {
     setBusy(true); setErr(undefined);
     const body = { name: name.trim(), url: url.trim(),
-                   auth_header: header.trim(), auth_value: value };
+                   auth_header: credential ? "" : header.trim(),
+                   auth_value: credential ? `credential:github/${credential}` : value,
+                   headers: textToHeaders(headersText) };
     try {
       if (isNew) await api.createMcpServer(body);
       else await api.updateMcpServer(initial!.name, body);
@@ -55,17 +81,48 @@ function ServerForm({ initial, onSaved, onCancel }: {
       </div>
       <div className="field">
         <span className="lbl">authentication <span className="help">(optional)</span></span>
-        <div className="hook-group">
-          <input type="text" className="mono" placeholder="header name (default: Authorization)"
-                 value={header} onChange={(e) => setHeader(e.target.value)} />
-          <input type="password" className="mono" autoComplete="new-password" placeholder={
-            initial?.auth_value_configured
-              ? "•••• configured, leave blank to keep"
-              : "header value, e.g. Bearer sk-…"}
-                 value={value} onChange={(e) => setValue(e.target.value)} />
-        </div>
-        <span className="help">stored as a secret, never shown again</span>
+        {credentials.length > 0 && (
+          <div style={{ marginBottom: 6 }}>
+            <select value={credential} onChange={(e) => setCredential(e.target.value)}>
+              <option value="">a header value entered here</option>
+              {credentials.map((c) => (
+                <option key={c} value={c}>GitHub credential: {c}</option>
+              ))}
+            </select>
+            <span className="help" style={{ marginLeft: 8 }}>
+              a stored credential sends <code>Authorization: Bearer &lt;token&gt;</code> and follows rotations
+            </span>
+          </div>
+        )}
+        {!credential && (
+          <div className="hook-group">
+            <input type="text" className="mono" placeholder="header name (default: Authorization)"
+                   value={header} onChange={(e) => setHeader(e.target.value)} />
+            <input type="password" className="mono" autoComplete="new-password" placeholder={
+              initial?.auth_value_configured && !initial?.auth_credential
+                ? "•••• configured, leave blank to keep"
+                : "header value, e.g. Bearer sk-…"}
+                   value={value} onChange={(e) => setValue(e.target.value)} />
+          </div>
+        )}
+        {!credential && <span className="help">stored as a secret, never shown again</span>}
       </div>
+      <details className="fld-group adv-group" open={advanced}
+               onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
+        <summary>Advanced: extra headers<span className="caret">›</span></summary>
+        <div>
+          <label className="field">
+            <span className="lbl">extra headers <span className="help">(one per line, name: value)</span></span>
+            <textarea className="mono" rows={3} value={headersText}
+                      placeholder={"X-MCP-Toolsets: repos,pull_requests\nX-MCP-Readonly: true"}
+                      onChange={(e) => setHeadersText(e.target.value)} />
+            <span className="help">
+              sent on every request; not secrets. GitHub's hosted MCP uses <code>X-MCP-Toolsets</code> to
+              limit which tools it offers and <code>X-MCP-Readonly</code> for read-only access
+            </span>
+          </label>
+        </div>
+      </details>
       <div className="btnrow">
         <button className="primary" onClick={save}
                 disabled={busy || !name.trim() || !url.trim()}>
@@ -137,9 +194,16 @@ export default function McpServers() {
                     <tr key={s.name}>
                       <td className="mono"><strong>{s.name}</strong></td>
                       <td className="mono">{s.url}</td>
-                      <td>{s.auth_value_configured
+                      <td>{s.auth_credential
+                        ? <span className="badge ok">GitHub credential {s.auth_credential}</span>
+                        : s.auth_value_configured
                         ? <span className="badge ok">{s.auth_header || "Authorization"}</span>
-                        : <span className="dim">none</span>}</td>
+                        : <span className="dim">none</span>}
+                        {Object.keys(s.headers ?? {}).length > 0 && (
+                          <span className="help" style={{ marginLeft: 6 }}>
+                            +{Object.keys(s.headers).length} header{Object.keys(s.headers).length === 1 ? "" : "s"}
+                          </span>
+                        )}</td>
                       <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={s.updated_at} /></td>
                       <td>
                         <div className="btnrow" style={{ justifyContent: "flex-end" }}>
