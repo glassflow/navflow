@@ -302,9 +302,10 @@ export default function UsecaseNewSharedContext() {
                   <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" value={credName} onChange={(e) => setCredName(e.target.value)} />
                 </label>
                 <label className="field">
-                  <span className="lbl">GitHub Enterprise URL <span className="help">(optional)</span></span>
+                  <span className="lbl">GitHub Enterprise URL</span>
                   <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="mono" value={credApi} placeholder="https://github.example.com/api/v3"
                          onChange={(e) => setCredApi(e.target.value)} />
+                  <span className="help">optional; leave empty for github.com</span>
                 </label>
               </div>
               <label className="field">

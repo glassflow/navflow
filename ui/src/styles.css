@@ -1306,3 +1306,6 @@ pre.payload {
 .uc-tree-list li { list-style: none; }
 .uc-tree { margin-top: 6px; }
 .uc-tree .linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+
+/* a hint inside a field label stays on the label's line */
+.lbl .help { display: inline; margin: 0 0 0 4px; font-weight: 400; }
