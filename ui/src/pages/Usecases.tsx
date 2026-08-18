@@ -24,14 +24,38 @@ export function usecaseKindCounts(u: Usecase) {
   return c;
 }
 
+// What each recipe wires up, in the user's words. Keyed by recipe so a new recipe without an
+// entry still gets a card, just without the "what it sets up" column.
+const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
+  shared_code_context: {
+    you: ["pick the code repos to watch", "pick the repo that holds the shared context", "choose when it runs and how it writes"],
+    tares: ["one commits source per repo", "a view with one timeline per repo", "a trigger that fires when commits land", "an agent that reads each diff and updates the context repo, through GitHub's MCP server"],
+  },
+};
+
 function RecipeCard({ r }: { r: Recipe }) {
   const navigate = useNavigate();
   const to = WIZARDS[r.key] ?? `/usecases/new/${encodeURIComponent(r.key)}`;
+  const facts = RECIPE_FACTS[r.key];
   return (
     <div className="panel uc-card">
-      <div className="uc-card-title">{r.title}</div>
-      <p className="help" style={{ margin: "6px 0 12px" }}>{r.description}</p>
-      <div className="btnrow">
+      <div className="uc-card-main">
+        <div className="uc-card-title">{r.title}</div>
+        <p className="help uc-card-desc">{r.description}</p>
+        {facts && (
+          <div className="uc-card-facts">
+            <div>
+              <div className="lbl">you</div>
+              <ul>{facts.you.map((t) => <li key={t}>{t}</li>)}</ul>
+            </div>
+            <div>
+              <div className="lbl">Tares sets up</div>
+              <ul>{facts.tares.map((t) => <li key={t}>{t}</li>)}</ul>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="uc-card-side">
         <button className="primary" onClick={() => navigate(to)}>Set up</button>
       </div>
     </div>
@@ -50,21 +74,14 @@ export default function Usecases() {
         <div>
           <h1>Use cases</h1>
           <p className="subtitle">
-            pick what you want Tares to do; <em>it sets up the sources, view, trigger and agent</em>
+            pick what you want Tares to do. A use case is a ready-made setup: you answer a few questions and
+            Tares creates the sources, view, trigger and agent behind it, each visible and editable on its own page.
           </p>
         </div>
       </div>
 
       {recError && <ErrorState error={recError} what="the use case catalog" onRetry={reloadRec} />}
       {instError && <ErrorState error={instError} what="your use cases" onRetry={reloadInst} />}
-
-      {inst && usecases.length === 0 && !instError && (
-        <div className="empty">
-          A use case is a ready-made setup: you answer a few questions and Tares creates the sources,
-          view, trigger and agent behind it. Everything it creates stays visible and editable on its
-          own page; this is the combined view.
-        </div>
-      )}
 
       {inst && usecases.length > 0 && (
         <table style={{ marginBottom: 24 }}>
@@ -104,7 +121,7 @@ export default function Usecases() {
         </table>
       )}
 
-      <h2 style={{ marginTop: 0 }}>Available</h2>
+      <h2 style={{ marginTop: usecases.length > 0 ? 8 : 18 }}>{usecases.length > 0 ? "Set up another" : "Available"}</h2>
       {!rec && !recError && <div className="dim">loading…</div>}
       {rec && recipes.length === 0 && (
         <div className="empty">No use cases are registered on this instance yet.</div>
