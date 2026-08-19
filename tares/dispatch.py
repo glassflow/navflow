@@ -28,6 +28,9 @@ class Dispatcher:
         # Set by the daemon once the runtime exists — the in-process executor for Tares-agent
         # subscriptions. External-only deployments can leave it None.
         self.agents = None
+        # Set by the daemon too: the live runtime, so a deferred trigger evaluation can read the
+        # current catalog instead of the one captured when it was scheduled.
+        self.runtime = None
 
     async def fire(self, trigger, key: str, payload: str) -> None:
         subs = self.store.list_subscriptions(trigger.name)
