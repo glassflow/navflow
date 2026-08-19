@@ -7,6 +7,7 @@ and evaluate on the in-flight batch to decouple latency from the poll interval.
 """
 from __future__ import annotations
 
+import asyncio
 import operator
 import os
 from datetime import timezone
@@ -37,15 +38,43 @@ def _aware(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+_catchups: dict = {}   # trigger name -> pending asyncio task for a debounced re-evaluation
+
+
+def _schedule_catchup(name: str, delay: float, store, catalog, dispatcher, eval_state) -> None:
+    """Re-evaluate `name` once the debounce interval has passed, unless a catch-up is already
+    pending. Evaluates without an affected-source filter so every key of the view is considered."""
+    if name in _catchups and not _catchups[name].done():
+        return
+
+    async def _later():
+        try:
+            await asyncio.sleep(max(delay, 0.05))
+            await eval_triggers(store, catalog, dispatcher, affected_sources=None,
+                                eval_state=eval_state, only=name)
+        except Exception:
+            pass
+        finally:
+            _catchups.pop(name, None)
+
+    try:
+        _catchups[name] = asyncio.get_running_loop().create_task(_later())
+    except RuntimeError:   # no running loop (tests calling synchronously): evaluate next time
+        pass
+
+
 async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=None,
-                        eval_state: dict | None = None) -> list:
+                        eval_state: dict | None = None, only: str | None = None) -> list:
     """Evaluate every trigger whose view touches an affected source. Returns [(trigger, key)] fired.
+    `only` restricts the pass to one trigger (the debounce catch-up).
 
     `eval_state` is a caller-owned {trigger_name: last_eval_datetime} map for debouncing across ticks;
     pass None (tests) to evaluate on every call."""
     fired = []
     now = now_utc()
     for trig in catalog.triggers:
+        if only is not None and trig.name != only:
+            continue
         # A paused trigger is inert: not evaluated, never fires, until resumed.
         if getattr(trig, "paused", False):
             continue
@@ -55,11 +84,16 @@ async def eval_triggers(store, catalog: Catalog, dispatcher, affected_sources=No
 
         c = trig.condition
         # Debounce: skip if this trigger was evaluated within min(window, _DEBOUNCE_SECONDS) ago.
-        # The first evaluation of a trigger always runs (no prior state).
+        # The first evaluation of a trigger always runs (no prior state). A skipped evaluation is
+        # not dropped: it is re-run once the interval is over (see _schedule_catchup), otherwise
+        # two sources of the same view that ingest within one interval leave the second one
+        # unevaluated until the next ingest, by which time a short window has slid past its events.
         if eval_state is not None:
             interval = min(parse_window(c.window).total_seconds(), _DEBOUNCE_SECONDS)
             last_eval = eval_state.get(trig.name)
             if last_eval is not None and (now - last_eval).total_seconds() < interval:
+                _schedule_catchup(trig.name, interval - (now - last_eval).total_seconds(),
+                                  store, catalog, dispatcher, eval_state)
                 continue
             eval_state[trig.name] = now
 

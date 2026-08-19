@@ -169,7 +169,7 @@ async def main():
           and src["config"]["labels"][0] == {"name": "repo", "field": "repo", "primary": True}, json.dumps(src))
     trig = next(o for o in plan1 if o.kind == "trigger").spec
     check("trigger counts commits per repo with 5m cooldown and 30m context",
-          trig["condition"] == {"aggregate": "count", "predicate": "> 0", "window": "2m", "group_by": ["key_value"]}
+          trig["condition"] == {"aggregate": "count", "predicate": "> 0", "window": "5m", "group_by": ["key_value"]}
           and trig["cooldown"] == "5m" and trig["emit"]["attach_view"] is True
           and trig["emit"]["context_window"] == "30m", json.dumps(trig))
     mcp = next(o for o in plan1 if o.kind == "mcp_server").spec

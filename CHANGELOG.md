@@ -3,6 +3,17 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **A trigger no longer misses a key whose source ingested right after another.** Trigger
+  evaluation is debounced to once per 10 seconds per trigger; a second source of the same view
+  that ingested inside that interval was left unevaluated until the next ingest, by which time a
+  short detection window could have slid past its events (two repos polled a second apart: the
+  first fired, the second never did). A skipped evaluation is now re-run once the interval ends.
+- **Shared code context**: the `every_commit` trigger's detection window is 5 minutes (was 2),
+  matching the 60-second source poll.
+
 ## [1.8.1] - 2026-08-19
 
 ### Fixed

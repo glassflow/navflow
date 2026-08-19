@@ -27,7 +27,7 @@ TRIGGERS = {
     # only this one is offered today; "every merged PR" needs the github_webhook connector and
     # "daily" needs scheduled triggers, so both stay out of PARAMS until they exist
     "every_commit": {"label": "every commit to the branch (batched per repo)",
-                     "window": "2m", "cooldown": "5m"},
+                     "window": "5m", "cooldown": "5m"},
 }
 WRITE_MODES = ("pull_request", "commit_to_branch")
 LAYOUTS = ("existing", "per_repo")
