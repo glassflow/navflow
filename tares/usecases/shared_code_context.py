@@ -140,6 +140,8 @@ class SharedCodeContext(Recipe):
     title = "Shared code context"
     description = ("Keep one repository of shared context current: Tares watches commits across "
                    "your code repos and an agent updates the context repo when something changes.")
+    guide = {"label": "Shared code context guide",
+             "url": "https://docs.glassflow.ai/tares/guides/shared-code-context"}
     PARAMS = {
         "credential": {"type": "string", "required": True, "label": "GitHub credential",
                        "help": "name of a stored GitHub credential (Settings > GitHub); read on the "
