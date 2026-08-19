@@ -48,6 +48,8 @@ class Runtime:
             self._start(cfg)
 
     def shutdown(self) -> None:
+        from .triggers import cancel_catchups
+        cancel_catchups()
         for rt in self.sources.values():
             if rt.task:
                 rt.task.cancel()

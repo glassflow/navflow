@@ -362,6 +362,7 @@ def make_app() -> FastAPI:
     # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
+    dispatcher.runtime = runtime
 
     def _otlp_source_for(header: str | None) -> str:
         """Resolve the OTLP source for an export (shared by the HTTP and gRPC receivers). Raises

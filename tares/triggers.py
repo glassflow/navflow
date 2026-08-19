@@ -41,17 +41,29 @@ def _aware(dt):
 _catchups: dict = {}   # trigger name -> pending asyncio task for a debounced re-evaluation
 
 
+def cancel_catchups() -> None:
+    """Drop pending catch-up evaluations (daemon shutdown)."""
+    for t in list(_catchups.values()):
+        t.cancel()
+    _catchups.clear()
+
+
 def _schedule_catchup(name: str, delay: float, store, catalog, dispatcher, eval_state) -> None:
     """Re-evaluate `name` once the debounce interval has passed, unless a catch-up is already
-    pending. Evaluates without an affected-source filter so every key of the view is considered."""
+    pending. Evaluates without an affected-source filter so every key of the view is considered.
+    The catalog is re-read at fire time through `dispatcher.runtime` when available, so a trigger
+    edited or a use case created inside the interval is evaluated as it is then, not as it was."""
     if name in _catchups and not _catchups[name].done():
         return
 
     async def _later():
         try:
             await asyncio.sleep(max(delay, 0.05))
-            await eval_triggers(store, catalog, dispatcher, affected_sources=None,
+            live = getattr(getattr(dispatcher, "runtime", None), "catalog", None) or catalog
+            await eval_triggers(store, live, dispatcher, affected_sources=None,
                                 eval_state=eval_state, only=name)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             pass
         finally:
