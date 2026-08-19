@@ -3,7 +3,10 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.8.2] - 2026-08-19
+
+### Added
+- **Shared code context links its guide** from the Use cases card and the setup page.
 
 ### Fixed
 - **A trigger no longer misses a key whose source ingested right after another.** Trigger
