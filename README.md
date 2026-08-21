@@ -76,7 +76,7 @@ The agent calls `read` and gets the incident correlated: the `HighErrorRate` ale
 
 A built-in agent on a real incident — the prompt is the whole configuration, and the finding it writes is a structured incident note on the service's timeline:
 
-![A built-in Tares agent: its prompt, its run, and the incident note it wrote back onto the timeline](.github/assets/tares-agent.jpg)
+![A built-in Tares agent: its prompt, its run, and the incident note it wrote back onto the timeline](.github/assets/tares-agent.png)
 
 Other clients, stdio transport, and auth are covered in [connecting AI agents over MCP](https://docs.glassflow.ai/tares/agents).
 
