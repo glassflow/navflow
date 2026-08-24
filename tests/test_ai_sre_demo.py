@@ -30,6 +30,7 @@ def check(label, cond, detail=""):
 
 # a fake api-server that records what /demo/inject receives
 INJECTED = []
+AUTHS = []   # Authorization headers seen by the fake hosted stack
 
 
 class FakeApi(BaseHTTPRequestHandler):
@@ -37,6 +38,31 @@ class FakeApi(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
+        n = int(self.headers.get("content-length") or 0)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        if self.path == "/demo/inject":
+            INJECTED.append(body.get("scenario"))
+            self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+        else:
+            self.send_response(404); self.end_headers()
+
+
+class FakeStack(BaseHTTPRequestHandler):
+    """The hosted demo stack in one handler: Prometheus, Loki and api-server probe endpoints,
+    plus /demo/inject, all recording the Authorization header they were called with."""
+
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        AUTHS.append(self.headers.get("authorization"))
+        if self.path.startswith(("/api/v1/query", "/loki/api/v1/labels", "/api/stats")):
+            self.send_response(200); self.end_headers(); self.wfile.write(b'{"status":"ok"}')
+        else:
+            self.send_response(404); self.end_headers()
+
+    def do_POST(self):
+        AUTHS.append(self.headers.get("authorization"))
         n = int(self.headers.get("content-length") or 0)
         body = json.loads(self.rfile.read(n) or b"{}")
         if self.path == "/demo/inject":
@@ -139,6 +165,69 @@ async def main():
             check("demo sources gone", not ({"demo_metrics", "demo_logs", "demo_alerts"} & after), str(after))
 
     srv.shutdown()
+
+    # ── hosted mode: the same recipe against a hosted demo stack (TR-194) ────
+    print("== hosted mode ==")
+    stack = HTTPServer(("127.0.0.1", 0), FakeStack)
+    threading.Thread(target=stack.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{stack.server_port}"
+    os.environ.update({"TARES_DEMO_PROMETHEUS_URL": base, "TARES_DEMO_LOKI_URL": base,
+                       "TARES_DEMO_API_SERVER_URL": base,
+                       "TARES_DEMO_USERNAME": "demo", "TARES_DEMO_PASSWORD": "pw"})
+    try:
+        d = r.describe()
+        check("hosted defaults come from the env",
+              d["params"]["prometheus_url"]["default"] == base
+              and d["params"]["loki_url"]["default"] == base, json.dumps(d["params"])[:300])
+        check("hosted form hides the container field", "container" not in d["params"],
+              str(list(d["params"])))
+        check("hosted setup has no docker step and keeps the key step",
+              "docker" not in json.dumps(d["setup"]).lower()
+              and [s.get("check") for s in d["setup"]] == ["detect", "anthropic_key"],
+              json.dumps(d["setup"])[:300])
+        check("hosted facts say the stack is shared and nothing to install",
+              "shared" in json.dumps(d["facts"]) and "docker" not in json.dumps(d["facts"]),
+              json.dumps(d["facts"])[:300])
+        check("hosted inject action says it is shared",
+              "shared" in d["actions"][0]["intro"], d["actions"][0]["intro"][:200])
+
+        hp = r.validate({})
+        hplan = {o.key: o for o in r.plan(hp)}
+        check("hosted plan reads logs from Loki",
+              hplan["logs"].spec["connector"] == "loki"
+              and hplan["logs"].spec["config"]["query"] == '{service="api-server"}',
+              json.dumps(hplan["logs"].spec)[:300])
+        check("hosted sources carry the shared credential",
+              all(hplan[k].spec["config"].get("username") == "demo"
+                  and hplan[k].spec["config"].get("password") == "pw"
+                  for k in ("metrics", "logs", "alerts")), json.dumps(hplan["logs"].spec)[:300])
+
+        det = await r.detect(None, None)
+        check("hosted detect probes the stack, no docker",
+              set(det["found"]) == {"prometheus_url", "loki_url", "api_server_url"}
+              and not det["missing"], json.dumps(det)[:300])
+
+        AUTHS.clear(); INJECTED.clear()
+        out = r.run_action({"params": hp}, "inject", {"scenario": "error_spike"}, None, None)
+        check("hosted inject reaches the stack with the credential",
+              INJECTED == ["error_spike"] and AUTHS and AUTHS[-1] and AUTHS[-1].startswith("Basic "),
+              f"injected={INJECTED} auths={AUTHS[-1:]}")
+        check("inject message unchanged", "alert fires" in out["message"], out["message"])
+    finally:
+        for k in list(os.environ):
+            if k.startswith("TARES_DEMO_"):
+                del os.environ[k]
+        stack.shutdown()
+
+    # regression: with the env cleared, local mode is back untouched
+    d = r.describe()
+    check("local mode restored after env cleared",
+          d["params"]["prometheus_url"]["default"] == "http://localhost:9090"
+          and "docker compose" in json.dumps(d["setup"])
+          and r.plan(r.validate({}))[1].spec["connector"] == "docker_logs")
+    check("local form does not show the Loki field", "loki_url" not in d["params"],
+          str(list(d["params"])))
+
     print(f"\n{PASS} passed, {FAIL} failed")
     sys.exit(1 if FAIL else 0)
 
