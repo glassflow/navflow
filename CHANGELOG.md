@@ -3,6 +3,22 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-08-24
+
+### Added
+- **Model usage and cost per agent run.** Every run records the model it used, its token usage
+  (input, output, cache write/read) and a USD cost priced at write time; Ask turns (console and
+  Slack `/tares ask`) are metered the same way. Runs from before this release show no cost
+  (unknown, never guessed), and models without a known price record tokens with a null cost.
+- **`GET /api/usage/model`**: the instance's Anthropic spend as all-time totals plus a per-day
+  tail, split by surface (agent runs vs Ask). Generic metering data only, for a hosted control
+  plane or your own budgeting.
+- **The Tares agents page is an operational surface.** Stat cards (total cost, runs, success
+  rate, average duration), Overview / Runs / Configuration tabs, and runs as a table showing
+  model, rounds, tokens and cost per run, expandable to the finding. The agents list gains runs
+  and cost columns, and the Overview page a Model spend panel.
+- The write-back webhook body now carries the run's `usage` and `cost_usd`.
+
 ## [1.8.2] - 2026-08-19
 
 ### Added
