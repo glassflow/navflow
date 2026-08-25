@@ -437,6 +437,9 @@ export interface Recipe {
   guide?: { label: string; url: string } | null;
   setup?: RecipeSetupStep[];
   actions?: RecipeAction[];
+  // The card's you/Tares bullets, in the mode the daemon is running in (a hosted demo stack
+  // says different things than a local docker one). Absent on older daemons.
+  facts?: { you: string[]; tares: string[] };
 }
 export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
 export interface UsecaseObject {

@@ -145,14 +145,16 @@ def prompt_hash(prompt: str) -> str:
 
 
 def resolve_key(store) -> tuple[str, str]:
-    """(key, where-it-came-from). The env `ANTHROPIC_API_KEY` (the standard SDK name most users
-    already have exported) wins over the console-stored value, so an operator's deployment config is
-    never silently overridden by something typed into a UI months earlier."""
-    val = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if val:
-        return val, "env:ANTHROPIC_API_KEY"
+    """(key, where-it-came-from). The console-stored key wins over the env `ANTHROPIC_API_KEY`:
+    the user's own key takes over from whatever the deployment shipped the moment they save one.
+    That order is load-bearing for hosted trials — an operator-provided key in the env must yield
+    to the customer's key instantly, so their spend lands on their key, not the trial's. Deleting
+    the stored key falls back to the env key (if the deployment still carries one)."""
     stored = (store.get_setting("anthropic_key") or "").strip()
-    return (stored, "console") if stored else ("", "")
+    if stored:
+        return stored, "console"
+    val = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    return (val, "env:ANTHROPIC_API_KEY") if val else ("", "")
 
 
 class AgentRunner:
@@ -295,7 +297,7 @@ class AgentRunner:
                    run_id: str, dispatch_id: str | None = None) -> tuple[str, str | None]:
         started_at = now_utc()
         t0 = time.monotonic()
-        api_key, _ = resolve_key(self.store)
+        api_key, key_origin = resolve_key(self.store)
         if not api_key:
             msg = "no Anthropic key: set ANTHROPIC_API_KEY or add one in the console"
             self.store.finish_agent_run(run_id, "failed", error=msg)
@@ -326,7 +328,8 @@ class AgentRunner:
                 self.store.record_model_usage(
                     "agent", agent["name"], run_id, model, usage["calls"],
                     usage["input_tokens"], usage["output_tokens"],
-                    usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"], cost)
+                    usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"], cost,
+                    key_source=key_origin)
         if exhausted:
             # The round budget ran out before the model concluded. Keep whatever it said last as
             # a partial note (in `finding`, so it is visible) and say plainly what to do.

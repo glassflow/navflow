@@ -73,10 +73,17 @@ LOGIN_URL = os.getenv("TARES_LOGIN_URL", "").strip()
 # self-host: no link. Public, non-secret, surfaced on /health next to login_url.
 WORKSPACE_URL = os.getenv("TARES_WORKSPACE_URL", "").strip()
 # The Anthropic key for the in-app Ask agent (and Tares agents) is resolved at request time via
-# resolve_anthropic_key(store): env ANTHROPIC_API_KEY, else the console-stored key.
+# resolve_anthropic_key(store): the console-stored key, else env ANTHROPIC_API_KEY.
 # Never returned by any API — capabilities exposes only a boolean.
-# The Slack bot token behind the slack:// dispatch sink follows exactly the same rule via
-# resolve_slack_token(store): env TARES_SLACK_BOT_TOKEN, else the console-stored value.
+# The Slack bot token behind the slack:// dispatch sink keeps the OPPOSITE order via
+# resolve_slack_token(store): env TARES_SLACK_BOT_TOKEN wins over the console-stored value
+# (infrastructure wiring, not a metered credential — see the note on resolve_token).
+
+# Seed a use case on first boot (additive, env-gated): the named recipe is created once, so a
+# hosted cell is born with its demo already running instead of an empty system. A settings
+# marker makes it one-shot — deleting the use case never resurrects it. Meaningful for a
+# self-hoster building a golden image too; harmlessly unset otherwise.
+SEED_USECASE = os.getenv("TARES_SEED_USECASE", "").strip()
 
 
 def _is_ingest(path: str) -> bool:
@@ -333,6 +340,28 @@ class SlackSigningSecretIn(BaseModel):
     secret: str  # the signing secret behind POST /api/slack/events; same write-only contract
 
 
+def _seed_usecase(store, usecases) -> None:
+    """Create TARES_SEED_USECASE's use case once, on the first boot that carries the var. The
+    `seeded_usecase` settings marker is the one-shot record: it is written after the attempt
+    (success or failure), so a user who deletes the seeded use case never gets it back on a pod
+    restart. An unknown recipe key writes NO marker — a config typo stays fixable by fixing the
+    config. Never raises: a failed seed is a log line, not a dead cell."""
+    if not SEED_USECASE:
+        return
+    if store.get_setting("seeded_usecase"):
+        return
+    from .usecases.registry import list_recipes
+    if SEED_USECASE not in {r.key for r in list_recipes()}:
+        print(f"taresd: TARES_SEED_USECASE names unknown recipe {SEED_USECASE!r}; not seeded")
+        return
+    try:
+        inst = usecases.create(SEED_USECASE, params={})
+        print(f"taresd: seeded use case {SEED_USECASE!r} ({inst['id']})")
+    except Exception as e:
+        print(f"taresd: seeding use case {SEED_USECASE!r} failed: {type(e).__name__}: {e}")
+    store.set_setting("seeded_usecase", SEED_USECASE)
+
+
 def make_app() -> FastAPI:
     try:
         store = Store(DB_PATH)
@@ -363,6 +392,8 @@ def make_app() -> FastAPI:
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
     dispatcher.runtime = runtime
+
+    _seed_usecase(store, usecases)
 
     def _otlp_source_for(header: str | None) -> str:
         """Resolve the OTLP source for an export (shared by the HTTP and gRPC receivers). Raises
@@ -1159,16 +1190,19 @@ def make_app() -> FastAPI:
         return {"sampled": sampled, "fields": fields, "labels": labels}
 
     # ── in-app agent (the Ask view) — server-side chat loop over the read API ──
-    def _record_ask_usage(model: str, usage: dict) -> None:
+    def _record_ask_usage(model: str, usage: dict, key_source: str = "") -> None:
         """One ledger row per Ask turn (console chat or Slack /ask), so the cell's spend meter
-        covers everything that talks to Anthropic, not just agent runs."""
+        covers everything that talks to Anthropic, not just agent runs. `key_source` is the
+        origin of the key that PAID for this turn, captured by the caller when it resolved the
+        key — never re-resolved here, the stored key could have changed mid-turn."""
         from .pricing import cost_usd
         store.record_model_usage(
             "ask", "", "", model, usage["calls"],
             usage["input_tokens"], usage["output_tokens"],
             usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"],
             cost_usd(model, usage["input_tokens"], usage["output_tokens"],
-                     usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"]))
+                     usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"]),
+            key_source=key_source or None)
 
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
@@ -1177,7 +1211,7 @@ def make_app() -> FastAPI:
         # `X-Anthropic-Key` header override, which the console filled from localStorage — so a key
         # added on the Ask page made Ask work while Slack and trigger-woken agents still reported
         # none configured, having no browser to read it from (NF-125).
-        key = resolve_anthropic_key(store)[0]
+        key, key_origin = resolve_anthropic_key(store)
         if not key:
             _err(ValueError("add your Anthropic API key to use the assistant"), 400)
         body = await request.json()
@@ -1186,7 +1220,7 @@ def make_app() -> FastAPI:
         return StreamingResponse(
             run_agent(key, body.get("messages") or [],
                       model=body.get("model"), self_headers=self_headers,
-                      on_usage=_record_ask_usage),
+                      on_usage=lambda m, u: _record_ask_usage(m, u, key_source=key_origin)),
             media_type="text/event-stream")
 
     # ── MCP connections — external tool servers a Tares agent can opt into ─────
@@ -1658,11 +1692,12 @@ def make_app() -> FastAPI:
             _err(KeyError(f"unknown agent {name!r}"), 404)
         return store.list_agent_runs(name, limit=min(limit, 200))
 
-    # ── the Anthropic key: env wins, console is the fallback ─────────────────
+    # ── the Anthropic key: a stored key wins, env is the fallback ────────────
     @app.get("/api/settings/anthropic-key")
     async def get_anthropic_key():
-        """Never returns the key — only whether one is resolvable and where it came from, so the
-        console can explain that an env-set key overrides what's stored."""
+        """Never returns the key — only whether one is resolvable and where it came from. A key
+        saved here takes over from the deployment's env key; `env_overrides` is kept for API
+        compatibility and can now only be true when no key is stored."""
         key, origin = resolve_anthropic_key(store)
         return {"configured": bool(key), "source": origin,
                 "stored": bool(store.get_setting("anthropic_key")),
@@ -1675,12 +1710,12 @@ def make_app() -> FastAPI:
             _err(ValueError("key is required (use DELETE to remove the stored key)"))
         store.set_setting("anthropic_key", key)
         _, origin = resolve_anthropic_key(store)
-        return {"ok": True, "source": origin,
-                **({"note": "an environment key takes precedence and is still in use"}
-                   if origin.startswith("env:") else {})}
+        return {"ok": True, "source": origin}
 
     @app.delete("/api/settings/anthropic-key")
     async def clear_anthropic_key():
+        """Removing the stored key falls back to the deployment's env key when one exists — on a
+        hosted trial cell that is the trial key, until its operator removes it too."""
         store.set_setting("anthropic_key", None)
         key, origin = resolve_anthropic_key(store)
         return {"ok": True, "configured": bool(key), "source": origin}
@@ -1799,13 +1834,14 @@ def make_app() -> FastAPI:
         from .agent import run_agent
         text, error = "", None
         try:
-            key = resolve_anthropic_key(store)[0]
+            key, key_origin = resolve_anthropic_key(store)
             self_headers = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
             async def _run():
                 nonlocal text, error
                 async for chunk in run_agent(key, [{"role": "user", "content": question}],
                                              self_headers=self_headers,
-                                             on_usage=_record_ask_usage):
+                                             on_usage=lambda m, u: _record_ask_usage(
+                                                 m, u, key_source=key_origin)):
                     for line in chunk.splitlines():
                         if not line.startswith("data: "):
                             continue

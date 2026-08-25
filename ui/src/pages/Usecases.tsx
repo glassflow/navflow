@@ -24,8 +24,9 @@ export function usecaseKindCounts(u: Usecase) {
   return c;
 }
 
-// What each recipe wires up, in the user's words. Keyed by recipe so a new recipe without an
-// entry still gets a card, just without the "what it sets up" column.
+// What each recipe wires up, in the user's words. The daemon's describe() may carry mode-aware
+// facts (ai_sre_demo says different things against a hosted stack than against local docker);
+// this map is the fallback for recipes that don't, and for older daemons.
 const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
   ai_sre_demo: {
     you: ["start the demo stack with docker compose", "give the agent an Anthropic key", "cause an incident from the use case page"],
@@ -40,7 +41,7 @@ const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
 function RecipeCard({ r }: { r: Recipe }) {
   const navigate = useNavigate();
   const to = WIZARDS[r.key] ?? `/usecases/new/${encodeURIComponent(r.key)}`;
-  const facts = RECIPE_FACTS[r.key];
+  const facts = r.facts ?? RECIPE_FACTS[r.key];
   return (
     <div className="panel uc-card">
       <div className="uc-card-main">

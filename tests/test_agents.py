@@ -102,6 +102,17 @@ async def main():
             ck("key reported configured from env", k["configured"] and k["source"].startswith("env:"), str(k))
             ck("key value is never returned", "sk-test" not in json.dumps(k), str(k))
 
+            # ── precedence: a stored key WINS over the env key (trial cells depend on it) ──
+            r = await cx.put(f"{B}/api/settings/anthropic-key", json={"key": "sk-user-own"})
+            ck("storing a key over an env key carries no takes-precedence note",
+               r.status_code == 200 and "note" not in r.json(), r.text[:200])
+            k = (await cx.get(f"{B}/api/settings/anthropic-key")).json()
+            ck("stored key takes over from the env key",
+               k["source"] == "console" and k["stored"] and not k["env_overrides"], str(k))
+            r = await cx.delete(f"{B}/api/settings/anthropic-key")
+            ck("deleting the stored key falls back to the env key",
+               r.status_code == 200 and r.json()["source"].startswith("env:"), r.text[:200])
+
             # ── create ───────────────────────────────────────────────────────
             r = await cx.post(f"{B}/api/agents/builtin", json={
                 "name": "first-look", "trigger": "incident", "prompt": "Take a first look."})
@@ -173,6 +184,9 @@ async def main():
             ck("usage meter attributes it to the agent surface",
                um["by_surface"].get("agent", {}).get("calls") == calls_made, str(um["by_surface"]))
             ck("usage meter has a per-day tail", len(um.get("days") or []) == 1, str(um.get("days")))
+            ck("usage attributed to the env key that paid",
+               um.get("by_key_source", {}).get("env:ANTHROPIC_API_KEY", {}).get("calls") == calls_made,
+               str(um.get("by_key_source")))
 
             # ── the firing counts the agent as a delivered subscriber ────────
             async def _delivered():

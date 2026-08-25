@@ -8,8 +8,17 @@ duplicated.
 The demo stack itself (api-server, Prometheus, traffic) is Docker on the user's machine and stays
 outside Tares: SETUP shows the two commands, and the `inject` action calls the api-server's fault
 switch so an incident can be caused and cleared from the use case page.
+
+Hosted mode: when the instance is pointed at a hosted demo stack (TARES_DEMO_* env vars, set by
+whoever runs the instance — the cloud chart, or a self-hoster with their own stack), the same
+recipe adapts: URL defaults come from the env, logs come from the stack's Loki through the loki
+connector instead of a local Docker container, SETUP loses the docker steps, detect() probes the
+endpoints instead of shelling docker ps, and the actions say plainly that the stack is shared.
+The env vars are read per call, never at import, so one process can be tested in both modes.
 """
 from __future__ import annotations
+
+import os
 
 import httpx
 
@@ -17,6 +26,19 @@ from .base import PlannedObject, Recipe, UsecaseError
 from .registry import register
 
 SCENARIOS = ("error_spike", "latency", "dependency_outage", "clear")
+
+
+def _hosted() -> dict | None:
+    """The hosted demo stack this instance is pointed at, or None. Hosted mode needs all three
+    URLs (TARES_DEMO_PROMETHEUS_URL, TARES_DEMO_LOKI_URL, TARES_DEMO_API_SERVER_URL); the shared
+    read credential (TARES_DEMO_USERNAME / TARES_DEMO_PASSWORD) rides along when set."""
+    urls = {k: os.getenv(f"TARES_DEMO_{k.upper()}", "").strip().rstrip("/")
+            for k in ("prometheus_url", "loki_url", "api_server_url")}
+    if not all(urls.values()):
+        return None
+    return {**urls,
+            "username": os.getenv("TARES_DEMO_USERNAME", "").strip(),
+            "password": os.getenv("TARES_DEMO_PASSWORD", "").strip()}
 
 PROMPT = """You are an SRE taking the first look when Prometheus fires an alert on api-server. You are \
 handed the correlated timeline: the firing alert (HighErrorRate / HighLatency / DependencyDown) \
@@ -46,11 +68,29 @@ class AiSreDemo(Recipe):
                            "help": "the demo stack's Prometheus, as reachable from this Tares"},
         "api_server_url": {"type": "string", "default": "http://localhost:8080", "label": "api-server URL",
                            "help": "the demo api-server; used by the Cause an incident action"},
+        "loki_url": {"type": "string", "default": "", "label": "Loki URL",
+                     "help": "set to read the api-server's logs from a Loki instead of a local "
+                             "Docker container (a hosted demo stack sets this for you)"},
         "container": {"type": "string", "default": "tares-demo-api-server", "label": "Log container",
                       "help": "the api-server's Docker container name (fixed in docker-compose.yml)"},
         "model": {"type": "string", "default": "", "label": "Model",
                   "help": "model for the agent (empty = the instance default)"},
     }
+
+    def _params(self) -> dict:
+        """PARAMS with hosted defaults substituted, so the wizard's form and validate() both start
+        from the stack this instance is actually pointed at. Locally the Loki field is hidden
+        entirely — the local flow reads logs from the container and an extra URL field only
+        raises questions (pointing at your own Loki still works via the API/YAML)."""
+        h = _hosted()
+        if not h:
+            return {k: v for k, v in self.PARAMS.items() if k != "loki_url"}
+        # Hosted: no container field either — logs come from Loki, and a Docker container name
+        # is meaningless on a cell with no Docker.
+        out = {k: dict(v) for k, v in self.PARAMS.items() if k != "container"}
+        for k in ("prometheus_url", "loki_url", "api_server_url"):
+            out[k]["default"] = h[k]
+        return out
 
     SETUP = [
         {"title": "Start the demo stack", "check": "detect",
@@ -86,14 +126,78 @@ class AiSreDemo(Recipe):
          "help": "rolls the fault back; the alert resolves and a resolved event lands on the timeline"},
     ]
 
+    def _setup(self) -> list:
+        if not _hosted():
+            return list(self.SETUP)
+        # Hosted: nothing to install. One detect-checked step (the wizard marks it done when the
+        # stack answers) plus the key step, verbatim.
+        return [
+            {"title": "Shared demo environment", "check": "detect",
+             "text": "This instance is pointed at a hosted demo stack, shared by everyone trying "
+                     "the demo. Nothing to install; the form below fills itself once the stack "
+                     "answers."},
+            self.SETUP[-1],
+        ]
+
+    def _actions(self) -> list:
+        if not _hosted():
+            return list(self.ACTIONS)
+        acts = [dict(a) for a in self.ACTIONS]
+        acts[0]["intro"] = (
+            "Break the demo api-server on purpose and watch the AI SRE work: the fault shows up "
+            "in the metrics and logs, Prometheus fires an alert, the incident trigger wakes the "
+            "agent, and its incident note lands under Runs. The demo stack is shared by everyone "
+            "trying Tares: causing an incident shows up on every demo timeline, and it also "
+            "breaks itself every 30 minutes (cleared 5 minutes later), so you can simply wait "
+            "for one.")
+        acts[1]["help"] = ("rolls the fault back for everyone on the shared stack; the alert "
+                           "resolves and a resolved event lands on the timeline")
+        return acts
+
+    def _facts(self) -> dict:
+        """The card's you/Tares bullets, in the mode's own words (the console falls back to a
+        hardcoded copy for older daemons)."""
+        tares = [
+            "three sources keyed by service: Prometheus metrics, the api-server's logs, the alerts Prometheus fires",
+            "one timeline per service to explore",
+            "a trigger that wakes the agent when an alert fires",
+            "an agent that writes the first incident note back onto the timeline",
+        ]
+        if _hosted():
+            return {"you": ["give the agent an Anthropic key",
+                            "cause an incident from the use case page, or wait: the shared demo "
+                            "stack breaks itself every 30 minutes"],
+                    "tares": tares}
+        return {"you": ["start the demo stack with docker compose",
+                        "give the agent an Anthropic key",
+                        "cause an incident from the use case page"],
+                "tares": tares}
+
+    def describe(self) -> dict:
+        d = super().describe()
+        d["params"] = self._params()
+        d["setup"] = self._setup()
+        d["actions"] = self._actions()
+        d["facts"] = self._facts()
+        return d
+
     # ── params ───────────────────────────────────────────────────────────────
     def validate(self, params: dict) -> dict:
-        p = super().validate(params)
+        P = self._params()
+        p = dict(params or {})
+        for name, spec in P.items():
+            if name not in p and "default" in spec:
+                p[name] = spec["default"]
         for k in ("prometheus_url", "api_server_url"):
-            v = str(p.get(k) or self.PARAMS[k]["default"]).strip().rstrip("/")
+            v = str(p.get(k) or P[k]["default"]).strip().rstrip("/")
             if not v.startswith(("http://", "https://")):
                 raise UsecaseError(f"{k} must start with http:// or https://")
             p[k] = v
+        loki = str(p.get("loki_url") or "").strip().rstrip("/")
+        if loki and not loki.startswith(("http://", "https://")):
+            raise UsecaseError("loki_url must start with http:// or https://")
+        p["loki_url"] = loki
+        # the form may not have offered container (hosted mode); the stored default still applies
         p["container"] = str(p.get("container") or self.PARAMS["container"]["default"]).strip()
         p["model"] = str(p.get("model") or "").strip()
         return p
@@ -101,11 +205,27 @@ class AiSreDemo(Recipe):
     # ── plan: the demo catalog, verbatim ─────────────────────────────────────
     def plan(self, params: dict) -> list[PlannedObject]:
         prom = params["prometheus_url"]
+        # The shared read credential comes from the env, not the params: it belongs to the
+        # instance's wiring (like the stack URLs' defaults), and a secret must not live in the
+        # stored use-case params, which any console reader can see.
+        h = _hosted()
+        cred = ({"username": h["username"], "password": h["password"]}
+                if h and h["username"] else {})
+        if params.get("loki_url"):
+            logs = PlannedObject("source", "logs", {
+                "name": "demo_logs", "connector": "loki", "poll": "5s",
+                "config": {"url": params["loki_url"], "query": '{service="api-server"}', **cred,
+                           "labels": [{"name": "service", "const": "api-server", "primary": True}]}})
+        else:
+            logs = PlannedObject("source", "logs", {
+                "name": "demo_logs", "connector": "docker_logs", "poll": "5s",
+                "config": {"container": params["container"],
+                           "labels": [{"name": "service", "const": "api-server", "primary": True}]}})
         objs = [
             PlannedObject("source", "metrics", {
                 "name": "demo_metrics", "connector": "prometheus", "poll": "5s",
                 "config": {
-                    "url": prom,
+                    "url": prom, **cred,
                     "queries": [
                         {"promql": 'sum(rate(http_requests_total{status=~"5.."}[1m])) by (service)',
                          "event_type": "5xx_rate", "text": "5xx rate {service}={val}/s"},
@@ -119,13 +239,10 @@ class AiSreDemo(Recipe):
                     "labels": [{"name": "service", "const": "api-server", "primary": True},
                                {"name": "value", "field": "value", "type": "number"}],
                 }}),
-            PlannedObject("source", "logs", {
-                "name": "demo_logs", "connector": "docker_logs", "poll": "5s",
-                "config": {"container": params["container"],
-                           "labels": [{"name": "service", "const": "api-server", "primary": True}]}}),
+            logs,
             PlannedObject("source", "alerts", {
                 "name": "demo_alerts", "connector": "prometheus_alerts", "poll": "10s",
-                "config": {"url": prom,
+                "config": {"url": prom, **cred,
                            "labels": [{"name": "service", "field": "labels.service", "primary": True},
                                       {"name": "alertname", "field": "labels.alertname"},
                                       {"name": "severity", "field": "labels.severity"},
@@ -149,6 +266,9 @@ class AiSreDemo(Recipe):
 
     # ── detect: ask Docker what is running instead of assuming ports ─────────
     async def detect(self, store, runtime) -> dict:
+        h = _hosted()
+        if h:
+            return await self._detect_hosted(h)
         from ..discovery import _docker_ps, _published_port
         out = {"params": {}, "found": {}, "missing": {}, "notes": []}
         try:
@@ -184,6 +304,30 @@ class AiSreDemo(Recipe):
             out["notes"].append("Docker is running but no compose-managed containers were found")
         return out
 
+    async def _detect_hosted(self, h: dict) -> dict:
+        """Hosted mode: no Docker to ask. Probe the stack's three endpoints (with the shared
+        credential) and fill the URL params from the env; a down endpoint lands in `missing` with
+        the error, so the wizard says which half of the stack is unreachable."""
+        out = {"params": {}, "found": {}, "missing": {}, "notes": []}
+        auth = (h["username"], h["password"]) if h["username"] else None
+        probes = {
+            "prometheus_url": f"{h['prometheus_url']}/api/v1/query?query=up",
+            "loki_url": f"{h['loki_url']}/loki/api/v1/labels",
+            "api_server_url": f"{h['api_server_url']}/api/stats",
+        }
+        async with httpx.AsyncClient(timeout=10, auth=auth) as cx:
+            for param, probe in probes.items():
+                out["params"][param] = h[param]
+                try:
+                    r = await cx.get(probe)
+                    if r.status_code < 300:
+                        out["found"][param] = "hosted demo stack answered"
+                    else:
+                        out["missing"][param] = f"hosted demo stack answered HTTP {r.status_code}"
+                except Exception as e:
+                    out["missing"][param] = f"could not reach the hosted demo stack: {type(e).__name__}"
+        return out
+
     # ── actions ──────────────────────────────────────────────────────────────
     def run_action(self, instance: dict, action: str, args: dict, store, runtime) -> dict:
         params = self.validate(instance["params"])
@@ -196,8 +340,10 @@ class AiSreDemo(Recipe):
         else:
             raise UsecaseError(f"{self.key}: no action {action!r}")
         url = params["api_server_url"] + "/demo/inject"
+        h = _hosted()
+        auth = (h["username"], h["password"]) if h and h["username"] else None
         try:
-            r = httpx.post(url, json={"scenario": scenario}, timeout=10)
+            r = httpx.post(url, json={"scenario": scenario}, timeout=10, auth=auth)
         except Exception as e:
             raise UsecaseError(f"could not reach the demo api-server at {url}: {e}") from e
         if r.status_code >= 300:

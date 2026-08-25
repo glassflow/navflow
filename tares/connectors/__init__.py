@@ -15,6 +15,7 @@ from .base import UNIVERSAL_CONFIG
 from .claude_code import ClaudeCodeConnector
 from .docker_logs import DockerLogsConnector
 from .github import GithubConnector
+from .loki import LokiConnector
 from .memory import MemoryConnector
 from .otlp import OtlpConnector
 from .postgres import PostgresConnector
@@ -27,6 +28,7 @@ from .webhook import WebhookConnector
 REGISTRY = {
     "prometheus": PrometheusConnector,
     "docker_logs": DockerLogsConnector,
+    "loki": LokiConnector,
     "prometheus_alerts": PrometheusAlertsConnector,
     "alertmanager": AlertmanagerConnector,
     "reference": ReferenceConnector,
@@ -48,6 +50,10 @@ SPECS = {
     "docker_logs": {"label": "Docker logs", "mode": "poll", "discover": True,
                     "description": "Tails a running container's logs; all lines by default; "
                                    "optional match/drop regex filters."},
+    "loki": {"label": "Grafana Loki", "mode": "poll", "poll": "5s",
+             "description": "Polls a LogQL stream selector via query_range (cursor by "
+                            "timestamp); one event per log line, with the stream's labels. "
+                            "Works against any reachable Loki, including Grafana Cloud."},
     "prometheus_alerts": {"label": "Prometheus alerts", "mode": "poll", "discover": True, "poll": "30s",
                           "description": "Polls Prometheus's own /api/v1/alerts, the alerts its rules "
                                          "have fired, and emits one event per active alert (keyed by a "
@@ -102,7 +108,8 @@ SPECS = {
 # A source's signal type is a property of its connector, not something the user authors. Mostly
 # descriptive — EXCEPT "reference", which the read path treats specially (always surfaced, never
 # time-windowed; see store.read_view_window).
-_SOURCE_TYPES = {"docker_logs": "application_log", "memory": "agent_memory",
+_SOURCE_TYPES = {"docker_logs": "application_log", "loki": "application_log",
+                 "memory": "agent_memory",
                  "otlp": "application_log", "vercel": "application_log",
                  "claude_code": "agent_session", "reference": "reference",
                  "finding": "finding"}
