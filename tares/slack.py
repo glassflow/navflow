@@ -48,9 +48,11 @@ _MAX_SECTION = 2800
 
 
 def resolve_token(store) -> tuple[str, str]:
-    """(token, where-it-came-from). Mirrors `resolve_key` for the Anthropic key: the environment
-    wins over the console-stored value, so an operator's deployment config is never silently
-    overridden by something typed into a UI months earlier."""
+    """(token, where-it-came-from). Environment wins over the console-stored value: an operator's
+    deployment config is never silently overridden by something typed into a UI months earlier.
+    Deliberately NOT the Anthropic key's order (resolve_key flipped to console-wins for hosted
+    trials); the Slack token is infrastructure wiring, not a metered credential, so env-wins
+    stays right here."""
     val = os.getenv(ENV_VAR, "").strip()
     if val:
         return val, f"env:{ENV_VAR}"

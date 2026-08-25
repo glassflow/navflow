@@ -160,7 +160,8 @@ CREATE TABLE IF NOT EXISTS model_usage (
   output_tokens BIGINT,
   cache_creation_input_tokens BIGINT,
   cache_read_input_tokens     BIGINT,
-  cost_usd DOUBLE
+  cost_usd DOUBLE,
+  key_source TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_model_usage_ts ON model_usage(ts);
 CREATE TABLE IF NOT EXISTS settings (
@@ -292,6 +293,9 @@ _MIGRATIONS = [
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS cache_creation_input_tokens BIGINT",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS cache_read_input_tokens BIGINT",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS cost_usd DOUBLE",
+    # Which key paid for a ledger row ("env:ANTHROPIC_API_KEY" | "console") — the boundary a
+    # hosted trial's enforcement counts against. Rows from before attribution stay NULL (unknown).
+    "ALTER TABLE model_usage ADD COLUMN IF NOT EXISTS key_source TEXT",
 ]
 
 _FILTER_COLS = {"event_type", "source", "text", "key_value"}
@@ -1031,15 +1035,17 @@ class Store:
                            input_tokens: int, output_tokens: int,
                            cache_creation_input_tokens: int = 0,
                            cache_read_input_tokens: int = 0,
-                           cost_usd: float | None = None) -> None:
+                           cost_usd: float | None = None,
+                           key_source: str | None = None) -> None:
         with self._lock:
             self.con.execute(
                 "INSERT INTO model_usage (id, ts, surface, agent, run_id, model, calls, "
                 "input_tokens, output_tokens, cache_creation_input_tokens, "
-                "cache_read_input_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "cache_read_input_tokens, cost_usd, key_source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ["mu_" + uuid.uuid4().hex[:12], now_utc(), surface, agent, run_id, model,
                  calls, input_tokens, output_tokens, cache_creation_input_tokens,
-                 cache_read_input_tokens, cost_usd],
+                 cache_read_input_tokens, cost_usd, key_source or None],
             )
 
     def model_usage_summary(self, days: int = 30) -> dict:
@@ -1062,6 +1068,11 @@ class Store:
             total = self.con.execute(f"SELECT {agg} FROM model_usage").fetchone()
             surfaces = self.con.execute(
                 f"SELECT surface, {agg} FROM model_usage GROUP BY surface").fetchall()
+            # Which key paid: the boundary a hosted trial is enforced against ('unknown' holds
+            # rows from before attribution existed).
+            key_sources = self.con.execute(
+                f"SELECT coalesce(key_source, 'unknown'), {agg} FROM model_usage "
+                "GROUP BY 1").fetchall()
             daily = self.con.execute(
                 f"SELECT CAST(ts AS DATE) AS day, {agg} FROM model_usage "
                 f"WHERE ts > now() - INTERVAL {int(days)} DAY "
@@ -1069,6 +1080,7 @@ class Store:
         return {
             "total": shape(total),
             "by_surface": {r[0]: shape(r[1:]) for r in surfaces},
+            "by_key_source": {r[0]: shape(r[1:]) for r in key_sources},
             "days": [{"day": str(r[0]), **shape(r[1:])} for r in daily],
             "window_days": int(days),
         }

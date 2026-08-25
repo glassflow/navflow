@@ -312,8 +312,9 @@ function AnthropicKeyPanel() {
       <h2 style={{ marginTop: 0 }}>Anthropic key</h2>
       <p className="help" style={{ marginTop: 0 }}>
         What <strong>Tares agents</strong> run on; their first look at an entity when a trigger
-        fires. Set <code>ANTHROPIC_API_KEY</code> in the daemon's environment, or store one here.
-        It is never returned by the API and never included in a catalog export.
+        fires. Store one here (it takes precedence), or set <code>ANTHROPIC_API_KEY</code> in the
+        daemon's environment. It is never returned by the API and never included in a catalog
+        export.
       </p>
 
       {err && <div className="alert error">{err}</div>}
@@ -328,11 +329,11 @@ function AnthropicKeyPanel() {
               : <><span className="badge error">not configured</span>{" "}
                   <span className="help">agents cannot be enabled until one is set</span></>}
           </p>
-          {st.env_overrides && st.stored && (
-            <div className="alert">
-              A key is set in the environment and takes precedence; the one stored here is not in
-              use. Remove the environment variable, or clear the stored key to avoid confusion.
-            </div>
+          {st.source.startsWith("env:") && (
+            <p className="help" style={{ margin: "0 0 10px" }}>
+              The deployment's environment key is in use. Saving a key here replaces it: your key
+              takes over immediately, and removing it falls back to the environment key.
+            </p>
           )}
           <div className="btnrow" style={{ alignItems: "center", maxWidth: 720 }}>
             <input type="password" className="mono" style={{ flex: 1 }} placeholder="sk-ant-…"

@@ -303,6 +303,9 @@ async def main():
             want = (10 * 3.0 + 20 * 15.0) / 1e6
             ck("...costed at the sonnet rate", abs((ask.get("cost_usd") or 0) - want) < 1e-9,
                f"{ask.get('cost_usd')} vs {want}")
+            ck("...attributed to the env key that paid",
+               um.get("by_key_source", {}).get("env:ANTHROPIC_API_KEY", {}).get("calls") == 1,
+               str(um.get("by_key_source")))
 
             # ── in a thread, the answer belongs in that thread ───────────────
             REPLIES.clear()
