@@ -3,6 +3,32 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-08-25
+
+### Changed
+- **A key stored in the console now takes precedence over `ANTHROPIC_API_KEY` in the
+  environment** (it was the other way around). Saving your own key takes over immediately, and
+  removing it falls back to the environment key. If you relied on the env var overriding a
+  stored key, clear the stored key instead. The Slack bot token keeps its env-first order.
+
+### Added
+- **Grafana Loki connector.** Polls a LogQL stream selector via `query_range` (timestamp
+  cursor, bearer/basic/tenant auth, match/drop filters); one event per log line with the
+  stream's labels, and the same derived fields (level, HTTP status, JSON scalars) as
+  docker_logs. Works against any reachable Loki, including Grafana Cloud.
+- **The AI SRE demo works against a hosted demo stack.** When `TARES_DEMO_PROMETHEUS_URL`,
+  `TARES_DEMO_LOKI_URL` and `TARES_DEMO_API_SERVER_URL` are set (a hosted deployment sets them;
+  a self-hoster can point them at their own stack), the demo use case adapts: nothing to
+  install, URL defaults from the environment, logs from Loki instead of a local Docker
+  container, and the actions say plainly the stack is shared. With them unset, the local docker
+  compose flow is unchanged.
+- **The spend meter records which key paid.** Every `model_usage` row carries a `key_source`
+  (environment vs console), and `GET /api/usage/model` reports a `by_key_source` split, so an
+  operator-provided key's spend is separable from your own.
+- **`TARES_SEED_USECASE`**: seed a named use case once on first boot, so an instance can start
+  with a working setup instead of an empty catalog. One-shot by a settings marker; deleting the
+  seeded use case never brings it back.
+
 ## [1.9.0] - 2026-08-24
 
 ### Added
