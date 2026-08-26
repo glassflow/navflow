@@ -76,7 +76,17 @@ class ClaudeCodeConnector(Connector):
         {"name": "sidechain", "help": "sub-agent (sidechain) message"},
         {"name": "flow", "help": "session flow set from inside Claude Code (e.g. challenger); "
                                  "the plugin stamps it on every line of a marked session"},
+        {"name": "verdict", "help": "challenge events: PASS / FAIL / ERROR / TIMEOUT / INCONCLUSIVE"},
+        {"name": "sha", "help": "challenge_commit: the reviewed commit"},
+        {"name": "finding_count", "help": "challenge events: findings reported (number)"},
+        {"name": "blocking_count", "help": "challenge events: unwaived P1/P2 findings (number)"},
+        {"name": "round", "help": "challenge_commit: fix round since the last pass (number)"},
+        {"name": "duration_seconds", "help": "challenge events: how long the challenger ran (number)"},
     ]
+    # Lines the plugin's challenger hooks write next to the transcript. Each carries a
+    # `challenge` object: {verdict, sha?, plan?, findings: [{priority, title, waived}],
+    # finding_count, blocking_count, waived_count, round?, duration_seconds, prose}.
+    CHALLENGE_TYPES = ("challenge_plan", "challenge_commit", "challenge_waived")
     # Push-only: the Claude Code plugin POSTs transcript lines to /ingest/claude_code; events are
     # mapped by map_payload(). There is no local file tail.
     ACCEPTS_PUSH = True
@@ -127,6 +137,8 @@ class ClaudeCodeConnector(Connector):
         msg = o.get("message") if isinstance(o.get("message"), dict) else {}
         labels = {k: v for k, v in self.label_context(o).items() if v not in (None, "")}
         labels.setdefault("type", "event")
+        if o.get("type") in self.CHALLENGE_TYPES:
+            labels.update(self._challenge_labels(o))
 
         text = self._render_text(o, msg, include_thinking)[:500]
         if redact:
@@ -145,6 +157,20 @@ class ClaudeCodeConnector(Connector):
             labels=labels,
         )
         return env
+
+    @staticmethod
+    def _challenge_labels(o: dict) -> dict:
+        ch = o.get("challenge") if isinstance(o.get("challenge"), dict) else {}
+        out = {}
+        if ch.get("verdict"):
+            out["verdict"] = str(ch["verdict"]).upper()
+        if ch.get("sha"):
+            out["sha"] = str(ch["sha"])[:12]
+        for k in ("finding_count", "blocking_count", "round", "duration_seconds"):
+            v = ch.get(k)
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out[k] = v
+        return out
 
     @staticmethod
     def _ts(o: dict) -> datetime:
@@ -170,12 +196,32 @@ class ClaudeCodeConnector(Connector):
 
 
     @staticmethod
+    def _render_challenge(o: dict) -> str:
+        ch = o.get("challenge") if isinstance(o.get("challenge"), dict) else {}
+        typ = o.get("type")
+        verdict = str(ch.get("verdict") or "?").upper()
+        n, b = ch.get("finding_count", 0), ch.get("blocking_count", 0)
+        findings = ", ".join(f"[{f.get('priority')}] {f.get('title')}"
+                             for f in (ch.get("findings") or [])[:3] if isinstance(f, dict))
+        tail = f": {findings}" if findings else ""
+        if typ == "challenge_plan":
+            what = f"Challenger reviewed the plan {ch.get('plan') or ''}".rstrip()
+        elif typ == "challenge_commit":
+            rnd = f", round {ch['round']}" if ch.get("round") else ""
+            what = f"Challenger reviewed commit {str(ch.get('sha') or '')[:8]}{rnd}"
+        else:
+            return f"Challenger finding waived{tail}"
+        return f"{what}: {verdict}, {n} findings ({b} blocking){tail}"
+
+    @staticmethod
     def _render_text(o: dict, msg: dict, include_thinking: bool) -> str:
         if o.get("type") == "summary" and o.get("summary"):
             return str(o["summary"])
         if o.get("type") == "session_flow":
             # written by the plugin when Claude calls set_session_flow; `flow` empty = cleared
             return f"session flow: {o.get('flow') or 'cleared'}"
+        if o.get("type") in ClaudeCodeConnector.CHALLENGE_TYPES:
+            return ClaudeCodeConnector._render_challenge(o)
         content = msg.get("content")
         if isinstance(content, str):
             return content
