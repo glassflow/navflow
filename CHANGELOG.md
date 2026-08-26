@@ -3,9 +3,13 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.11.0] - 2026-08-26
 
 ### Added
+- **Install skill for coding agents**: `skills/tares/SKILL.md`, installed with
+  `npx skills add glassflow/tares --skill tares`. From one prompt, an agent installs Tares,
+  starts it, adds a first source over the HTTP API, connects itself over MCP and shows one read.
+  `AGENTS.md` at the repo root for contributors.
 - **`tares status`**: a readiness checklist for a running instance (daemon, auth, sources
   receiving, views, triggers, Tares agents and whether a key is set, MCP endpoint, which agent
   clients on this machine have Tares registered, Slack) that ends with the one next step.
@@ -16,6 +20,9 @@ the project follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - An agent run without a key, and the banners on the Agents pages, now say what to do: set
   `ANTHROPIC_API_KEY` before `tares up`, or add a key under Settings (linked).
+- README rewritten around the always-on agents positioning: who Tares is for, how it compares,
+  common questions. Docs got a new introduction and a page for coding assistants
+  (docs.glassflow.ai/tares/agents/ai-resources) with `/tares/llms.txt`.
 
 ## [1.10.0] - 2026-08-25
 
