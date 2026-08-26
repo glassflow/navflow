@@ -183,7 +183,8 @@ the webhook `pipeline`). Show the user the result. If the client needs a restart
 servers are visible, say so and show the equivalent HTTP call instead:
 
 ```bash
-curl -sf "http://127.0.0.1:8787/api/read?service=<service name>&window=15m" | head -c 800
+curl -sf -X POST http://127.0.0.1:8787/read -H 'Content-Type: application/json' \
+  -d '{"selector": {"service": "<service name>"}, "window": "15m"}' | head -c 800
 ```
 
 ## 8. Report
