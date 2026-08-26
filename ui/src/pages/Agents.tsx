@@ -35,8 +35,8 @@ export default function Agents() {
 
       {data && !data.key_configured && (
         <div className="alert">
-          No Anthropic key configured; agents can be created but not enabled. Set one under{" "}
-          <Link to="/settings">Settings</Link>.
+          No Anthropic key: set ANTHROPIC_API_KEY before <span className="mono">tares up</span>, or add a
+          key under <Link to="/settings?tab=anthropic">Settings</Link>. Agents can be created but not enabled until then.
         </div>
       )}
 

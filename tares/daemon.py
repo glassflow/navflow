@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import os
+import time
 import re
 import secrets
 import shutil
@@ -84,6 +85,17 @@ WORKSPACE_URL = os.getenv("TARES_WORKSPACE_URL", "").strip()
 # marker makes it one-shot — deleting the use case never resurrects it. Meaningful for a
 # self-hoster building a golden image too; harmlessly unset otherwise.
 SEED_USECASE = os.getenv("TARES_SEED_USECASE", "").strip()
+
+
+_STARTED_MONO = time.monotonic()
+
+
+def _installed_version() -> str | None:
+    from importlib.metadata import version as _v
+    try:
+        return _v("tares")
+    except Exception:
+        return None
 
 
 def _is_ingest(path: str) -> bool:
@@ -531,7 +543,8 @@ def make_app() -> FastAPI:
                 detail = f"storage {pct}% full ({MAX_DB_SIZE} byte limit)"
         body = {"status": status, "auth_required": bool(AUTH_TOKEN),
                 "sources": [] if AUTH_TOKEN else list(runtime.catalog.sources),
-                "pct_used": pct}
+                "pct_used": pct, "version": _installed_version(),
+                "uptime_seconds": int(time.monotonic() - _STARTED_MONO)}
         if detail:
             body["detail"] = detail
         if LOGIN_URL:

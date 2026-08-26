@@ -118,7 +118,45 @@ def _up(args: argparse.Namespace):
         import webbrowser
         open_url = f"{url}/?token={root_token}" if root_token else url
         threading.Timer(1.2, lambda: webbrowser.open(open_url)).start()
+    _print_next_step_when_up(url, root_token, str(home))
     run_daemon()
+
+
+def _print_next_step_when_up(url: str, token: str | None, data_dir: str) -> None:
+    """Once /health answers, print the same "Next:" line `tares status` ends with, so a first-run
+    user sees what to do right under the console URL. A daemon thread: it must never hold the
+    process open or fail the start."""
+    import threading
+    import time
+
+    def wait():
+        from .status import collect, next_step
+        for _ in range(60):
+            time.sleep(0.5)
+            st = collect(url, token, data_dir=data_dir)
+            if st["daemon"]["running"]:
+                print(f"tares: {next_step(st)}", flush=True)
+                return
+
+    threading.Thread(target=wait, daemon=True).start()
+
+
+def _status(args: argparse.Namespace):
+    """Readiness checklist against a running daemon. Read-only."""
+    import json
+    from .status import collect, render
+    home = Path(args.data_dir).expanduser()
+    base = args.taresd or f"http://127.0.0.1:{os.getenv('TARES_PORT', '8787')}"
+    token = os.getenv("TARES_AUTH_TOKEN", "").strip() or None
+    if not token and (home / "root_token").exists():
+        token = (home / "root_token").read_text().strip() or None
+    mcp = f"http://{os.getenv('TARES_MCP_HOST', '127.0.0.1')}:{os.getenv('TARES_MCP_PORT', '8788')}/mcp"
+    st = collect(base, token, mcp_url=mcp, data_dir=str(home))
+    if args.json:
+        print(json.dumps(st, indent=2, default=str))
+    else:
+        print(render(st))
+    raise SystemExit(0 if st["daemon"]["running"] else 1)
 
 
 def _mcp(args: argparse.Namespace):
@@ -163,6 +201,13 @@ def main():
     m.add_argument("--taresd", default=os.getenv("TARESD_URL", ""),
                    help="taresd base URL to proxy to (default http://127.0.0.1:8787)")
     m.set_defaults(func=_mcp)
+
+    st = sub.add_parser("status", help="readiness checklist for a running instance, and the next step")
+    st.add_argument("--taresd", default=os.getenv("TARESD_URL", ""),
+                    help="daemon URL (default http://127.0.0.1:$TARES_PORT or 8787)")
+    st.add_argument("--data-dir", default=str(DEFAULT_HOME), help="where the root token lives when auth is on")
+    st.add_argument("--json", action="store_true", help="machine-readable output")
+    st.set_defaults(func=_status)
 
     args = p.parse_args()
     if not getattr(args, "func", None):
