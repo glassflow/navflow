@@ -1,8 +1,8 @@
 {
   "name": "tares",
   "displayName": "Tares",
-  "version": "0.1.1",
-  "description": "Connect Claude Code to Tares \u2014 query your data plane over MCP, and stream this session into Tares's claude_code source.",
+  "version": "0.2.0",
+  "description": "Connect Claude Code to Tares: query your data plane over MCP, stream this session into Tares, and run challenger sessions where Codex challenges the plan and every commit.",
   "author": {
     "name": "GlassFlow",
     "url": "https://glassflow.dev"
@@ -25,7 +25,7 @@
     "access_token": {
       "type": "string",
       "title": "API key / token (optional)",
-      "description": "Only if your Tares requires auth. Recommended: an API key with the read + ingest scopes (console -> Security -> API keys) \u2014 streams sessions and enables MCP read-back without admin rights. The root auth token also works.",
+      "description": "Only if your Tares requires auth. Recommended: an API key with the read + ingest scopes (console -> Security -> API keys) — streams sessions and enables MCP read-back without admin rights. The root auth token also works.",
       "sensitive": true,
       "default": ""
     },
@@ -34,6 +34,24 @@
       "title": "Stream this session into Tares",
       "description": "When on, this session's transcript is shipped to Tares's claude_code source as it progresses.",
       "default": true
+    },
+    "challenger_mode": {
+      "type": "string",
+      "title": "Challenger mode for commits",
+      "description": "strict: P1/P2 findings from the Codex review block Claude until fixed (default). advise: findings come back as context only. Plans are always advisory.",
+      "default": "strict"
+    },
+    "codex_bin": {
+      "type": "string",
+      "title": "Codex CLI path (optional)",
+      "description": "Leave empty to use `codex` from PATH.",
+      "default": ""
+    },
+    "codex_sandbox": {
+      "type": "string",
+      "title": "Codex sandbox (optional)",
+      "description": "Empty = Codex's --full-auto sandbox. workspace-write or danger-full-access when the default sandbox fails inside an already sandboxed session.",
+      "default": ""
     }
   }
 }
