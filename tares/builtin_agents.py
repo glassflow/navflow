@@ -175,6 +175,12 @@ class AgentRunner:
         self.store = store
         self.runtime = runtime
         self._tasks: set[asyncio.Task] = set()
+        # The daemon's loop, so run_now() also works from a worker thread (a use case action runs
+        # in one); None when constructed outside a loop (tests building a runner by hand).
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
         # (agent, key) currently running. Dispatch is at-least-once, so a retried delivery would
         # otherwise run the same investigation twice and pay for it twice.
         self._inflight: set[tuple[str, str]] = set()
@@ -227,10 +233,23 @@ class AgentRunner:
             finally:
                 self._inflight.discard(marker)
 
-        task = asyncio.create_task(go())
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._spawn(go)
         return run_id
+
+    def _spawn(self, coro_fn) -> None:
+        """Start `coro_fn()` as a task on the daemon's loop, from that loop or from a thread."""
+        def start():
+            task = asyncio.create_task(coro_fn())
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            if self._event_loop is None:
+                raise RuntimeError("no event loop to run the agent on")
+            self._event_loop.call_soon_threadsafe(start)
+            return
+        start()
 
     def bootstrap(self, agent_name: str, trigger_name: str, view_name: str, keys: list[str],
                   window: str = "7d", limit: int = 20, delay_s: float = 90.0,
