@@ -74,6 +74,8 @@ class ClaudeCodeConnector(Connector):
         {"name": "model", "help": "model on assistant turns"},
         {"name": "type", "help": "message type (user / assistant / tool_use / …)"},
         {"name": "sidechain", "help": "sub-agent (sidechain) message"},
+        {"name": "flow", "help": "session flow set from inside Claude Code (e.g. challenger); "
+                                 "the plugin stamps it on every line of a marked session"},
     ]
     # Push-only: the Claude Code plugin POSTs transcript lines to /ingest/claude_code; events are
     # mapped by map_payload(). There is no local file tail.
@@ -113,7 +115,8 @@ class ClaudeCodeConnector(Connector):
                 "branch": str(o["gitBranch"]) if o.get("gitBranch") else None,
                 "model": str(msg["model"]) if msg.get("model") else None,
                 "type": str(o.get("type")) if o.get("type") else None,
-                "sidechain": "true" if o.get("isSidechain") else "false"}
+                "sidechain": "true" if o.get("isSidechain") else "false",
+                "flow": str(o["flow"]) if o.get("flow") else None}
 
     # ── mapping: one JSONL object → one Envelope ───────────────────────────────
     def _obj_to_envelope(self, o: dict, redact: bool, include_thinking: bool):
@@ -170,6 +173,9 @@ class ClaudeCodeConnector(Connector):
     def _render_text(o: dict, msg: dict, include_thinking: bool) -> str:
         if o.get("type") == "summary" and o.get("summary"):
             return str(o["summary"])
+        if o.get("type") == "session_flow":
+            # written by the plugin when Claude calls set_session_flow; `flow` empty = cleared
+            return f"session flow: {o.get('flow') or 'cleared'}"
         content = msg.get("content")
         if isinstance(content, str):
             return content
