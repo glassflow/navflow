@@ -23,6 +23,12 @@ uv tool install tares        # or: pipx install tares
 tares up                     # daemon + console on http://127.0.0.1:8787
 ```
 
+Or let your coding agent do it. In Claude Code, Codex or Cursor, paste:
+
+> Run `npx skills add glassflow/tares --skill tares` and use the tares skill to install Tares and connect it to this agent.
+
+The [skill](skills/tares/SKILL.md) installs Tares, starts it, adds a first source, connects the agent over MCP and shows one read.
+
 Docker images and server deployment (TLS, auth) are covered in the [server deployment guide](https://docs.glassflow.ai/tares/deployment).
 
 Prefer not to run it yourself? **[Tares Cloud](https://console.tares-glassflow.com/)** is the managed version: sign up, connect your sources, and get the same correlated timeline and MCP endpoint without operating anything.

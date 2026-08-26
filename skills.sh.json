@@ -1,0 +1,11 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Tares",
+      "description": "Skills for installing, connecting and operating Tares.",
+      "skills": ["tares"]
+    }
+  ]
+}
