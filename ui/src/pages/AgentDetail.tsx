@@ -140,7 +140,7 @@ export default function AgentDetail() {
                   <td>
                     {agent.enabled ? <span className="badge ok">enabled</span> : <span className="badge">disabled</span>}
                     {!data.key_configured
-                      ? <span className="help"> · no Anthropic key: set one under <Link to="/settings?tab=anthropic">Settings</Link> to run</span>
+                      ? <span className="help"> · no Anthropic key: set ANTHROPIC_API_KEY before <span className="mono">tares up</span>, or add a key under <Link to="/settings?tab=anthropic">Settings</Link></span>
                       : <span className="help"> · key from <span className="mono">{data.key_source}</span></span>}
                   </td>
                 </tr>
@@ -366,7 +366,10 @@ function RunRow({ r, open, focused, onToggle }: {
                   </div>
                 : !exhaustedNote && (
                     <p className="help" style={{ margin: 0, whiteSpace: "normal" }}>
-                      {r.status === "running" ? "investigating…" : (r.error ?? "no finding")}
+                      {r.status === "running" ? "investigating…"
+                        : r.error?.startsWith("no Anthropic key")
+                          ? <>{r.error} (<Link to="/settings?tab=anthropic">Settings</Link>)</>
+                          : (r.error ?? "no finding")}
                     </p>
                   )}
             </div>

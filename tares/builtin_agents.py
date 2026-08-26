@@ -299,7 +299,7 @@ class AgentRunner:
         t0 = time.monotonic()
         api_key, key_origin = resolve_key(self.store)
         if not api_key:
-            msg = "no Anthropic key: set ANTHROPIC_API_KEY or add one in the console"
+            msg = "no Anthropic key: set ANTHROPIC_API_KEY before `tares up`, or add a key under Settings"
             self.store.finish_agent_run(run_id, "failed", error=msg)
             return "failed", msg
         # Count the runs BEFORE this one (its row is already inserted), so the cap fires at exactly

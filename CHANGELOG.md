@@ -3,6 +3,20 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`tares status`**: a readiness checklist for a running instance (daemon, auth, sources
+  receiving, views, triggers, Tares agents and whether a key is set, MCP endpoint, which agent
+  clients on this machine have Tares registered, Slack) that ends with the one next step.
+  `--json` for scripts; exit 1 when nothing answers. `tares up` prints the same "Next:" line
+  right under the console URL once the daemon is up. `/health` now carries `version` and
+  `uptime_seconds`.
+
+### Changed
+- An agent run without a key, and the banners on the Agents pages, now say what to do: set
+  `ANTHROPIC_API_KEY` before `tares up`, or add a key under Settings (linked).
+
 ## [1.10.0] - 2026-08-25
 
 ### Changed
