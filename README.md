@@ -149,6 +149,8 @@ Sources bring events in, views join them per entity, triggers watch the views, a
 
 **What about backups?** One DuckDB file in the data directory. Copy it.
 
+**I am a coding assistant. Where do I start?** [AI resources](https://docs.glassflow.ai/tares/agents/ai-resources): Markdown endpoints, a task router, and instructions to paste.
+
 ## Feedback
 
 Bug reports and ideas are very welcome via [GitHub issues](https://github.com/glassflow/tares/issues) or `help@glassflow.ai`. **No telemetry.** Tares collects and sends no usage data.
