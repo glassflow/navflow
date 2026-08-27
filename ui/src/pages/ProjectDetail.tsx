@@ -4,26 +4,26 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Combo, ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
-import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
+import type { Template, RecipeActionOption, ProjectObject, ProjectSummary } from "../types";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
 import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
 
-// One use case instance: what it created, what it has done lately, and the actions on the whole
+// One project instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
 // so every row links out to the object's own page. A hand-deleted object shows as missing with a
 // Repair button that re-creates it from the plan.
 
-const OBJECT_ROUTE: Record<UsecaseObject["kind"], (name: string) => string> = {
+const OBJECT_ROUTE: Record<ProjectObject["kind"], (name: string) => string> = {
   source: (n) => `/sources/${encodeURIComponent(n)}`,
   view: (n) => `/views/${encodeURIComponent(n)}`,
   trigger: (n) => `/triggers/${encodeURIComponent(n)}`,
   agent: (n) => `/agents/${encodeURIComponent(n)}`,
   mcp_server: () => "/mcp-servers",
 };
-const KIND_LABEL: Record<UsecaseObject["kind"], string> = {
+const KIND_LABEL: Record<ProjectObject["kind"], string> = {
   source: "source", view: "view", trigger: "trigger", agent: "agent", mcp_server: "MCP server",
 };
-const KIND_ORDER: UsecaseObject["kind"][] = ["source", "view", "trigger", "mcp_server", "agent"];
+const KIND_ORDER: ProjectObject["kind"][] = ["source", "view", "trigger", "mcp_server", "agent"];
 
 function statusClass(s: string | undefined) {
   return s === "active" || s === "ok" ? "ok"
@@ -31,7 +31,7 @@ function statusClass(s: string | undefined) {
     : "error";
 }
 
-// A PR link the recipe found in a finding, or the first github.com URL in the finding text.
+// A PR link the template found in a finding, or the first github.com URL in the finding text.
 function prLink(r: { pr_url?: string | null; finding?: string | null }): string | undefined {
   if (r.pr_url) return r.pr_url;
   const m = r.finding?.match(/https:\/\/github\.com\/[^\s)]+\/pull\/\d+/);
@@ -58,15 +58,15 @@ const HOW_IT_WORKS: Record<string, string[]> = {
     "Accept a proposal below to store it as memory for the repo; the plugin gives it to Claude at the start of the next session in that repo.",
   ],
   default: [
-    "The use case created ordinary sources, views, triggers and agents; see Configuration for the list.",
+    "The project created ordinary sources, views, triggers and agents; see Configuration for the list.",
     "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
   ],
 };
 
-export default function UsecaseDetail() {
+export default function ProjectDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { data: s, error, reload } = usePolling(() => api.usecaseSummary(id), 10000);
+  const { data: s, error, reload } = usePolling(() => api.projectSummary(id), 10000);
   const [actionError, setActionError] = useState<string>();
   const [tab, setTab] = useState<"runs" | "config" | "sessions">(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
@@ -75,24 +75,24 @@ export default function UsecaseDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
   const [busyKey, setBusyKey] = useState<string>();
-  const [recipe, setRecipe] = useState<Recipe>();
+  const [template, setRecipe] = useState<Template>();
   const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
   const [actionMsg, setActionMsg] = useState<string>();
   const [actionBusy, setActionBusy] = useState<string>();
   const [actionHelp, setActionHelp] = useState(false);
-  // a use case with sessions opens on them unless the URL asked for a tab
+  // a project with sessions opens on them unless the URL asked for a tab
   useEffect(() => {
     if (s?.sessions && !new URLSearchParams(window.location.search).get("tab")) setTab("sessions");
   }, [!!s?.sessions]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!s?.recipe) return;
-    api.recipes().then((r) => setRecipe(r.recipes.find((x) => x.key === s.recipe))).catch(() => {});
-  }, [s?.recipe]);
+    if (!s?.template) return;
+    api.templates().then((r) => setRecipe(r.templates.find((x) => x.key === s.template))).catch(() => {});
+  }, [s?.template]);
   const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
     (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
   const runActionWith = async (name: string, args: Record<string, unknown>) => {
     setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
-    try { const r = await api.usecaseAction(id, name, args); setActionMsg(r.message); reload(); }
+    try { const r = await api.projectAction(id, name, args); setActionMsg(r.message); reload(); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
     setActionBusy(undefined);
   };
@@ -108,17 +108,17 @@ export default function UsecaseDetail() {
   };
   const repair = async (key: string) => {
     setBusyKey(key); setActionError(undefined);
-    try { await api.repairUsecase(id, key); reload(); }
+    try { await api.repairProject(id, key); reload(); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
     setBusyKey(undefined);
   };
   const remove = async () => {
     setConfirmDel(false);
-    try { await api.deleteUsecase(id, purge); navigate("/usecases", { replace: true }); }
+    try { await api.deleteProject(id, purge); navigate("/projects", { replace: true }); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
   };
 
-  if (error && !s) return <ErrorState error={error} what="this use case" onRetry={reload} />;
+  if (error && !s) return <ErrorState error={error} what="this project" onRetry={reload} />;
   if (!s) return <div className="dim">loading…</div>;
 
   const objects = [...s.objects].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
@@ -134,15 +134,15 @@ export default function UsecaseDetail() {
         <div>
           <h1>{s.name}</h1>
           <p className="subtitle">
-            {s.recipe_title} · <span className={`badge ${statusClass(s.status)}`}>{s.status}</span>
+            {s.template_title} · <span className={`badge ${statusClass(s.status)}`}>{s.status}</span>
             {s.status === "paused" && <span className="help" style={{ marginLeft: 8 }}>sources keep ingesting; the trigger and agent are off</span>}
           </p>
         </div>
         <div className="btnrow">
           {s.status === "paused"
-            ? <button onClick={act(() => api.resumeUsecase(id))}>Resume</button>
-            : <button onClick={act(() => api.pauseUsecase(id))}>Pause</button>}
-          <Link className="btn" to={`/usecases/new/${encodeURIComponent(s.recipe)}?edit=${encodeURIComponent(id)}`}>Edit</Link>
+            ? <button onClick={act(() => api.resumeProject(id))}>Resume</button>
+            : <button onClick={act(() => api.pauseProject(id))}>Pause</button>}
+          <Link className="btn" to={`/projects/new/${encodeURIComponent(s.template)}?edit=${encodeURIComponent(id)}`}>Edit</Link>
           <button className="danger" onClick={() => { setPurge(false); setConfirmDel(true); }}>Delete</button>
         </div>
       </div>
@@ -175,20 +175,20 @@ export default function UsecaseDetail() {
       <details className="panel uc-how" style={{ marginBottom: 14 }}>
         <summary>How it works</summary>
         <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-          {(HOW_IT_WORKS[s.recipe] ?? HOW_IT_WORKS.default).map((t) => <li key={t}>{t}</li>)}
+          {(HOW_IT_WORKS[s.template] ?? HOW_IT_WORKS.default).map((t) => <li key={t}>{t}</li>)}
         </ol>
       </details>
 
-      {recipe?.actions && recipe.actions.length > 0 && (
+      {template?.actions && template.actions.length > 0 && (
         <div className="panel" style={{ marginBottom: 14 }}>
-          {recipe.actions.some((a) => a.intro) && (
+          {template.actions.some((a) => a.intro) && (
             <p className="help" style={{ margin: "0 0 10px" }}>
-              {recipe.actions.find((a) => a.intro)?.intro}
+              {template.actions.find((a) => a.intro)?.intro}
               <HelpButton onClick={() => setActionHelp(true)} label="What do these do?" />
             </p>
           )}
           <div className="uc-actions">
-            {recipe.actions.map((a) => (
+            {template.actions.map((a) => (
               <span key={a.name} className="uc-actions" title={a.help}>
                 {Object.entries(a.params ?? {}).map(([k, spec]) => {
                   const o = opts(spec.options);
@@ -220,7 +220,7 @@ export default function UsecaseDetail() {
             {actionMsg && <span className="help">{actionMsg}</span>}
           </div>
           {(() => {
-            const cur = recipe.actions.find((a) => a.params?.scenario);
+            const cur = template.actions.find((a) => a.params?.scenario);
             const o = cur ? opts(cur.params!.scenario.options) : [];
             const sel = cur ? (actionArgs[`${cur.name}.scenario`] ?? o[0]?.value) : undefined;
             const h = o.find((x) => x.value === sel)?.help;
@@ -229,10 +229,10 @@ export default function UsecaseDetail() {
         </div>
       )}
 
-      {actionHelp && recipe?.actions && (
+      {actionHelp && template?.actions && (
         <InfoDialog title="Causing an incident" onClose={() => setActionHelp(false)}>
-          {recipe.actions.filter((a) => a.intro).map((a) => <p key={a.name} className="help" style={{ margin: 0 }}>{a.intro}</p>)}
-          {recipe.actions.filter((a) => a.params?.scenario).map((a) => (
+          {template.actions.filter((a) => a.intro).map((a) => <p key={a.name} className="help" style={{ margin: 0 }}>{a.intro}</p>)}
+          {template.actions.filter((a) => a.params?.scenario).map((a) => (
             <table key={a.name} className="perm-table">
               <thead><tr><th>scenario</th><th>what happens</th></tr></thead>
               <tbody>
@@ -243,11 +243,11 @@ export default function UsecaseDetail() {
             </table>
           ))}
           <ul className="help" style={{ margin: 0, paddingLeft: 18 }}>
-            {recipe.actions.filter((a) => a.help).map((a) => <li key={a.name}><strong>{a.label}</strong>: {a.help}</li>)}
+            {template.actions.filter((a) => a.help).map((a) => <li key={a.name}><strong>{a.label}</strong>: {a.help}</li>)}
           </ul>
-          {recipe.actions.find((a) => a.docs)?.docs && (
+          {template.actions.find((a) => a.docs)?.docs && (
             <p className="help" style={{ margin: 0 }}>
-              Walkthrough: <a href={recipe.actions.find((a) => a.docs)!.docs!.url} target="_blank" rel="noreferrer">{recipe.actions.find((a) => a.docs)!.docs!.label}</a>
+              Walkthrough: <a href={template.actions.find((a) => a.docs)!.docs!.url} target="_blank" rel="noreferrer">{template.actions.find((a) => a.docs)!.docs!.label}</a>
             </p>
           )}
         </InfoDialog>
@@ -271,7 +271,7 @@ export default function UsecaseDetail() {
         <h2 style={{ marginTop: 0 }}>Runs</h2>
         {runs && runs.some((r) => r.first_look) && (
           <p className="help" style={{ marginTop: 0 }}>
-            Runs marked <span className="badge">first look</span> ran once when the use case started, over each repo's
+            Runs marked <span className="badge">first look</span> ran once when the project started, over each repo's
             recent commits, so the context repo starts current. Every later run is the trigger firing on new commits.
           </p>
         )}
@@ -393,7 +393,7 @@ export default function UsecaseDetail() {
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>What it created</h2>
         <p className="help" style={{ marginTop: 0 }}>
-          Ordinary objects, on their normal pages. Edit them there; the use case keeps your version.
+          Ordinary objects, on their normal pages. Edit them there; the project keeps your version.
         </p>
         <table>
           <thead><tr><th>kind</th><th>name</th><th>state</th><th aria-label="actions" /></tr></thead>
@@ -439,8 +439,8 @@ export default function UsecaseDetail() {
       {confirmDel && (
         <ConfirmDialog
           title={`Delete ${s.name}?`}
-          message="Deletes the sources, view, trigger, MCP server and agent this use case created. Events already stored stay unless you purge them."
-          confirmLabel="Delete use case" danger onConfirm={remove} onCancel={() => setConfirmDel(false)}>
+          message="Deletes the sources, view, trigger, MCP server and agent this project created. Events already stored stay unless you purge them."
+          confirmLabel="Delete project" danger onConfirm={remove} onCancel={() => setConfirmDel(false)}>
           <label className="check" style={{ marginTop: 10, display: "block" }}>
             <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />{" "}
             also purge the events its sources ingested

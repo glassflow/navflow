@@ -3,9 +3,9 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import { Picker } from "../components/bits";
-import type { Recipe, RecipeParam } from "../types";
+import type { Template, RecipeParam } from "../types";
 
-// The fallback wizard: a form rendered straight from a recipe's PARAMS, for recipes without a
+// The fallback wizard: a form rendered straight from a template's PARAMS, for templates without a
 // dedicated flow. Strings, numbers, booleans and choices get inputs; lists and objects are JSON.
 
 function initial(p: RecipeParam): string {
@@ -22,10 +22,10 @@ function CopyBtn({ text }: { text: string }) {
   );
 }
 
-export default function UsecaseNewGeneric() {
-  const { recipe: key = "" } = useParams();
+export default function ProjectNewGeneric() {
+  const { template: key = "" } = useParams();
   const navigate = useNavigate();
-  const [recipe, setRecipe] = useState<Recipe>();
+  const [template, setRecipe] = useState<Template>();
   const [err, setErr] = useState<string>();
   const [name, setName] = useState("");
   const [vals, setVals] = useState<Record<string, string>>({});
@@ -62,9 +62,9 @@ export default function UsecaseNewGeneric() {
   useEffect(() => {
     loadKey();
     api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
-    api.recipes().then((r) => {
-      const found = r.recipes.find((x) => x.key === key);
-      if (!found) { setErr(`this instance has no use case named ${key}`); return; }
+    api.templates().then((r) => {
+      const found = r.templates.find((x) => x.key === key);
+      if (!found) { setErr(`this instance has no project named ${key}`); return; }
       setRecipe(found);
       setName(found.title);
       const init = Object.fromEntries(Object.entries(found.params).map(([k, p]) => [k, initial(p)]));
@@ -74,11 +74,11 @@ export default function UsecaseNewGeneric() {
   }, [key]);
 
   const submit = async () => {
-    if (!recipe) return;
+    if (!template) return;
     setBusy(true); setErr(undefined);
     const params: Record<string, unknown> = {};
     try {
-      for (const [k, p] of Object.entries(recipe.params)) {
+      for (const [k, p] of Object.entries(template.params)) {
         const v = vals[k] ?? "";
         if (v === "" && !p.required) continue;
         if (p.type === "number") params[k] = Number(v);
@@ -86,8 +86,8 @@ export default function UsecaseNewGeneric() {
         else if (p.type === "list" || p.type === "json") params[k] = v ? JSON.parse(v) : undefined;
         else params[k] = v;
       }
-      const u = await api.createUsecase({ recipe: recipe.key, name: name.trim() || undefined, params });
-      navigate(`/usecases/${encodeURIComponent(u.id)}`, { replace: true });
+      const u = await api.createProject({ template: template.key, name: name.trim() || undefined, params });
+      navigate(`/projects/${encodeURIComponent(u.id)}`, { replace: true });
     } catch (e) { setErr(String((e as Error).message ?? e)); }
     setBusy(false);
   };
@@ -96,19 +96,19 @@ export default function UsecaseNewGeneric() {
     <>
       <div className="pagehead">
         <div>
-          <h1>{recipe?.title ?? key}</h1>
+          <h1>{template?.title ?? key}</h1>
           <p className="subtitle">
-            {recipe?.description}
-            {recipe?.guide && <> Follows the <a href={recipe.guide.url} target="_blank" rel="noreferrer">{recipe.guide.label}</a>.</>}
+            {template?.description}
+            {template?.guide && <> Follows the <a href={template.guide.url} target="_blank" rel="noreferrer">{template.guide.label}</a>.</>}
           </p>
         </div>
       </div>
       {err && <div className="alert error">{err}</div>}
-      {recipe && recipe.setup && recipe.setup.length > 0 && (
+      {template && template.setup && template.setup.length > 0 && (
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>Before you start</h2>
           <ol className="uc-setup">
-            {recipe.setup.map((st, i) => {
+            {template.setup.map((st, i) => {
               const keyStep = st.check === "anthropic_key";
               const detectStep = st.check === "detect";
               const detectDone = !!detected && Object.keys(detected.found).length > 0 && Object.keys(detected.missing).length === 0;
@@ -150,13 +150,13 @@ export default function UsecaseNewGeneric() {
           </ol>
         </div>
       )}
-      {recipe && (
+      {template && (
         <div className="panel">
           <label className="field">
             <span className="lbl">name</span>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          {Object.entries(recipe.params).map(([k, p]) => (
+          {Object.entries(template.params).map(([k, p]) => (
             <label className="field" key={k}>
               <span className="lbl">{p.label ?? k}{p.required && <span className="req"> *</span>}</span>
               {p.type === "bool" ? (
@@ -184,13 +184,13 @@ export default function UsecaseNewGeneric() {
           ))}
           {detected && (
             <div className="btnrow" style={{ marginBottom: 12 }}>
-              <button onClick={() => recipe && detect(recipe.key, vals)} disabled={detectBusy}>{detectBusy ? "scanning…" : "Rescan"}</button>
+              <button onClick={() => template && detect(template.key, vals)} disabled={detectBusy}>{detectBusy ? "scanning…" : "Rescan"}</button>
               {detected.notes.map((n) => <span key={n} className="help">{n}</span>)}
             </div>
           )}
           <div className="btnrow">
             <button className="primary" disabled={busy} onClick={submit}>{busy ? "starting…" : "Start"}</button>
-            <Link className="btn" to="/usecases">Cancel</Link>
+            <Link className="btn" to="/projects">Cancel</Link>
           </div>
         </div>
       )}

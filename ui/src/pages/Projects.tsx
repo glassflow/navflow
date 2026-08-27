@@ -2,34 +2,34 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { ErrorState, TimeAgo, usePolling } from "../components/bits";
-import type { Recipe, Usecase } from "../types";
+import type { Template, Project } from "../types";
 
-// Use cases are the opinionated entry point: pick one, answer a few questions, click Start, and
+// Projects are the opinionated entry point: pick one, answer a few questions, click Start, and
 // Tares creates the sources, view, trigger and agent for you. Everything it creates is an ordinary
 // object on its normal page; this page and the instance page are the combined view.
 
-// Recipes the console knows how to set up with a dedicated wizard. Anything else the API lists
+// Templates the console knows how to set up with a dedicated wizard. Anything else the API lists
 // still gets a card, routed to the generic (params-driven) form.
 const WIZARDS: Record<string, string> = {
-  shared_code_context: "/usecases/new/shared_code_context",
+  shared_code_context: "/projects/new/shared_code_context",
 };
 
-function statusClass(s: Usecase["status"]) {
+function statusClass(s: Project["status"]) {
   return s === "active" ? "ok" : s === "paused" ? "paused" : "error";
 }
 
-export function usecaseKindCounts(u: Usecase) {
+export function projectKindCounts(u: Project) {
   const c: Record<string, number> = {};
   for (const o of u.objects) c[o.kind] = (c[o.kind] ?? 0) + 1;
   return c;
 }
 
-// What each recipe wires up, in the user's words. The daemon's describe() may carry mode-aware
+// What each template wires up, in the user's words. The daemon's describe() may carry mode-aware
 // facts (ai_sre_demo says different things against a hosted stack than against local docker);
-// this map is the fallback for recipes that don't, and for older daemons.
-const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
+// this map is the fallback for templates that don't, and for older daemons.
+const TEMPLATE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
   ai_sre_demo: {
-    you: ["start the demo stack with docker compose", "give the agent an Anthropic key", "cause an incident from the use case page"],
+    you: ["start the demo stack with docker compose", "give the agent an Anthropic key", "cause an incident from the project page"],
     tares: ["three sources keyed by service: Prometheus metrics, the api-server's logs, the alerts Prometheus fires", "one timeline per service to explore", "a trigger that wakes the agent when an alert fires", "an agent that writes the first incident note back onto the timeline"],
   },
   shared_code_context: {
@@ -38,10 +38,10 @@ const RECIPE_FACTS: Record<string, { you: string[]; tares: string[] }> = {
   },
 };
 
-function RecipeCard({ r }: { r: Recipe }) {
+function TemplateCard({ r }: { r: Template }) {
   const navigate = useNavigate();
-  const to = WIZARDS[r.key] ?? `/usecases/new/${encodeURIComponent(r.key)}`;
-  const facts = r.facts ?? RECIPE_FACTS[r.key];
+  const to = WIZARDS[r.key] ?? `/projects/new/${encodeURIComponent(r.key)}`;
+  const facts = r.facts ?? TEMPLATE_FACTS[r.key];
   return (
     <div className="panel uc-card">
       <div className="uc-card-main">
@@ -49,6 +49,7 @@ function RecipeCard({ r }: { r: Recipe }) {
           {r.title}
           {(r.tags ?? []).map((t) => <span key={t} className="badge" style={{ marginLeft: 8, verticalAlign: "middle" }}>{t}</span>)}
         </div>
+        <div className="help" style={{ marginTop: 2 }}>Tares template</div>
         <p className="help uc-card-desc">
           {r.description}
           {r.guide && <> Follows the <a href={r.guide.url} target="_blank" rel="noreferrer">{r.guide.label}</a>.</>}
@@ -73,43 +74,44 @@ function RecipeCard({ r }: { r: Recipe }) {
   );
 }
 
-export default function Usecases() {
-  const { data: rec, error: recError, reload: reloadRec } = usePolling(() => api.recipes(), 60000);
-  const { data: inst, error: instError, reload: reloadInst } = usePolling(() => api.usecases(), 10000);
-  const recipes = rec?.recipes ?? [];
-  const usecases = inst?.usecases ?? [];
+export default function Projects() {
+  const { data: rec, error: recError, reload: reloadRec } = usePolling(() => api.templates(), 60000);
+  const { data: inst, error: instError, reload: reloadInst } = usePolling(() => api.projects(), 10000);
+  const templates = rec?.templates ?? [];
+  const projects = inst?.projects ?? [];
 
   return (
     <>
       <div className="pagehead">
         <div>
-          <h1>Use cases</h1>
+          <h1>Projects</h1>
           <p className="subtitle">
-            pick what you want Tares to do. A use case is a ready-made setup: you answer a few questions and
-            Tares creates the sources, view, trigger and agent behind it, each visible and editable on its own page.
+            what you set up and look after in Tares: a named set of sources, views, triggers and agents with one
+            page. Start one from a Tares template: answer a few questions and Tares creates the objects behind it,
+            each visible and editable on its own page.
           </p>
         </div>
       </div>
 
-      {recError && <ErrorState error={recError} what="the use case catalog" onRetry={reloadRec} />}
-      {instError && <ErrorState error={instError} what="your use cases" onRetry={reloadInst} />}
+      {recError && <ErrorState error={recError} what="the project catalog" onRetry={reloadRec} />}
+      {instError && <ErrorState error={instError} what="your projects" onRetry={reloadInst} />}
 
-      {inst && usecases.length > 0 && (
+      {inst && projects.length > 0 && (
         <table style={{ marginBottom: 24 }}>
           <thead>
             <tr>
-              <th>name</th><th>use case</th><th>status</th><th>objects</th><th>updated</th>
+              <th>name</th><th>project</th><th>status</th><th>objects</th><th>updated</th>
               <th aria-label="actions" />
             </tr>
           </thead>
           <tbody>
-            {usecases.map((u) => {
-              const c = usecaseKindCounts(u);
+            {projects.map((u) => {
+              const c = projectKindCounts(u);
               const missing = u.objects.filter((o) => o.missing).length;
               return (
                 <tr key={u.id}>
-                  <td><Link to={`/usecases/${encodeURIComponent(u.id)}`}><strong>{u.name}</strong></Link></td>
-                  <td>{u.recipe_title}</td>
+                  <td><Link to={`/projects/${encodeURIComponent(u.id)}`}><strong>{u.name}</strong></Link></td>
+                  <td>{u.template_title}</td>
                   <td>
                     <span className={`badge ${statusClass(u.status)}`}>{u.status}</span>
                     {missing > 0 && <span className="help" style={{ marginLeft: 6 }}>{missing} missing</span>}
@@ -122,7 +124,7 @@ export default function Usecases() {
                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={u.updated_at} /></td>
                   <td>
                     <div className="btnrow" style={{ justifyContent: "flex-end" }}>
-                      <Link className="btn" to={`/usecases/${encodeURIComponent(u.id)}`}>Open</Link>
+                      <Link className="btn" to={`/projects/${encodeURIComponent(u.id)}`}>Open</Link>
                     </div>
                   </td>
                 </tr>
@@ -132,13 +134,13 @@ export default function Usecases() {
         </table>
       )}
 
-      <h2 style={{ marginTop: usecases.length > 0 ? 8 : 18 }}>{usecases.length > 0 ? "Set up another" : "Available"}</h2>
+      <h2 style={{ marginTop: projects.length > 0 ? 8 : 18 }}>{projects.length > 0 ? "Start another" : "Templates"}</h2>
       {!rec && !recError && <div className="dim">loading…</div>}
-      {rec && recipes.length === 0 && (
-        <div className="empty">No use cases are registered on this instance yet.</div>
+      {rec && templates.length === 0 && (
+        <div className="empty">No templates are registered on this instance yet.</div>
       )}
       <div className="uc-cards">
-        {recipes.map((r) => <RecipeCard key={r.key} r={r} />)}
+        {templates.map((r) => <TemplateCard key={r.key} r={r} />)}
       </div>
     </>
   );

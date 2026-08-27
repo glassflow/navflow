@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { TimeAgo } from "./bits";
-import type { ChallengerSession, TimelineEventRow, UsecaseSummary } from "../types";
+import type { ChallengerSession, TimelineEventRow, ProjectSummary } from "../types";
 
-// The challenger workflow's own panels on the use case page: the sessions Codex challenged (with
+// The challenger workflow's own panels on the project page: the sessions Codex challenged (with
 // the plan and commit verdicts, and the Claude/Codex exchange as one thread) and the summarizer's
 // memory proposals with accept / reject. A proposal is text inside a finding until the user
 // accepts it; accept is the only thing that writes memory, so the plugin only ever hands Claude
@@ -179,7 +179,7 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
 type Decision = "accepted" | "rejected";
 type Row = { runId: string; i: number; repo: string; text: string; agent: string; started_at?: string; decision?: Decision };
 
-export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["runs"]> }) {
+export function ProposalsPanel({ runs }: { runs: NonNullable<ProjectSummary["runs"]> }) {
   const [busy, setBusy] = useState<string>();
   const [err, setErr] = useState<string>();
   // decided locally this render cycle, until the next poll brings the state back from Tares

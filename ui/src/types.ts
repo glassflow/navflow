@@ -19,8 +19,8 @@ export interface Source {
   paused: boolean;
   health: SourceHealth | null;
   ingest_key?: string;   // stable path segment for push endpoints: /ingest/<ingest_key>
-  owned_by?: string | null;   // the use case that created it, if any
-  customized?: boolean;       // edited by hand since; the use case keeps that version
+  owned_by?: string | null;   // the project that created it, if any
+  customized?: boolean;       // edited by hand since; the project keeps that version
 }
 
 export interface ConnectorField {
@@ -411,7 +411,7 @@ export interface GithubCredential {
   mcp_servers: string[];
 }
 
-// ── Use cases: a recipe (code) instantiated with params; the instance owns ordinary objects ──
+// ── Projects: a template (code) instantiated with params; the instance owns ordinary objects ──
 export interface RecipeParam {
   type?: string;              // string | number | bool | list | json | choice
   required?: boolean;
@@ -428,7 +428,7 @@ export interface RecipeAction {
   docs?: { label: string; url: string };
   params?: Record<string, { label?: string; options?: (string | RecipeActionOption)[] }>;
 }
-export interface Recipe {
+export interface Template {
   key: string;
   title: string;
   description: string;
@@ -441,32 +441,32 @@ export interface Recipe {
   // says different things than a local docker one). Absent on older daemons.
   facts?: { you: string[]; tares: string[] };
 }
-export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
-export interface UsecaseObject {
-  kind: UsecaseObjectKind;
+export type ProjectObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
+export interface ProjectObject {
+  kind: ProjectObjectKind;
   key: string;
   name: string;
   customized: boolean;
   missing: boolean;
   created_at: string;
 }
-export interface Usecase {
+export interface Project {
   id: string;
-  recipe: string;
-  recipe_title: string;
+  template: string;
+  template_title: string;
   name: string;
   params: Record<string, unknown>;
   status: "active" | "paused" | "error";
   created_at: string;
   updated_at: string;
   last_error: string | null;
-  objects: UsecaseObject[];
+  objects: ProjectObject[];
 }
-export interface UsecaseLogEntry { at: string; action: string; detail: string }
-// summary = instance + log + whatever the recipe reports. The recipe part is free-form; the
-// shapes below are what the shared code context recipe returns and the page renders when present.
-export interface UsecaseSummary extends Usecase {
-  log: UsecaseLogEntry[];
+export interface ProjectLogEntry { at: string; action: string; detail: string }
+// summary = instance + log + whatever the template reports. The template part is free-form; the
+// shapes below are what the shared code context template returns and the page renders when present.
+export interface ProjectSummary extends Project {
+  log: ProjectLogEntry[];
   summary_error?: string;
   repos?: { repo: string; branch?: string; source?: string; last_commit?: string | null;
             events?: number }[];
@@ -495,4 +495,4 @@ export interface ChallengerSession {
   commits: { sha?: string; verdict?: string; round?: string | number; findings?: string | number; blocking?: string | number }[];
   thread: ChallengeEvent[];
 }
-export interface UsecaseUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }
+export interface ProjectUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }

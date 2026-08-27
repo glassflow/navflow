@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { TimeAgo, usePolling } from "../components/bits";
-import UsecaseBadge from "../components/UsecaseBadge";
+import ProjectBadge from "../components/ProjectBadge";
 
 // The MCP connections registry: external tool servers a Tares agent can opt into. This page owns
 // the connection (URL + credential, entered once); which agent uses which server is chosen on the
@@ -196,7 +196,7 @@ export default function McpServers() {
                     <tr key={s.name}>
                       <td className="mono"><strong>{s.name}</strong>
                         {s.owned_by && <span style={{ marginLeft: 8 }}>
-                          <UsecaseBadge ownedBy={s.owned_by} customized={s.customized} compact />
+                          <ProjectBadge ownedBy={s.owned_by} customized={s.customized} compact />
                         </span>}
                       </td>
                       <td className="mono">{s.url}</td>

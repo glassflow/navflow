@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { Search, Settings as SettingsIco } from "../components/icons";
 import { ErrorState, Picker, StatusBadge, TimeAgo, formatBytes, usePolling } from "../components/bits";
-import UsecaseBadge from "../components/UsecaseBadge";
+import ProjectBadge from "../components/ProjectBadge";
 
 // Gear dropdown next to "Add source" — catalog import/export, each on its own page.
 function CatalogMenu() {
@@ -118,7 +118,7 @@ export default function Sources() {
                 <tr key={s.name} className="clickable" onClick={() => nav(`/sources/${s.name}`)}>
                   <td className="mono">{s.name}
                     {s.owned_by && <span onClick={(e) => e.stopPropagation()} style={{ marginLeft: 8 }}>
-                      <UsecaseBadge ownedBy={s.owned_by} customized={s.customized} compact />
+                      <ProjectBadge ownedBy={s.owned_by} customized={s.customized} compact />
                     </span>}
                   </td>
                   <td>{s.connector}</td>

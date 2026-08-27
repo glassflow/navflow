@@ -27,10 +27,10 @@ import Home from "./pages/Home";
 import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
-import Usecases from "./pages/Usecases";
-import UsecaseDetail from "./pages/UsecaseDetail";
-import UsecaseNewGeneric from "./pages/UsecaseNewGeneric";
-import UsecaseNewSharedContext from "./pages/UsecaseNewSharedContext";
+import Projects from "./pages/Projects";
+import ProjectDetail from "./pages/ProjectDetail";
+import ProjectNewGeneric from "./pages/ProjectNewGeneric";
+import ProjectNewSharedContext from "./pages/ProjectNewSharedContext";
 import "./styles.css";
 
 /** /activity?tab=dispatches (and the bare page, whose default tab was dispatches) → Deliveries;
@@ -42,6 +42,12 @@ function ActivityRedirect() {
   return <Navigate to={agent ? `/deliveries?agent=${encodeURIComponent(agent)}` : "/deliveries"} replace />;
 }
 
+/** /usecases* was the name of /projects* before 1.14; bookmarks and old links still land. */
+function UsecasesRedirect() {
+  const rest = window.location.pathname.replace(/^\/usecases/, "");
+  return <Navigate to={`/projects${rest}${window.location.search}`} replace />;
+}
+
 const router = createBrowserRouter([
   {
     path: "/",
@@ -50,10 +56,10 @@ const router = createBrowserRouter([
       // `/` is Overview, not the source list. The cloud login handoff (TARES_LOGIN_URL) lands
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
-      { path: "usecases", element: <Usecases /> },
-      { path: "usecases/new/shared_code_context", element: <UsecaseNewSharedContext /> },
-      { path: "usecases/new/:recipe", element: <UsecaseNewGeneric /> },
-      { path: "usecases/:id", element: <UsecaseDetail /> },
+      { path: "projects", element: <Projects /> },
+      { path: "projects/new/shared_code_context", element: <ProjectNewSharedContext /> },
+      { path: "projects/new/:template", element: <ProjectNewGeneric /> },
+      { path: "projects/:id", element: <ProjectDetail /> },
       { path: "sources", element: <Sources /> },
       { path: "sources/discover", element: <SourceDiscover /> },
       { path: "sources/claude-code", element: <SourceClaudeCode /> },
@@ -89,6 +95,8 @@ const router = createBrowserRouter([
       { path: "entities", element: <Navigate to="/explore" replace /> },
       // These two meant "the source list" when `/` was the source list — they still do.
       { path: "catalog", element: <Navigate to="/sources" replace /> },
+      { path: "usecases/*", element: <UsecasesRedirect /> },
+      { path: "usecases", element: <UsecasesRedirect /> },
     ],
   },
 ]);

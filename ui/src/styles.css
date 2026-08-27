@@ -1278,7 +1278,7 @@ pre.payload {
 .connector-card-head .name { font-weight: 600; }
 .connector-card .desc { white-space: normal; }
 
-/* ── use cases: the opinionated entry point; cards, a stepper, a repo picker ── */
+/* ── projects: the opinionated entry point; template cards, a stepper, a repo picker ── */
 .uc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 12px; }
 .uc-card { margin-bottom: 0; display: flex; flex-direction: row; gap: 24px; align-items: flex-start; }
 .uc-card-main { flex: 1; min-width: 0; }
@@ -1306,7 +1306,7 @@ pre.payload {
 .uc-badge .help { font-size: 11px; }
 .uc-how summary { cursor: pointer; font-weight: 600; }
 
-/* use case wizard: the peek into the context repo */
+/* project wizard: the peek into the context repo */
 .uc-tree { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
 .main .uc-tree-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
 .uc-tree-list li { list-style: none; }
@@ -1327,7 +1327,7 @@ pre.payload {
 .perm-table { width: 100%; }
 .perm-table td, .perm-table th { padding: 6px 8px; font-size: 13px; }
 
-/* use case setup steps (the generic wizard) */
+/* project setup steps (the generic wizard) */
 .main ol.uc-setup { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; }
 .uc-setup-title { font-weight: 600; }
 .uc-setup-cmd { display: flex; align-items: flex-start; gap: 10px; }
