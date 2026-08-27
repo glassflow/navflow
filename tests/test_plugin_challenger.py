@@ -155,7 +155,7 @@ def main():
     print("== mark the session ==")
     with open(transcript, "a") as f:
         f.write(tline("assistant", role="assistant", content=[
-            {"type": "tool_use", "id": "t1", "name": "mcp__tares__set_session_flow", "input": {"flow": "challenger"}}]))
+            {"type": "tool_use", "id": "t1", "name": "mcp__plugin_tares_tares__set_session_flow", "input": {"flow": "challenger"}}]))
         f.write(tline("user", role="user", content=[{"type": "tool_result", "tool_use_id": "t1", "content": "noted"}]))
     run(SHIP, {**hook, "hook_event_name": "PostToolUse", "tool_name": "mcp__tares__set_session_flow"}, env)
     types = [(x.get("type"), x.get("flow")) for x in INGESTED[-3:]]
