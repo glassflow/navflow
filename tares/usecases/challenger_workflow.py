@@ -227,6 +227,24 @@ def parse_proposals(finding: str) -> list[str]:
     return out[:MAX_PROPOSALS]
 
 
+def has_challenger_line(payload) -> bool:
+    """True when an ingest body carries a line stamped flow=challenger (the plugin marks every
+    line of a marked session)."""
+    items = payload if isinstance(payload, list) else [payload]
+    return any(isinstance(o, dict) and o.get("flow") == FLOW for o in items)
+
+
+def ensure_instance(engine) -> str | None:
+    """Create the challenger_workflow use case the first time a marked session ships, so saying
+    "make this a challenger session" in Claude Code is the whole setup. Returns the new instance id,
+    or None when one already exists."""
+    if any(u.get("recipe") == "challenger_workflow" for u in engine.store.list_usecases()):
+        return None
+    inst = engine.create("challenger_workflow", {})
+    engine.store.log_usecase(inst["id"], "auto", "created on the first challenger session shipped by the plugin")
+    return inst["id"]
+
+
 SESSION_DAYS = 30
 MAX_SESSIONS = 20
 THREAD_TYPES = tuple(ClaudeCodeConnector.CHALLENGE_TYPES) + ("session_flow", "session_end")

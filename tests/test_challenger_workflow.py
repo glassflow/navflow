@@ -101,10 +101,21 @@ async def main():
             rr = await cx.post("/api/sources", json={"name": SOURCE, "connector": "claude_code",
                                                      "poll": "10s", "config": {"push": True}})
             check("plugin-style source created", rr.status_code in (200, 201), rr.text[:200])
-            rr = await cx.post("/api/usecases", json={"recipe": "challenger_workflow",
-                                                     "name": "Challenger workflow", "params": {}})
-            check("create -> 201", rr.status_code == 201, rr.text[:300])
-            uid = rr.json()["id"]
+            print("== the first marked line creates the use case ==")
+            rr = await cx.post(f"/ingest/{SOURCE}", content=json.dumps(
+                {"sessionId": "s0", "type": "user", "cwd": "/x", "timestamp": ts(60)}) + "\n",
+                headers={"content-type": "application/x-ndjson"})
+            check("an unmarked line creates nothing",
+                  rr.status_code == 202 and (await cx.get("/api/usecases")).json()["usecases"] == [])
+            rr = await cx.post(f"/ingest/{SOURCE}", content=line("s0", "session_flow", ts(59)) + "\n",
+                               headers={"content-type": "application/x-ndjson"})
+            ucs = (await cx.get("/api/usecases")).json()["usecases"]
+            check("a flow=challenger line creates the challenger_workflow use case",
+                  rr.status_code == 202 and len(ucs) == 1 and ucs[0]["recipe"] == "challenger_workflow", json.dumps(ucs)[:300])
+            uid = ucs[0]["id"]
+            rr = await cx.post(f"/ingest/{SOURCE}", content=line("s0", "session_flow", ts(58)) + "\n",
+                               headers={"content-type": "application/x-ndjson"})
+            check("a second marked line does not create another", len((await cx.get("/api/usecases")).json()["usecases"]) == 1)
             srcs = {s["name"]: s for s in (await cx.get("/api/sources")).json()}
             check("one claude_code source, owned by the use case",
                   sum(1 for n in srcs if n == SOURCE) == 1 and srcs[SOURCE]["owned_by"] == uid,
@@ -149,9 +160,9 @@ async def main():
             print("== summary and action ==")
             s = (await cx.get(f"/api/usecases/{uid}/summary")).json()
             check("summary counts events and names the objects",
-                  s["events"] == 5 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+                  s["events"] == 8 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
             sess = {x["session"]: x for x in s["sessions"]}
-            check("summary lists the marked session only", set(sess) == {"s1"}, json.dumps(s["sessions"])[:400])
+            check("summary lists the marked sessions only", set(sess) == {"s0", "s1"}, json.dumps(s["sessions"])[:400])
             s1 = sess.get("s1") or {}
             check("session carries the commit verdict and thread",
                   s1.get("commits") and s1["commits"][0]["verdict"] == "PASS" and s1.get("ended")
