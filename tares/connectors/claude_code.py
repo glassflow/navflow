@@ -211,7 +211,15 @@ class ClaudeCodeConnector(Connector):
             what = f"Challenger reviewed commit {str(ch.get('sha') or '')[:8]}{rnd}"
         else:
             return f"Challenger finding waived{tail}"
-        return f"{what}: {verdict}, {n} findings ({b} blocking){tail}"
+        # say what happened, not Codex's verdict word: "FAIL" reads as a broken run elsewhere
+        # in the console (a run that did not finish, a delivery that did not arrive)
+        if verdict == "PASS":
+            outcome = "no findings"
+        elif verdict == "FAIL":
+            outcome = f"{n} finding{'s' if n != 1 else ''} ({b} blocking)"
+        else:
+            outcome = f"no verdict ({verdict.lower()})"
+        return f"{what}: {outcome}{tail}"
 
     @staticmethod
     def _render_text(o: dict, msg: dict, include_thinking: bool) -> str:

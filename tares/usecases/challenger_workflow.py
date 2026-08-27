@@ -272,7 +272,8 @@ def recent_sessions(store) -> list[dict]:
         sess = by_session.setdefault(sid, {
             "session": sid, "project": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
             "branch": raw.get("gitBranch"), "started_at": _iso(event_time), "last_at": None,
-            "ended": False, "events": 0, "plan_verdict": None, "commits": [], "waived": 0,
+            "ended": False, "events": 0, "plan_verdict": None, "plan_findings": None,
+            "plan_blocking": None, "commits": [], "waived": 0,
             "thread": []})
         sess["events"] += 1
         sess["last_at"] = _iso(event_time)
@@ -285,6 +286,8 @@ def recent_sessions(store) -> list[dict]:
             sess["ended"] = True
         elif typ == "challenge_plan":
             sess["plan_verdict"] = lbls.get("verdict")
+            sess["plan_findings"] = lbls.get("finding_count")
+            sess["plan_blocking"] = lbls.get("blocking_count")
         elif typ == "challenge_commit":
             sess["commits"].append({"sha": lbls.get("sha"), "verdict": lbls.get("verdict"),
                                     "round": lbls.get("round"),

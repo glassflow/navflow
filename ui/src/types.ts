@@ -489,7 +489,8 @@ export interface ChallengeEvent {
 export interface ChallengerSession {
   session: string; project?: string | null; branch?: string | null;
   started_at?: string | null; last_at?: string | null; ended: boolean; events: number;
-  plan_verdict?: string | null; waived: number; run_id?: string | null;
+  plan_verdict?: string | null; plan_findings?: string | number | null; plan_blocking?: string | number | null;
+  waived: number; run_id?: string | null;
   commits: { sha?: string; verdict?: string; round?: string | number; findings?: string | number; blocking?: string | number }[];
   thread: ChallengeEvent[];
 }

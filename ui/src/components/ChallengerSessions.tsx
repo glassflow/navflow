@@ -11,13 +11,25 @@ import type { ChallengerSession, TimelineEventRow, UsecaseSummary } from "../typ
 // accepts it; accept is the only thing that writes memory, so the plugin only ever hands Claude
 // what a person chose to keep.
 
+// Codex's verdict word stays in the data (the `verdict` label); on screen we say what happened.
+// "FAIL" elsewhere in the console means a run or delivery that did not work; here the review
+// worked and found things.
 function verdictClass(v: string | undefined | null) {
-  return v === "PASS" ? "ok" : v === "FAIL" ? "error" : "paused";
+  return v === "PASS" ? "ok" : v === "FAIL" ? "paused" : "blanked";
+}
+function verdictText(v: string | undefined | null, findings?: string | number, blocking?: string | number) {
+  if (v === "PASS") return "no findings";
+  if (v === "FAIL") {
+    const n = Number(findings), b = Number(blocking);
+    if (!Number.isFinite(n) || n <= 0) return "findings";
+    return `${n} finding${n === 1 ? "" : "s"}` + (Number.isFinite(b) && b > 0 ? `, ${b} blocking` : "");
+  }
+  return "no verdict";
 }
 
-function Verdict({ v }: { v: string | undefined | null }) {
-  if (!v) return <span className="dim">none</span>;
-  return <span className={`badge ${verdictClass(v)}`}>{v}</span>;
+function Verdict({ v, findings, blocking }: { v: string | undefined | null; findings?: string | number; blocking?: string | number }) {
+  if (!v) return <span className="dim">not reviewed</span>;
+  return <span className={`badge ${verdictClass(v)}`} title={`Codex verdict: ${v}`}>{verdictText(v, findings, blocking)}</span>;
 }
 
 export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
@@ -46,11 +58,11 @@ export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
               <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={x.started_at ?? null} /></td>
               <td className="mono">{x.project ?? <span className="dim">unknown</span>}</td>
               <td className="mono">{x.branch ?? ""}</td>
-              <td><Verdict v={x.plan_verdict} /></td>
+              <td><Verdict v={x.plan_verdict} findings={x.plan_findings ?? undefined} blocking={x.plan_blocking ?? undefined} /></td>
               <td>
                 {x.commits.length === 0 ? <span className="dim">none</span> : (
                   <span className="tl-labels">
-                    {x.commits.map((c, i) => <span key={i} className={`badge ${verdictClass(c.verdict)}`} title={c.sha ? `commit ${c.sha}` : undefined}>{c.verdict ?? "?"}</span>)}
+                    {x.commits.map((c, i) => <span key={i} className={`badge ${verdictClass(c.verdict)}`} title={`commit ${c.sha ?? "?"}${c.round ? `, round ${c.round}` : ""}: Codex verdict ${c.verdict ?? "?"}`}>{verdictText(c.verdict, c.findings, c.blocking)}</span>)}
                   </span>
                 )}
                 {x.waived > 0 && <span className="help"> · {x.waived} waived</span>}
@@ -102,7 +114,7 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{s.project ?? s.session}</span>{s.branch && <span className="help"> on {s.branch}</span>}</h3>
           <span className="subtitle" style={{ margin: 0 }}>
-            challenger session · plan <Verdict v={s.plan_verdict} /> · {s.commits.length} commit{s.commits.length === 1 ? "" : "s"} reviewed
+            challenger session · plan <Verdict v={s.plan_verdict} findings={s.plan_findings ?? undefined} blocking={s.plan_blocking ?? undefined} /> · {s.commits.length} commit{s.commits.length === 1 ? "" : "s"} reviewed
             {blocking > 0 && <> · {blocking} blocking finding{blocking === 1 ? "" : "s"}</>}
             {s.waived > 0 && <> · {s.waived} waived</>}
             {s.run_id && <> · <Link to={`/agents/challenger_summarizer?run=${encodeURIComponent(s.run_id)}`}>summary</Link></>}
@@ -127,7 +139,7 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={t.at} /></td>
                   <td>
                     <span className="mono" style={{ whiteSpace: "pre-wrap" }}>{t.text}</span>
-                    {t.labels.verdict && <span className="tl-labels"><Verdict v={t.labels.verdict} /></span>}
+                    {t.labels.verdict && <span className="tl-labels"><Verdict v={t.labels.verdict} findings={t.labels.finding_count} blocking={t.labels.blocking_count} /></span>}
                   </td>
                 </tr>
               ))}
