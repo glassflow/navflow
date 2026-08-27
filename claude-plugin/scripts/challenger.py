@@ -7,7 +7,7 @@ calls the `set_session_flow` MCP tool (see ship.py). Nothing here ever asks Tare
 
 - PostToolUse(ExitPlanMode): Codex critiques the plan. Findings come back to Claude as context so
   it can revise before the user sees the plan. Never blocks: the user approves the plan anyway.
-- PostToolUse(Bash) after a successful `git commit`: `codex exec review --json --commit HEAD`.
+- PostToolUse(Bash) after a successful `git commit`: `codex exec --sandbox read-only review --json --commit HEAD`.
   P1/P2 findings block Claude with the review (strict mode, the default) or come back as context
   (advise mode). Errors, timeouts and inconclusive reviews never block.
 - Stop: while the last review of this session's commit is FAIL, keep Claude in the fix loop
@@ -80,7 +80,7 @@ def codex_bin() -> str:
 def sandbox_args() -> list:
     mode = (_opt("codex_sandbox") or "").strip()
     return {"workspace-write": ["--sandbox", "workspace-write"],
-            "danger-full-access": ["--sandbox", "danger-full-access"]}.get(mode, ["--full-auto"])
+            "danger-full-access": ["--sandbox", "danger-full-access"]}.get(mode, ["--sandbox", "read-only"])
 
 
 # ── Codex ────────────────────────────────────────────────────────────────────

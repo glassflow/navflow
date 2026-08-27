@@ -182,7 +182,7 @@ def main():
     o, p = run(CHAL, commit("pricing v1"), env)
     check("strict mode blocks on P1", isinstance(o, dict) and o.get("decision") == "block" and "amend" in o.get("reason", ""),
           str(o)[:300] + p.stderr[:300])
-    check("codex ran review --commit HEAD", codex_calls()[-1][:2] == ["exec", "--full-auto"] and "review" in codex_calls()[-1]
+    check("codex ran review --commit HEAD", codex_calls()[-1][:2] == ["exec", "--sandbox"] and "review" in codex_calls()[-1]
           and "--commit" in codex_calls()[-1], str(codex_calls()[-1]))
     ev = INGESTED[-1]
     check("challenge_commit shipped with sha, round and counts",

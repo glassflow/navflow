@@ -50,7 +50,7 @@
     "codex_sandbox": {
       "type": "string",
       "title": "Codex sandbox (optional)",
-      "description": "Empty = Codex's --full-auto sandbox. workspace-write or danger-full-access when the default sandbox fails inside an already sandboxed session.",
+      "description": "Empty = Codex's read-only sandbox (enough for reviews). workspace-write or danger-full-access when Codex needs to run the project's commands.",
       "default": ""
     }
   }
