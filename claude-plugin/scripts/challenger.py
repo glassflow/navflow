@@ -48,7 +48,9 @@ HISTORY = "tares-challenger-reviews.jsonl"
 WAIVED = "tares-challenger-waived"
 SKIP = "tares-challenger-skip"
 
-_COMMIT_RE = re.compile(r"(^|[^\w])git(\s[^;&|]*)?\scommit([^\w]|$)")
+# `git commit`, with any options in between (`git -c user.name="$(git config user.name || echo x)"
+# commit`, `git -C dir commit`); the response check below drops the failed ones
+_COMMIT_RE = re.compile(r"(^|[^\w])git\s.*?\bcommit\b|(^|[^\w])git\s+commit\b", re.S)
 _FINDING_RE = re.compile(r"^\s*(?:[-*>]\s+)?\[(P[123])\]\s+(\S.*?)\s*$")
 
 PLAN_PROMPT = (
