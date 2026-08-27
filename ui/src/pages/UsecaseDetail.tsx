@@ -90,13 +90,16 @@ export default function UsecaseDetail() {
   }, [s?.recipe]);
   const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
     (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
-  const runAction = async (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+  const runActionWith = async (name: string, args: Record<string, unknown>) => {
     setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
-    const args: Record<string, unknown> = {};
-    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
     try { const r = await api.usecaseAction(id, name, args); setActionMsg(r.message); reload(); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
     setActionBusy(undefined);
+  };
+  const runAction = (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+    const args: Record<string, unknown> = {};
+    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
+    return runActionWith(name, args);
   };
 
   const act = (fn: () => Promise<unknown>) => async () => {
@@ -189,6 +192,11 @@ export default function UsecaseDetail() {
               <span key={a.name} className="uc-actions" title={a.help}>
                 {Object.entries(a.params ?? {}).map(([k, spec]) => {
                   const o = opts(spec.options);
+                  if (!o.length) return (   // free-form parameter: a text field, not an empty menu
+                    <input key={k} type="text" placeholder={spec.label ?? k} aria-label={spec.label ?? k}
+                           value={actionArgs[`${a.name}.${k}`] ?? ""} style={{ width: 260 }}
+                           onChange={(e) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: e.target.value })} />
+                  );
                   return (
                     <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
@@ -244,7 +252,11 @@ export default function UsecaseDetail() {
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
       </div>
 
-      {tab === "sessions" && s.sessions && <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"} />}
+      {tab === "sessions" && s.sessions && (
+        <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"}
+                       onSummarize={s.status === "active" ? (sid) => { setActionArgs({ ...actionArgs, "summarize.session": sid }); return runActionWith("summarize", { session: sid }); } : undefined}
+                       busy={actionBusy === "summarize"} message={actionMsg} />
+      )}
 
       {tab === "runs" && (<>
       {runs && <ProposalsPanel runs={runs} />}

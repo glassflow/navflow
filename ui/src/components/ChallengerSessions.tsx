@@ -20,7 +20,10 @@ function Verdict({ v }: { v: string | undefined | null }) {
   return <span className={`badge ${verdictClass(v)}`}>{v}</span>;
 }
 
-export function SessionsPanel({ sessions, view }: { sessions: ChallengerSession[]; view: string }) {
+export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
+  sessions: ChallengerSession[]; view: string;
+  onSummarize?: (session: string) => Promise<unknown>; busy?: boolean; message?: string;
+}) {
   const [open, setOpen] = useState<string>();
   if (!sessions.length) {
     return (
@@ -36,7 +39,7 @@ export function SessionsPanel({ sessions, view }: { sessions: ChallengerSession[
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Sessions</h2>
       <table>
-        <thead><tr><th>when</th><th>project</th><th>branch</th><th>plan</th><th>commits</th><th>state</th></tr></thead>
+        <thead><tr><th>when</th><th>project</th><th>branch</th><th>plan</th><th>commits</th><th>state</th><th aria-label="actions" /></tr></thead>
         <tbody>
           {sessions.map((x) => (
             <tr key={x.session} style={{ cursor: "pointer" }} onClick={() => setOpen(open === x.session ? undefined : x.session)}>
@@ -56,10 +59,21 @@ export function SessionsPanel({ sessions, view }: { sessions: ChallengerSession[
                 {x.ended ? (x.run_id ? <span className="badge ok">summarized</span> : <span className="badge paused">ended</span>)
                   : <span className="badge agent">live</span>}
               </td>
+              <td onClick={(e) => e.stopPropagation()}>
+                {onSummarize && (
+                  <div className="btnrow" style={{ justifyContent: "flex-end" }}>
+                    <button disabled={busy} onClick={() => onSummarize(x.session)}
+                            title={x.run_id ? "run the summarizer again on this session" : "summarize this session now, without waiting for it to end"}>
+                      {busy ? "working…" : x.run_id ? "Summarize again" : "Summarize"}
+                    </button>
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {message && <p className="help" style={{ margin: "8px 0 0" }}>{message}</p>}
       {open && sessions.find((x) => x.session === open) && (
         <SessionThread s={sessions.find((x) => x.session === open)!} view={view} onClose={() => setOpen(undefined)} />
       )}
