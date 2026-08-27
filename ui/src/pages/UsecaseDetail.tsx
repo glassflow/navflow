@@ -205,24 +205,6 @@ export default function UsecaseDetail() {
                     );
                   }
                   return (
-                      <span key={k}>
-                        <input type="text" placeholder={spec.label ?? k} aria-label={spec.label ?? k}
-                               list={suggestions.length ? listId : undefined}
-                               value={actionArgs[`${a.name}.${k}`] ?? ""} style={{ width: 300 }}
-                               onChange={(e) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: e.target.value })} />
-                        {suggestions.length > 0 && (
-                          <datalist id={listId}>
-                            {suggestions.map((x) => (
-                              <option key={x.session} value={x.session}>
-                                {[x.project, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")}
-                              </option>
-                            ))}
-                          </datalist>
-                        )}
-                      </span>
-                    );
-                  }
-                  return (
                     <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
                             options={o.map((x) => x.value)}
