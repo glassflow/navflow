@@ -262,6 +262,9 @@ export const api = {
   recipes: () => request<{ recipes: Recipe[] }>("/api/usecases/recipes"),
   usecases: () => request<{ usecases: Usecase[] }>("/api/usecases"),
   usecase: (id: string) => request<Usecase>(`/api/usecases/${encodeURIComponent(id)}`),
+  // Accepted memory: only what a user accepted is ever written (a proposal is just text until then).
+  remember: (body: { key: string; content: string; memory_type?: string }) =>
+    request<{ ok: boolean; source: string }>("/remember", { method: "POST", body: JSON.stringify(body) }),
   usecaseSummary: (id: string) =>
     request<UsecaseSummary>(`/api/usecases/${encodeURIComponent(id)}/summary`),
   createUsecase: (body: { recipe: string; name?: string; params: Record<string, unknown> }) =>

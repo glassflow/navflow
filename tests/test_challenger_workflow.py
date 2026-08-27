@@ -150,6 +150,13 @@ async def main():
             s = (await cx.get(f"/api/usecases/{uid}/summary")).json()
             check("summary counts events and names the objects",
                   s["events"] == 5 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+            sess = {x["session"]: x for x in s["sessions"]}
+            check("summary lists the marked session only", set(sess) == {"s1"}, json.dumps(s["sessions"])[:400])
+            s1 = sess.get("s1") or {}
+            check("session carries the commit verdict and thread",
+                  s1.get("commits") and s1["commits"][0]["verdict"] == "PASS" and s1.get("ended")
+                  and [t["event_type"] for t in s1["thread"]] == ["session_flow", "challenge_commit", "session_end"],
+                  json.dumps(s1)[:400])
             rr = await cx.post(f"/api/usecases/{uid}/actions/summarize", json={})
             check("summarize without a session -> 400", rr.status_code == 400, rr.text[:200])
             rr = await cx.post(f"/api/usecases/{uid}/actions/summarize", json={"session": "s1"})

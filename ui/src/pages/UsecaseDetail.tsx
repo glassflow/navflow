@@ -6,6 +6,7 @@ import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
 import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
+import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
 
 // One use case instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
@@ -50,6 +51,12 @@ const HOW_IT_WORKS: Record<string, string[]> = {
     "The incident trigger fires when an alert event lands (Prometheus keeps owning alerting; nothing is re-thresholded).",
     "incident-first-look wakes with the correlated timeline and writes an incident note back onto it. Cause an incident above and watch it happen.",
   ],
+  challenger_workflow: [
+    "In Claude Code, /tares:challenger marks the session; the plugin then runs Codex on the plan when you leave plan mode and on every commit, and blocks on P1/P2 findings until fixed or waived.",
+    "The plugin streams the session, with every Codex review, into the claude_code source, keyed by session.",
+    "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
+    "Accept a proposal below to store it as project memory; the plugin gives it to Claude at the start of the next session on that project.",
+  ],
   default: [
     "The use case created ordinary sources, views, triggers and agents; see Configuration for the list.",
     "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
@@ -61,8 +68,10 @@ export default function UsecaseDetail() {
   const navigate = useNavigate();
   const { data: s, error, reload } = usePolling(() => api.usecaseSummary(id), 10000);
   const [actionError, setActionError] = useState<string>();
-  const [tab, setTab] = useState<"runs" | "config">(() =>
-    (new URLSearchParams(window.location.search).get("tab") === "config" ? "config" : "runs"));
+  const [tab, setTab] = useState<"runs" | "config" | "sessions">(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "config" || t === "sessions" ? t : "runs";
+  });
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
   const [busyKey, setBusyKey] = useState<string>();
@@ -71,6 +80,10 @@ export default function UsecaseDetail() {
   const [actionMsg, setActionMsg] = useState<string>();
   const [actionBusy, setActionBusy] = useState<string>();
   const [actionHelp, setActionHelp] = useState(false);
+  // a use case with sessions opens on them unless the URL asked for a tab
+  useEffect(() => {
+    if (s?.sessions && !new URLSearchParams(window.location.search).get("tab")) setTab("sessions");
+  }, [!!s?.sessions]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!s?.recipe) return;
     api.recipes().then((r) => setRecipe(r.recipes.find((x) => x.key === s.recipe))).catch(() => {});
@@ -226,11 +239,15 @@ export default function UsecaseDetail() {
       )}
 
       <div className="tabs">
+        {s.sessions && <button className={tab === "sessions" ? "active" : ""} onClick={() => setTab("sessions")}>Sessions</button>}
         <button className={tab === "runs" ? "active" : ""} onClick={() => setTab("runs")}>Runs</button>
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
       </div>
 
+      {tab === "sessions" && s.sessions && <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"} />}
+
       {tab === "runs" && (<>
+      {runs && <ProposalsPanel runs={runs} />}
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Runs</h2>
         {runs && runs.some((r) => r.first_look) && (
@@ -241,7 +258,7 @@ export default function UsecaseDetail() {
         )}
         {runs && runs.length > 0 ? (
           <table>
-            <thead><tr><th>when</th><th>repo</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
+            <thead><tr><th>when</th><th>{s.sessions ? "session" : "repo"}</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
             <tbody>
               {runs.map((r, i) => {
                 const link = prLink(r);

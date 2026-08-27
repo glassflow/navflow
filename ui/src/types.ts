@@ -475,9 +475,22 @@ export interface UsecaseSummary extends Usecase {
   sources?: Record<string, { events: number; last: string | null }>;
   guide?: string;
   runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
-           max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null }[];
+           max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null;
+           session?: string; project?: string | null; proposals?: string[] }[];
+  sessions?: ChallengerSession[];
+  names?: Record<string, string>;
   prs?: { open?: number; merged?: number };
   trigger_last_fired?: string | null;
   [k: string]: unknown;
+}
+export interface ChallengeEvent {
+  at: string; event_type: string; text: string; labels: Record<string, string>;
+}
+export interface ChallengerSession {
+  session: string; project?: string | null; branch?: string | null;
+  started_at?: string | null; last_at?: string | null; ended: boolean; events: number;
+  plan_verdict?: string | null; waived: number; run_id?: string | null;
+  commits: { sha?: string; verdict?: string; round?: string | number; findings?: string | number; blocking?: string | number }[];
+  thread: ChallengeEvent[];
 }
 export interface UsecaseUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }
