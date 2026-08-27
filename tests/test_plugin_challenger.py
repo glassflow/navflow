@@ -155,7 +155,7 @@ def main():
     print("== mark the session ==")
     with open(transcript, "a") as f:
         f.write(tline("assistant", role="assistant", content=[
-            {"type": "tool_use", "id": "t1", "name": "mcp__tares__set_session_flow", "input": {"flow": "challenger"}}]))
+            {"type": "tool_use", "id": "t1", "name": "mcp__plugin_tares_tares__set_session_flow", "input": {"flow": "challenger"}}]))
         f.write(tline("user", role="user", content=[{"type": "tool_result", "tool_use_id": "t1", "content": "noted"}]))
     run(SHIP, {**hook, "hook_event_name": "PostToolUse", "tool_name": "mcp__tares__set_session_flow"}, env)
     types = [(x.get("type"), x.get("flow")) for x in INGESTED[-3:]]
@@ -178,11 +178,18 @@ def main():
           ev["type"] == "challenge_plan" and ev["flow"] == "challenger" and ev["challenge"]["verdict"] == "FAIL"
           and ev["challenge"]["blocking_count"] == 1 and ev["challenge"]["finding_count"] == 2, json.dumps(ev)[:300])
 
+    sys.path.insert(0, os.path.dirname(CHAL))
+    import challenger as _c
+    check("on a plan only P1 blocks (P2 is advice)",
+          _c.counts([{"priority": "P2"}, {"priority": "P1"}], _c.PLAN_BLOCKING) == (2, 1, 0)
+          and _c.counts([{"priority": "P2"}], _c.PLAN_BLOCKING) == (1, 0, 0)
+          and _c.counts([{"priority": "P2"}]) == (1, 1, 0))
+
     print("== commit challenged: FAIL blocks ==")
     o, p = run(CHAL, commit("pricing v1"), env)
     check("strict mode blocks on P1", isinstance(o, dict) and o.get("decision") == "block" and "amend" in o.get("reason", ""),
           str(o)[:300] + p.stderr[:300])
-    check("codex ran review --commit HEAD", codex_calls()[-1][:2] == ["exec", "--full-auto"] and "review" in codex_calls()[-1]
+    check("codex ran review --commit HEAD", codex_calls()[-1][:2] == ["exec", "--sandbox"] and "review" in codex_calls()[-1]
           and "--commit" in codex_calls()[-1], str(codex_calls()[-1]))
     ev = INGESTED[-1]
     check("challenge_commit shipped with sha, round and counts",

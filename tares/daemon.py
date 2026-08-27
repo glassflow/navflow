@@ -430,6 +430,7 @@ def make_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app):
+        dispatcher.agents.attach_loop()
         runtime.start_all()
         print(f"taresd: {len(runtime.catalog.sources)} source(s); "
               f"console at / · agent API at /query · management API at /api")
@@ -828,7 +829,29 @@ def make_app() -> FastAPI:
             _err(e, 404)
         except ValueError as e:
             _err(e, 400)
+        await _seed_challenger(token, body)
         return JSONResponse({"ingested": n}, status_code=202, headers=_verify_headers(request))
+
+    _seed_lock = asyncio.Lock()
+
+    async def _seed_challenger(token: str, body) -> None:
+        """The first marked session creates the challenger_workflow use case (view, trigger,
+        summarizer). Best effort: an ingest never fails because of it."""
+        from .usecases.challenger_workflow import ensure_instance, has_challenger_line
+        if not has_challenger_line(body):
+            return
+        cfg = runtime.catalog.sources.get(token) or next(
+            (c for c in runtime.catalog.sources.values() if c.ingest_key == token), None)
+        if cfg is None or cfg.connector != "claude_code":
+            return
+        async with _seed_lock:
+            try:
+                uid = ensure_instance(usecases)   # inline, like the create route: reload needs the loop
+            except Exception as e:
+                print(f"taresd: could not create the challenger workflow use case: {e}")
+                return
+        if uid:
+            print(f"taresd: created the challenger workflow use case {uid} (first challenger session)")
 
     # ── OTLP receiver (OpenTelemetry/HTTP JSON; gRPC counterpart in lifespan) ──
     def _resolve_otlp_source(header: str | None) -> str:

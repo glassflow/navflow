@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
+import { Combo, ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
 import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
+import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
 
 // One use case instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
@@ -50,6 +51,12 @@ const HOW_IT_WORKS: Record<string, string[]> = {
     "The incident trigger fires when an alert event lands (Prometheus keeps owning alerting; nothing is re-thresholded).",
     "incident-first-look wakes with the correlated timeline and writes an incident note back onto it. Cause an incident above and watch it happen.",
   ],
+  challenger_workflow: [
+    "In Claude Code, /tares:challenger marks the session; the plugin then runs Codex on the plan when you leave plan mode and on every commit, and blocks on P1/P2 findings until fixed or waived.",
+    "The plugin streams the session, with every Codex review, into the claude_code source, keyed by session.",
+    "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
+    "Accept a proposal below to store it as project memory; the plugin gives it to Claude at the start of the next session on that project.",
+  ],
   default: [
     "The use case created ordinary sources, views, triggers and agents; see Configuration for the list.",
     "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
@@ -61,8 +68,10 @@ export default function UsecaseDetail() {
   const navigate = useNavigate();
   const { data: s, error, reload } = usePolling(() => api.usecaseSummary(id), 10000);
   const [actionError, setActionError] = useState<string>();
-  const [tab, setTab] = useState<"runs" | "config">(() =>
-    (new URLSearchParams(window.location.search).get("tab") === "config" ? "config" : "runs"));
+  const [tab, setTab] = useState<"runs" | "config" | "sessions">(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "config" || t === "sessions" ? t : "runs";
+  });
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
   const [busyKey, setBusyKey] = useState<string>();
@@ -71,19 +80,26 @@ export default function UsecaseDetail() {
   const [actionMsg, setActionMsg] = useState<string>();
   const [actionBusy, setActionBusy] = useState<string>();
   const [actionHelp, setActionHelp] = useState(false);
+  // a use case with sessions opens on them unless the URL asked for a tab
+  useEffect(() => {
+    if (s?.sessions && !new URLSearchParams(window.location.search).get("tab")) setTab("sessions");
+  }, [!!s?.sessions]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!s?.recipe) return;
     api.recipes().then((r) => setRecipe(r.recipes.find((x) => x.key === s.recipe))).catch(() => {});
   }, [s?.recipe]);
   const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
     (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
-  const runAction = async (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+  const runActionWith = async (name: string, args: Record<string, unknown>) => {
     setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
-    const args: Record<string, unknown> = {};
-    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
     try { const r = await api.usecaseAction(id, name, args); setActionMsg(r.message); reload(); }
     catch (e) { setActionError(String((e as Error).message ?? e)); }
     setActionBusy(undefined);
+  };
+  const runAction = (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+    const args: Record<string, unknown> = {};
+    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
+    return runActionWith(name, args);
   };
 
   const act = (fn: () => Promise<unknown>) => async () => {
@@ -176,6 +192,18 @@ export default function UsecaseDetail() {
               <span key={a.name} className="uc-actions" title={a.help}>
                 {Object.entries(a.params ?? {}).map(([k, spec]) => {
                   const o = opts(spec.options);
+                  if (!o.length) {
+                    // free-form parameter: a text field; the sessions on this page are offered as
+                    // suggestions in the console's own list, anything else can still be typed
+                    const suggestions = k === "session" ? (s.sessions ?? []) : [];
+                    return (
+                      <Combo key={k} value={actionArgs[`${a.name}.${k}`] ?? ""} placeholder={spec.label ?? k}
+                             options={suggestions.map((x) => x.session)} style={{ width: 340 }}
+                             hints={Object.fromEntries(suggestions.map((x) => [x.session,
+                               [x.project, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")]))}
+                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })} />
+                    );
+                  }
                   return (
                     <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
@@ -226,11 +254,19 @@ export default function UsecaseDetail() {
       )}
 
       <div className="tabs">
+        {s.sessions && <button className={tab === "sessions" ? "active" : ""} onClick={() => setTab("sessions")}>Sessions</button>}
         <button className={tab === "runs" ? "active" : ""} onClick={() => setTab("runs")}>Runs</button>
         <button className={tab === "config" ? "active" : ""} onClick={() => setTab("config")}>Configuration</button>
       </div>
 
+      {tab === "sessions" && s.sessions && (
+        <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"}
+                       onSummarize={s.status === "active" ? (sid) => { setActionArgs({ ...actionArgs, "summarize.session": sid }); return runActionWith("summarize", { session: sid }); } : undefined}
+                       busy={actionBusy === "summarize"} message={actionMsg} />
+      )}
+
       {tab === "runs" && (<>
+      {runs && <ProposalsPanel runs={runs} />}
       <div className="panel">
         <h2 style={{ marginTop: 0 }}>Runs</h2>
         {runs && runs.some((r) => r.first_look) && (
@@ -241,7 +277,7 @@ export default function UsecaseDetail() {
         )}
         {runs && runs.length > 0 ? (
           <table>
-            <thead><tr><th>when</th><th>repo</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
+            <thead><tr><th>when</th><th>{s.sessions ? "session" : "repo"}</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
             <tbody>
               {runs.map((r, i) => {
                 const link = prLink(r);

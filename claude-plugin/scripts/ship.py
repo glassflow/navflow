@@ -28,7 +28,8 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-FLOW_TOOL = "mcp__tares__set_session_flow"
+FLOW_TOOL = "set_session_flow"   # the tares MCP tool; Claude Code prefixes the server name
+                                  # (mcp__tares__..., or mcp__plugin_tares_tares__... from a plugin)
 CHALLENGER = "challenger"
 
 
@@ -177,6 +178,11 @@ def ensure_source(base: str, headers: dict) -> bool:
 
 # ── the flow tool call, seen in the transcript ───────────────────────────────
 
+def _is_flow_tool(name) -> bool:
+    name = str(name or "")
+    return name == FLOW_TOOL or name.endswith("__" + FLOW_TOOL)
+
+
 def flow_call(obj: dict):
     """The flow a `set_session_flow` tool_use line asks for, or None when the line is not one."""
     msg = obj.get("message") if isinstance(obj.get("message"), dict) else {}
@@ -184,7 +190,7 @@ def flow_call(obj: dict):
     if not isinstance(content, list):
         return None
     for b in content:
-        if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == FLOW_TOOL:
+        if isinstance(b, dict) and b.get("type") == "tool_use" and _is_flow_tool(b.get("name")):
             inp = b.get("input") if isinstance(b.get("input"), dict) else {}
             return str(inp.get("flow", CHALLENGER) or "").strip()
     return None

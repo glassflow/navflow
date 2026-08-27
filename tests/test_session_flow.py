@@ -55,14 +55,14 @@ def main():
        and e.labels.get("duration_seconds") == 41.5, str(e.labels))
     ck("flow label rides along", e.labels.get("flow") == "challenger")
     ck("text summarizes the review",
-       e.text.startswith("Challenger reviewed commit abcdef12, round 2: FAIL, 2 findings (1 blocking): [P1] Null deref"), e.text)
+       e.text.startswith("Challenger reviewed commit abcdef12, round 2: 2 findings (1 blocking): [P1] Null deref"), e.text)
     ck("prose in payload is redacted", "ghp_" not in str(e.payload), str(e.payload)[:200])
 
     plan = {"sessionId": "s1", "type": "challenge_plan", "cwd": "/tmp/proj",
             "challenge": {"verdict": "PASS", "plan": "pricing-page.md", "finding_count": 0,
                           "blocking_count": 0, "duration_seconds": 12, "findings": []}}
     e = c.map_payload(plan)[0]
-    ck("challenge_plan text", e.text == "Challenger reviewed the plan pricing-page.md: PASS, 0 findings (0 blocking)", e.text)
+    ck("challenge_plan text", e.text == "Challenger reviewed the plan pricing-page.md: no findings", e.text)
     waived = {"sessionId": "s1", "type": "challenge_waived", "cwd": "/tmp/proj",
               "challenge": {"findings": [{"priority": "P2", "title": "Missing test"}]}}
     e = c.map_payload(waived)[0]

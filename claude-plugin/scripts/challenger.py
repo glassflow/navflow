@@ -7,7 +7,7 @@ calls the `set_session_flow` MCP tool (see ship.py). Nothing here ever asks Tare
 
 - PostToolUse(ExitPlanMode): Codex critiques the plan. Findings come back to Claude as context so
   it can revise before the user sees the plan. Never blocks: the user approves the plan anyway.
-- PostToolUse(Bash) after a successful `git commit`: `codex exec review --json --commit HEAD`.
+- PostToolUse(Bash) after a successful `git commit`: `codex exec --sandbox read-only review --json --commit HEAD`.
   P1/P2 findings block Claude with the review (strict mode, the default) or come back as context
   (advise mode). Errors, timeouts and inconclusive reviews never block.
 - Stop: while the last review of this session's commit is FAIL, keep Claude in the fix loop
@@ -48,9 +48,12 @@ HISTORY = "tares-challenger-reviews.jsonl"
 WAIVED = "tares-challenger-waived"
 SKIP = "tares-challenger-skip"
 
-_COMMIT_RE = re.compile(r"(^|[^\w])git(\s[^;&|]*)?\scommit([^\w]|$)")
+# `git commit`, with any options in between (`git -c user.name="$(git config user.name || echo x)"
+# commit`, `git -C dir commit`); the response check below drops the failed ones
+_COMMIT_RE = re.compile(r"(^|[^\w])git\s.*?\bcommit\b|(^|[^\w])git\s+commit\b", re.S)
 _FINDING_RE = re.compile(r"^\s*(?:[-*>]\s+)?\[(P[123])\]\s+(\S.*?)\s*$")
 
+PLAN_BLOCKING = ("P1",)
 PLAN_PROMPT = (
     "Review the implementation plan at {path}. Read it fully, then critique from these angles: "
     "missing steps or gaps; design flaws or wrong-architecture choices; scope creep or "
@@ -80,7 +83,7 @@ def codex_bin() -> str:
 def sandbox_args() -> list:
     mode = (_opt("codex_sandbox") or "").strip()
     return {"workspace-write": ["--sandbox", "workspace-write"],
-            "danger-full-access": ["--sandbox", "danger-full-access"]}.get(mode, ["--full-auto"])
+            "danger-full-access": ["--sandbox", "danger-full-access"]}.get(mode, ["--sandbox", "read-only"])
 
 
 # ── Codex ────────────────────────────────────────────────────────────────────
@@ -148,8 +151,8 @@ def apply_waivers(gitdir: str, findings: list) -> None:
         f["waived"] = f["waive_key"] in keys
 
 
-def counts(findings: list) -> tuple:
-    blocking = sum(1 for f in findings if f["priority"] in ("P1", "P2") and not f.get("waived"))
+def counts(findings: list, blocking_levels=("P1", "P2")) -> tuple:
+    blocking = sum(1 for f in findings if f["priority"] in blocking_levels and not f.get("waived"))
     waived = sum(1 for f in findings if f.get("waived"))
     return len(findings), blocking, waived
 
@@ -295,8 +298,10 @@ def review_plan(hook: dict, cfg: dict) -> dict:
             os.remove(path)
         except OSError:
             pass
-    verdict = r["verdict"] or ("FAIL" if any(f["priority"] in ("P1", "P2") for f in r["findings"]) else "PASS")
-    n, blocking, _ = counts(r["findings"])
+    # a plan is a sketch: only P1 counts as blocking here (P2 on a commit blocks, on a plan it
+    # is advice), otherwise every plan comes back with a long list of "blocking" items
+    n, blocking, _ = counts(r["findings"], PLAN_BLOCKING)
+    verdict = r["verdict"] or ("FAIL" if blocking else "PASS")
     ship_challenge(cfg, hook, "challenge_plan", {
         "verdict": verdict, "plan": name, "finding_count": n, "blocking_count": blocking,
         "waived_count": 0, "duration_seconds": r["duration_seconds"], "prose": r["prose"][:4000],
@@ -305,7 +310,8 @@ def review_plan(hook: dict, cfg: dict) -> dict:
         return context("PostToolUse", f"Codex could not review the plan ({verdict.lower()}): {r['prose']} "
                        "You are not blocked; mention it to the user.")
     head = (f"Codex challenged the plan and found {blocking} blocking finding(s) ({n} total). Revise "
-            "the plan for the P1/P2 items before presenting it, or tell the user why you disagree."
+            "the plan for the P1 items before presenting it, or tell the user why you disagree. "
+            "P2 and P3 items are advice; take what is worth it."
             if blocking else
             f"Codex challenged the plan: no blocking findings ({n} advisory). Mention that the plan "
             "was challenged when you present it.")

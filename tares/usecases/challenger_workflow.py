@@ -14,8 +14,11 @@ accepts one from the console, so only accepted memory ever exists.
 """
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime, timedelta, timezone
 
+from ..connectors.claude_code import ClaudeCodeConnector
 from .base import PlannedObject, Recipe, UsecaseError
 from .registry import register
 
@@ -180,17 +183,29 @@ class ChallengerWorkflow(Recipe):
         params = self.validate(instance["params"])
         stats = {x["source"]: x for x in store.event_stats()}
         st = stats.get(SOURCE) or {}
+        sessions = recent_sessions(store) if SOURCE in {x["source"] for x in stats.values()} else []
+        projects = {x["session"]: x["project"] for x in sessions}
         runs = []
         for r in store.list_agent_runs(AGENT, limit=20):
             finding = r.get("finding") or ""
             runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
                          "key": r.get("key"), "session": r.get("key"), "agent": AGENT,
+                         "project": projects.get(r.get("key")),
                          "status": r.get("status"), "rounds": r.get("rounds"),
                          "max_rounds": r.get("max_rounds"), "finding": finding,
                          "proposals": parse_proposals(finding), "error": r.get("error")})
+        decided = proposal_decisions(store)
+        for r in runs:
+            r["decisions"] = {str(i): decided.get((r["project"], text))
+                              for i, text in enumerate(r["proposals"])
+                              if decided.get((r["project"], text))}
+        summarized = {r["session"]: r["id"] for r in reversed(runs) if r["status"] == "ok"}
+        for x in sessions:
+            x["run_id"] = summarized.get(x["session"])
         return {"source": SOURCE, "events": int(st.get("events") or 0),
                 "last_event": _iso(st.get("last_ingest")),
                 "slack_channel": params["slack_channel"], "runs": runs, "runs_total": len(runs),
+                "sessions": sessions,
                 "sessions_summarized": len({r["session"] for r in runs if r["status"] == "ok"}),
                 "names": {"view": VIEW, "ends_view": ENDS_VIEW, "trigger": TRIGGER, "agent": AGENT},
                 "guide": self.guide["url"]}
@@ -215,6 +230,104 @@ def parse_proposals(finding: str) -> list[str]:
         elif out or not s.startswith(("-", "*")):
             break   # a new heading or prose ends the list
     return out[:MAX_PROPOSALS]
+
+
+def has_challenger_line(payload) -> bool:
+    """True when an ingest body carries a line stamped flow=challenger (the plugin marks every
+    line of a marked session)."""
+    items = payload if isinstance(payload, list) else [payload]
+    return any(isinstance(o, dict) and o.get("flow") == FLOW for o in items)
+
+
+def ensure_instance(engine) -> str | None:
+    """Create the challenger_workflow use case the first time a marked session ships, so saying
+    "make this a challenger session" in Claude Code is the whole setup. Returns the new instance id,
+    or None when one already exists."""
+    if any(u.get("recipe") == "challenger_workflow" for u in engine.store.list_usecases()):
+        return None
+    inst = engine.create("challenger_workflow", {})
+    engine.store.log_usecase(inst["id"], "auto", "created on the first challenger session shipped by the plugin")
+    return inst["id"]
+
+
+REJECTED_TYPE = "rejected_proposal"   # stored as custom:rejected_proposal; the plugin only reads decisions
+
+
+def proposal_decisions(store) -> dict:
+    """{(project, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
+    the proposal as a decision keyed by the project; reject writes it as a rejected_proposal, so
+    the choice is kept on Tares (not in one browser) without ever reaching Claude."""
+    out = {}
+    try:
+        rows = store.recent_events(source="agent_memory", limit=2000)
+    except Exception:
+        return out
+    for row in rows:
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        typ = row.get("event_type")
+        state = ("accepted" if typ == "decision"
+                 else "rejected" if typ == f"custom:{REJECTED_TYPE}" else None)
+        if state:
+            out.setdefault((row.get("key"), text), state)
+    return out
+
+
+SESSION_DAYS = 30
+MAX_SESSIONS = 20
+THREAD_TYPES = tuple(ClaudeCodeConnector.CHALLENGE_TYPES) + ("session_flow", "session_end")
+
+
+def recent_sessions(store) -> list[dict]:
+    """The challenger sessions of the last SESSION_DAYS, newest first: who and where, what Codex
+    said about the plan and each commit, and the challenge thread (only the challenge events, so
+    the Claude/Codex exchange reads on its own; the full session stays on the view)."""
+    from ..views import _labels
+    since = datetime.now(timezone.utc) - timedelta(days=SESSION_DAYS)
+    rows = store.read_view_window([SOURCE], None, since, cap=5000, where={"flow": FLOW},
+                                  include_payload=True)
+    by_session: dict[str, dict] = {}
+    for event_time, _source, text, labels, payload in rows:
+        try:
+            raw = json.loads(payload) if isinstance(payload, (str, bytes)) else (payload or {})
+        except (TypeError, ValueError):
+            raw = {}
+        sid = str(raw.get("sessionId") or "")
+        if not sid:
+            continue
+        typ = str(raw.get("type") or "")
+        cwd = str(raw.get("cwd") or "")
+        sess = by_session.setdefault(sid, {
+            "session": sid, "project": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
+            "branch": raw.get("gitBranch"), "started_at": _iso(event_time), "last_at": None,
+            "ended": False, "events": 0, "plan_verdict": None, "plan_findings": None,
+            "plan_blocking": None, "commits": [], "waived": 0,
+            "thread": []})
+        sess["events"] += 1
+        sess["last_at"] = _iso(event_time)
+        if raw.get("gitBranch"):
+            sess["branch"] = raw["gitBranch"]
+        if typ not in THREAD_TYPES:
+            continue
+        lbls = _labels(labels)
+        if typ == "session_end":
+            sess["ended"] = True
+        elif typ == "challenge_plan":
+            sess["plan_verdict"] = lbls.get("verdict")
+            sess["plan_findings"] = lbls.get("finding_count")
+            sess["plan_blocking"] = lbls.get("blocking_count")
+        elif typ == "challenge_commit":
+            sess["commits"].append({"sha": lbls.get("sha"), "verdict": lbls.get("verdict"),
+                                    "round": lbls.get("round"),
+                                    "findings": lbls.get("finding_count"),
+                                    "blocking": lbls.get("blocking_count")})
+        elif typ == "challenge_waived":
+            sess["waived"] += 1
+        sess["thread"].append({"at": _iso(event_time), "event_type": typ, "text": text or "",
+                               "labels": lbls})
+    out = sorted(by_session.values(), key=lambda x: x["last_at"] or "", reverse=True)
+    return out[:MAX_SESSIONS]
 
 
 def _iso(v):

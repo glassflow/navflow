@@ -39,10 +39,13 @@ def line(sid, typ, ts, **extra):
     return json.dumps(o)
 
 
-async def main():
+def clean():
     for p in (DB, DB + ".wal", CATALOG):
         if os.path.exists(p):
             os.remove(p)
+
+
+async def main(app):
 
     from tares.usecases import get_recipe
     from tares.usecases.base import UsecaseError
@@ -92,7 +95,7 @@ async def main():
     check("caps at five", len(parse_proposals("Memory proposals\n" + "\n".join(f"- {i}" for i in range(9)))) == 5)
 
     from tares.daemon import make_app
-    app = make_app()
+    # the app is built before the loop, like `tares up` (the runner attaches the loop at startup)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as cx:
@@ -101,10 +104,21 @@ async def main():
             rr = await cx.post("/api/sources", json={"name": SOURCE, "connector": "claude_code",
                                                      "poll": "10s", "config": {"push": True}})
             check("plugin-style source created", rr.status_code in (200, 201), rr.text[:200])
-            rr = await cx.post("/api/usecases", json={"recipe": "challenger_workflow",
-                                                     "name": "Challenger workflow", "params": {}})
-            check("create -> 201", rr.status_code == 201, rr.text[:300])
-            uid = rr.json()["id"]
+            print("== the first marked line creates the use case ==")
+            rr = await cx.post(f"/ingest/{SOURCE}", content=json.dumps(
+                {"sessionId": "s0", "type": "user", "cwd": "/x", "timestamp": ts(60)}) + "\n",
+                headers={"content-type": "application/x-ndjson"})
+            check("an unmarked line creates nothing",
+                  rr.status_code == 202 and (await cx.get("/api/usecases")).json()["usecases"] == [])
+            rr = await cx.post(f"/ingest/{SOURCE}", content=line("s0", "session_flow", ts(59)) + "\n",
+                               headers={"content-type": "application/x-ndjson"})
+            ucs = (await cx.get("/api/usecases")).json()["usecases"]
+            check("a flow=challenger line creates the challenger_workflow use case",
+                  rr.status_code == 202 and len(ucs) == 1 and ucs[0]["recipe"] == "challenger_workflow", json.dumps(ucs)[:300])
+            uid = ucs[0]["id"]
+            rr = await cx.post(f"/ingest/{SOURCE}", content=line("s0", "session_flow", ts(58)) + "\n",
+                               headers={"content-type": "application/x-ndjson"})
+            check("a second marked line does not create another", len((await cx.get("/api/usecases")).json()["usecases"]) == 1)
             srcs = {s["name"]: s for s in (await cx.get("/api/sources")).json()}
             check("one claude_code source, owned by the use case",
                   sum(1 for n in srcs if n == SOURCE) == 1 and srcs[SOURCE]["owned_by"] == uid,
@@ -149,7 +163,14 @@ async def main():
             print("== summary and action ==")
             s = (await cx.get(f"/api/usecases/{uid}/summary")).json()
             check("summary counts events and names the objects",
-                  s["events"] == 5 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+                  s["events"] == 8 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+            sess = {x["session"]: x for x in s["sessions"]}
+            check("summary lists the marked sessions only", set(sess) == {"s0", "s1"}, json.dumps(s["sessions"])[:400])
+            s1 = sess.get("s1") or {}
+            check("session carries the commit verdict and thread",
+                  s1.get("commits") and s1["commits"][0]["verdict"] == "PASS" and s1.get("ended")
+                  and [t["event_type"] for t in s1["thread"]] == ["session_flow", "challenge_commit", "session_end"],
+                  json.dumps(s1)[:400])
             rr = await cx.post(f"/api/usecases/{uid}/actions/summarize", json={})
             check("summarize without a session -> 400", rr.status_code == 400, rr.text[:200])
             rr = await cx.post(f"/api/usecases/{uid}/actions/summarize", json={"session": "s1"})
@@ -159,6 +180,14 @@ async def main():
             runs = (await cx.get(f"/api/usecases/{uid}/summary")).json()["runs"]
             check("the run is recorded on the use case page (no key, so it did not conclude)",
                   any(r["session"] == "s1" for r in runs), json.dumps(runs)[:300])
+
+            print("== proposal decisions live on the memory source ==")
+            from tares.usecases.challenger_workflow import proposal_decisions
+            await cx.post("/remember", json={"key": "shop", "content": "use make test", "memory_type": "decision"})
+            await cx.post("/remember", json={"key": "shop", "content": "21 tests", "memory_type": "rejected_proposal"})
+            d = proposal_decisions(app.state.store)
+            check("accept -> accepted, reject -> rejected, keyed by project",
+                  d.get(("shop", "use make test")) == "accepted" and d.get(("shop", "21 tests")) == "rejected", str(d))
 
             print("== delete ==")
             rr = await cx.delete(f"/api/usecases/{uid}")
@@ -171,4 +200,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from tares.daemon import make_app
+    clean()
+    asyncio.run(main(make_app()))
