@@ -32,7 +32,7 @@ def check(label, cond, detail=""):
 # ── a fake Tares: records what lands on /ingest/claude_code, serves memory ───
 INGESTED = []
 MEMORY = [{"key": "shop", "event_type": "decision", "text": "The shop repo runs tests with make test."},
-          {"key": "other", "event_type": "decision", "text": "not this project"},
+          {"key": "other", "event_type": "decision", "text": "not this repo"},
           {"key": "shop", "event_type": "observation", "text": "not accepted memory"}]
 
 
@@ -140,8 +140,8 @@ def main():
 
     print("== session start: memory ==")
     o, p = run(SHIP, {**hook, "hook_event_name": "SessionStart", "source": "startup"}, env)
-    check("accepted memory for this project printed as context",
-          "make test" in p.stdout and "not this project" not in p.stdout and "not accepted" not in p.stdout,
+    check("accepted memory for this repo printed as context",
+          "make test" in p.stdout and "not this repo" not in p.stdout and "not accepted" not in p.stdout,
           p.stdout[:300] + p.stderr[:300])
 
     print("== unmarked session ==")

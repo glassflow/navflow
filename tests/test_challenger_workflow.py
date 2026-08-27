@@ -21,6 +21,49 @@ import httpx
 PASS = FAIL = 0
 
 
+def test_repo_label_migration():
+    """A store saved before 1.14 declares the claude_code label `project`; reopening renames it and
+    any view on it to `repo` (stored events keep theirs). The same rewrite runs after a catalog import."""
+    from tares.store import Store
+    print("== repo label migration ==")
+    path = DB + ".migration"
+    if os.path.exists(path):
+        os.remove(path)
+    s = Store(path)
+    s.upsert_catalog_source("claude_code", "logs", "claude_code", "10s", {"push": True, "labels": [
+        {"name": "session", "field": "session", "primary": True},
+        {"name": "project", "field": "project"}]})
+    s.upsert_catalog_source("cc_plain", "logs", "claude_code", "10s", {})
+    s.upsert_catalog_view("byrepo", "project", ["claude_code"], [])
+    s.upsert_catalog_view("mixed", "project", ["claude_code", "something_else"],
+                          [{"field": "project", "op": "eq", "value": "shop"}])
+    s.upsert_catalog_view("mine", "session", ["claude_code"],
+                          [{"field": "project", "op": "eq", "value": "shop"}])
+    s.upsert_catalog_view("other", "session", ["something_else"],
+                          [{"field": "project", "op": "eq", "value": "x"}])
+    s.con.close()
+    s = Store(path)
+    labels = {l["name"]: l for l in next(x for x in s.list_catalog_sources()
+                                         if x["name"] == "claude_code")["config"]["labels"]}
+    check("saved claude_code source now declares repo", "repo" in labels and "project" not in labels
+          and labels["repo"]["field"] == "repo", json.dumps(labels))
+    views = {v["name"]: v for v in s.list_catalog_views()}
+    check("view filter on the claude_code source renamed", views["mine"]["filters"][0]["field"] == "repo")
+    check("unrelated view untouched", views["other"]["filters"][0]["field"] == "project")
+    check("view keyed by project now keyed by repo", views["byrepo"]["key_field"] == "repo")
+    check("mixed-source view left alone", views["mixed"]["key_field"] == "project"
+          and views["mixed"]["filters"][0]["field"] == "project")
+    # an old catalog file imported later brings the label back; the daemon reruns the rewrite
+    s.upsert_catalog_source("claude_code", "logs", "claude_code", "10s", {"push": True, "labels": [
+        {"name": "project", "field": "project"}]})
+    s.migrate_claude_code_repo_label()
+    labels = {l["name"] for l in next(x for x in s.list_catalog_sources()
+                                      if x["name"] == "claude_code")["config"]["labels"]}
+    check("rewrite is repeatable after an import", labels == {"repo"}, str(labels))
+    s.con.close()
+    os.remove(path)
+
+
 def check(label, cond, detail=""):
     global PASS, FAIL
     if cond:
@@ -167,6 +210,13 @@ async def main(app):
             sess = {x["session"]: x for x in s["sessions"]}
             check("summary lists the marked sessions only", set(sess) == {"s0", "s1"}, json.dumps(s["sessions"])[:400])
             s1 = sess.get("s1") or {}
+            check("session names the repo (cwd basename) under `repo`", "repo" in s1 and "project" not in s1,
+                  json.dumps(s1)[:200])
+            lbls = [json.loads(r[0] or "{}") for r in app.state.store.con.execute(
+                "SELECT labels FROM events WHERE source = ?", [SOURCE]).fetchall()]
+            check("events carry a repo label, not project",
+                  any(l.get("repo") == "shop" for l in lbls) and not any("project" in l for l in lbls),
+                  json.dumps(lbls)[:300])
             check("session carries the commit verdict and thread",
                   s1.get("commits") and s1["commits"][0]["verdict"] == "PASS" and s1.get("ended")
                   and [t["event_type"] for t in s1["thread"]] == ["session_flow", "challenge_commit", "session_end"],
@@ -186,7 +236,7 @@ async def main(app):
             await cx.post("/remember", json={"key": "shop", "content": "use make test", "memory_type": "decision"})
             await cx.post("/remember", json={"key": "shop", "content": "21 tests", "memory_type": "rejected_proposal"})
             d = proposal_decisions(app.state.store)
-            check("accept -> accepted, reject -> rejected, keyed by project",
+            check("accept -> accepted, reject -> rejected, keyed by repo",
                   d.get(("shop", "use make test")) == "accepted" and d.get(("shop", "21 tests")) == "rejected", str(d))
 
             print("== delete ==")
@@ -202,4 +252,5 @@ async def main(app):
 if __name__ == "__main__":
     from tares.daemon import make_app
     clean()
+    test_repo_label_migration()
     asyncio.run(main(make_app()))

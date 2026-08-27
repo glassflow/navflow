@@ -474,9 +474,9 @@ export interface UsecaseSummary extends Usecase {
   runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
   sources?: Record<string, { events: number; last: string | null }>;
   guide?: string;
-  runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
+  runs?: { id?: string; started_at?: string; key?: string; repo?: string | null; status?: string; rounds?: number; first_look?: boolean;
            max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null;
-           session?: string; project?: string | null; proposals?: string[];
+           session?: string; proposals?: string[];
            decisions?: Record<string, "accepted" | "rejected"> }[];
   sessions?: ChallengerSession[];
   names?: Record<string, string>;
@@ -488,7 +488,7 @@ export interface ChallengeEvent {
   at: string; event_type: string; text: string; labels: Record<string, string>;
 }
 export interface ChallengerSession {
-  session: string; project?: string | null; branch?: string | null;
+  session: string; repo?: string | null; branch?: string | null;
   started_at?: string | null; last_at?: string | null; ended: boolean; events: number;
   plan_verdict?: string | null; plan_findings?: string | number | null; plan_blocking?: string | number | null;
   waived: number; run_id?: string | null;

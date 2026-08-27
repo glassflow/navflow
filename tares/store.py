@@ -455,10 +455,52 @@ class Store:
                     self.con.execute(stmt)
             for stmt in _MIGRATIONS:
                 self.con.execute(stmt)
+            self._migrate_claude_code_repo_label()
             self._init_source_stats()
             self._init_entity_counts()
         except Exception as e:
             raise StoreUnavailable(f"cannot initialize the database at {path}: {e}", path) from e
+
+    def migrate_claude_code_repo_label(self) -> None:
+        """1.14: the claude_code label `project` became `repo`. Rewrites what the catalog says
+        about the label: the declaration on every claude_code source, and the key or filters of
+        views that read only claude_code sources (a view mixing in other sources is left alone,
+        `project` may be another source's label there). Events already stored keep their old
+        label, as any label change does: new events only. Idempotent, cheap (catalog tables
+        only), run at every open and again after a catalog import, since an old catalog file can
+        bring the old label back."""
+        with self._lock:
+            self._migrate_claude_code_repo_label()
+
+    def _migrate_claude_code_repo_label(self) -> None:
+        rows = self.con.execute(
+            "SELECT name, config FROM catalog_sources WHERE connector = 'claude_code'").fetchall()
+        names = []
+        for name, raw in rows:
+            names.append(name)
+            cfg = json.loads(raw or "{}")
+            hit = False
+            for l in cfg.get("labels") or []:
+                if isinstance(l, dict) and l.get("name") == "project":
+                    l["name"] = "repo"
+                    if l.get("field") == "project":
+                        l["field"] = "repo"
+                    hit = True
+            if hit:
+                self.con.execute("UPDATE catalog_sources SET config = ? WHERE name = ?",
+                                 [json.dumps(cfg), name])
+        for name, key_field, sources, filters in self.con.execute(
+                "SELECT name, key_field, sources, filters FROM catalog_views").fetchall():
+            srcs = set(json.loads(sources or "[]"))
+            if not srcs or not srcs <= set(names):
+                continue
+            fl = json.loads(filters or "[]")
+            for f in fl:
+                if f.get("field") == "project":
+                    f["field"] = "repo"
+            if key_field == "project" or json.loads(filters or "[]") != fl:
+                self.con.execute("UPDATE catalog_views SET key_field = ?, filters = ? WHERE name = ?",
+                                 ["repo" if key_field == "project" else key_field, json.dumps(fl), name])
 
     def ping(self) -> None:
         """Cheapest possible liveness probe for /health — proves the connection still answers.

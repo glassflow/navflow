@@ -148,7 +148,7 @@ class Runtime:
                 "claude_code", source_type_for("claude_code"), "claude_code", "10s",
                 normalize_config("claude_code", {"push": True, "labels": [
                     {"name": "session", "field": "session", "primary": True},
-                    {"name": "project", "field": "project"},
+                    {"name": "repo", "field": "repo"},
                     {"name": "branch", "field": "branch"},
                     {"name": "model", "field": "model"}]}))
             self.reload_catalog()

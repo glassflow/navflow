@@ -4,7 +4,7 @@ plugin and maps them into the data plane.
 Claude Code writes one structured JSONL event per line (user / assistant / tool_use / tool_result /
 summary, each with a timestamp, sessionId, cwd, gitBranch, and — for assistant turns — model + token
 usage). The plugin's hook POSTs new transcript lines to /ingest/claude_code (local *or* remote); each
-line becomes an Envelope keyed by `session`, with project/branch/model labels and token-usage as
+line becomes an Envelope keyed by `session`, with repo/branch/model labels and token-usage as
 numeric fields. Sub-agent (sidechain) transcripts land in the SAME source, tagged `sidechain=true`.
 Secrets are redacted before storage (thin PII guard).
 
@@ -69,7 +69,7 @@ class ClaudeCodeConnector(Connector):
     # synthesized correlation axes (surfaced in the source form; set on every event)
     PROVIDES = [
         {"name": "session", "primary": True, "help": "Claude Code session id (the key)"},
-        {"name": "project", "help": "working-directory project name"},
+        {"name": "repo", "help": "repository the session ran in (working directory name)"},
         {"name": "branch", "help": "git branch"},
         {"name": "model", "help": "model on assistant turns"},
         {"name": "type", "help": "message type (user / assistant / tool_use / …)"},
@@ -115,13 +115,13 @@ class ClaudeCodeConnector(Connector):
         """Synthesized label axes from a raw transcript object — the SAME mapping ingest uses
         (base-class contract: profiling and retroactive relabel must reproduce ingest labels;
         without this override the field profile showed the raw transcript keys and 0-coverage
-        phantoms for session/project/…)."""
+        phantoms for session/repo/…)."""
         o = o or {}
         msg = o.get("message") if isinstance(o.get("message"), dict) else {}
         cwd = o.get("cwd")
         sid = o.get("sessionId")
         return {"session": str(sid) if sid else None,
-                "project": Path(str(cwd)).name if cwd else None,
+                "repo": Path(str(cwd)).name if cwd else None,
                 "branch": str(o["gitBranch"]) if o.get("gitBranch") else None,
                 "model": str(msg["model"]) if msg.get("model") else None,
                 "type": str(o.get("type")) if o.get("type") else None,

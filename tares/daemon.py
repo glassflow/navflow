@@ -391,6 +391,7 @@ def make_app() -> FastAPI:
     if Path(CATALOG_PATH).exists() and (store.catalog_empty() or CATALOG_SYNC):
         counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text(),
                                    engine=UsecaseEngine(store))
+        store.migrate_claude_code_repo_label()   # an old catalog file may still say `project`
         how = "synced" if CATALOG_SYNC else "imported"
         print(f"taresd: {how} {CATALOG_PATH} into catalog "
               f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers"
@@ -2199,6 +2200,7 @@ def make_app() -> FastAPI:
             store.clear_catalog()
         try:
             counts = import_yaml_to_db(store, body.yaml, engine=usecases)
+            store.migrate_claude_code_repo_label()
         except (CatalogError, UsecaseError) as e:
             _err(e)
         except Exception as e:

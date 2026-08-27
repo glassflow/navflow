@@ -93,7 +93,7 @@ SPECS = {
     "claude_code": {"label": "Claude Code sessions", "mode": "poll",
                     "description": "Tails local Claude Code session transcripts "
                                    "(~/.claude/projects/*.jsonl) into the data plane; one event per "
-                                   "message, keyed by session, with project/branch/model labels and "
+                                   "message, keyed by session, with repo/branch/model labels and "
                                    "token-usage fields. Sub-agents roll up into the same source. "
                                    "Secrets are redacted before storage."},
     # `internal`: provisioned by Tares itself (the first finding creates it), never offered in

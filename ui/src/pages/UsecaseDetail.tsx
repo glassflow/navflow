@@ -55,7 +55,7 @@ const HOW_IT_WORKS: Record<string, string[]> = {
     "In Claude Code, /tares:challenger marks the session; the plugin then runs Codex on the plan when you leave plan mode and on every commit, and blocks on P1/P2 findings until fixed or waived.",
     "The plugin streams the session, with every Codex review, into the claude_code source, keyed by session.",
     "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
-    "Accept a proposal below to store it as project memory; the plugin gives it to Claude at the start of the next session on that project.",
+    "Accept a proposal below to store it as memory for the repo; the plugin gives it to Claude at the start of the next session in that repo.",
   ],
   default: [
     "The use case created ordinary sources, views, triggers and agents; see Configuration for the list.",
@@ -200,7 +200,7 @@ export default function UsecaseDetail() {
                       <Combo key={k} value={actionArgs[`${a.name}.${k}`] ?? ""} placeholder={spec.label ?? k}
                              options={suggestions.map((x) => x.session)} style={{ width: 340 }}
                              hints={Object.fromEntries(suggestions.map((x) => [x.session,
-                               [x.project, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")]))}
+                               [x.repo, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")]))}
                              onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })} />
                     );
                   }

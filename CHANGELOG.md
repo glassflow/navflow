@@ -3,6 +3,16 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- `claude_code` events label the repository the session ran in as `repo` (was `project`); the
+  challenger session table, the memory proposals and the plugin's session-start memory lookup
+  use the same word. On upgrade the saved `claude_code` sources and the views that read only
+  them are rewritten to `repo`; events stored earlier keep their old label, like any label
+  change. Memory already accepted keeps reaching Claude: it is keyed by the repo name, which
+  did not change.
+
 ## [1.13.0] - 2026-08-27
 
 ### Added

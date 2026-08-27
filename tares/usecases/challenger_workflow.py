@@ -184,21 +184,21 @@ class ChallengerWorkflow(Recipe):
         stats = {x["source"]: x for x in store.event_stats()}
         st = stats.get(SOURCE) or {}
         sessions = recent_sessions(store) if SOURCE in {x["source"] for x in stats.values()} else []
-        projects = {x["session"]: x["project"] for x in sessions}
+        repos = {x["session"]: x["repo"] for x in sessions}
         runs = []
         for r in store.list_agent_runs(AGENT, limit=20):
             finding = r.get("finding") or ""
             runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
                          "key": r.get("key"), "session": r.get("key"), "agent": AGENT,
-                         "project": projects.get(r.get("key")),
+                         "repo": repos.get(r.get("key")),
                          "status": r.get("status"), "rounds": r.get("rounds"),
                          "max_rounds": r.get("max_rounds"), "finding": finding,
                          "proposals": parse_proposals(finding), "error": r.get("error")})
         decided = proposal_decisions(store)
         for r in runs:
-            r["decisions"] = {str(i): decided.get((r["project"], text))
+            r["decisions"] = {str(i): decided.get((r["repo"], text))
                               for i, text in enumerate(r["proposals"])
-                              if decided.get((r["project"], text))}
+                              if decided.get((r["repo"], text))}
         summarized = {r["session"]: r["id"] for r in reversed(runs) if r["status"] == "ok"}
         for x in sessions:
             x["run_id"] = summarized.get(x["session"])
@@ -254,8 +254,8 @@ REJECTED_TYPE = "rejected_proposal"   # stored as custom:rejected_proposal; the 
 
 
 def proposal_decisions(store) -> dict:
-    """{(project, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
-    the proposal as a decision keyed by the project; reject writes it as a rejected_proposal, so
+    """{(repo, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
+    the proposal as a decision keyed by the repo; reject writes it as a rejected_proposal, so
     the choice is kept on Tares (not in one browser) without ever reaching Claude."""
     out = {}
     try:
@@ -299,7 +299,7 @@ def recent_sessions(store) -> list[dict]:
         typ = str(raw.get("type") or "")
         cwd = str(raw.get("cwd") or "")
         sess = by_session.setdefault(sid, {
-            "session": sid, "project": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
+            "session": sid, "repo": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
             "branch": raw.get("gitBranch"), "started_at": _iso(event_time), "last_at": None,
             "ended": False, "events": 0, "plan_verdict": None, "plan_findings": None,
             "plan_blocking": None, "commits": [], "waived": 0,

@@ -58,7 +58,7 @@ the session locally and on Tares, and from then on:
   capped at 8 and the fix loop at 5 turn ends;
 - every review lands on the session's timeline in Tares next to the transcript, and when the
   session ends Tares's challenger use case writes the session summary with memory proposals.
-  Accepted memory is handed to Claude at the next session start on that project.
+  Accepted memory is handed to Claude at the next session start in that repo.
 
 `/tares:challenger off` turns it off mid-session. `/tares:challenger-waive [n|all]` suppresses a
 disputed finding. `touch .git/tares-challenger-skip` disables the hooks for a repository. State and
