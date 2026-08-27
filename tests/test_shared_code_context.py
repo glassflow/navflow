@@ -1,10 +1,10 @@
-"""End-to-end test for the shared code context recipe (TR-171).
+"""End-to-end test for the shared code context template (TR-171).
 
 Run: PYTHONPATH=. .venv/bin/python tests/test_shared_code_context.py   (no network: a fake GitHub
 is served through httpx's MockTransport for every AsyncClient the daemon opens)
 
 Covers: describe() output, validate() rules, deterministic plan and names, create through
-POST /api/usecases producing exactly the planned objects (sources with credential, view, trigger,
+POST /api/projects producing exactly the planned objects (sources with credential, view, trigger,
 MCP server with headers + credential ref, enabled agent with max_rounds and the rendered prompt),
 update adding and removing a repo, summary shape, commit payloads carrying the changed files with
 truncation, and the bootstrap hook scheduling runs.
@@ -105,12 +105,12 @@ async def main():
         if os.path.exists(p):
             os.remove(p)
 
-    from tares.usecases.registry import get_recipe
-    from tares.usecases.base import UsecaseError
-    recipe = get_recipe("shared_code_context")
+    from tares.projects.registry import get_template
+    from tares.projects.base import ProjectError
+    template = get_template("shared_code_context")
 
     print("== describe ==")
-    d = recipe.describe()
+    d = template.describe()
     check("key/title", d["key"] == "shared_code_context" and d["title"] == "Shared code context")
     for name in ("credential", "source_repos", "context_repo", "context_branch", "context_path",
                  "trigger", "write_mode", "model", "max_rounds"):
@@ -128,18 +128,18 @@ async def main():
     print("== validate ==")
     base = {"credential": "gh", "source_repos": [{"repo": "acme/app"}, "https://github.com/acme/lib.git"],
             "context_repo": "acme/context"}
-    p = recipe.validate(base)
+    p = template.validate(base)
     check("normalizes repos and fills defaults",
           [r["repo"] for r in p["source_repos"]] == ["acme/app", "acme/lib"] and p["context_branch"] == "main"
           and p["context_path"] == "" and p["layout"] == "existing" and p["max_rounds"] == 12, json.dumps(p))
     check("context_path gets a trailing slash",
-          recipe.validate({**base, "context_path": "/docs/ctx"})["context_path"] == "docs/ctx/")
+          template.validate({**base, "context_path": "/docs/ctx"})["context_path"] == "docs/ctx/")
 
     def bad(label, params):
         try:
-            recipe.validate(params)
+            template.validate(params)
             check(label, False, "no error")
-        except UsecaseError as e:
+        except ProjectError as e:
             check(label, True, str(e))
     bad("missing credential", {**base, "credential": ""})
     bad("no repos", {**base, "source_repos": []})
@@ -152,8 +152,8 @@ async def main():
     bad("max_rounds out of range", {**base, "max_rounds": 30})
 
     print("== plan ==")
-    plan1 = recipe.plan(p)
-    plan2 = recipe.plan(recipe.validate(base))
+    plan1 = template.plan(p)
+    plan2 = template.plan(template.validate(base))
     check("plan is deterministic",
           [(o.kind, o.key, o.spec) for o in plan1] == [(o.kind, o.key, o.spec) for o in plan2])
     kinds = [o.kind for o in plan1]
@@ -185,16 +185,16 @@ async def main():
           "`acme/context`" in prompt and "`acme/app`" in prompt and "`acme/lib`" in prompt
           and "its own pages under `/`" in prompt and "github__create_pull_request" in prompt
           and "github__get_commit" in prompt and "tares/context-<repo-name>" in prompt)
-    per_repo = recipe.render_prompt(recipe.validate({**base, "context_path": "context", "layout": "per_repo"}))
+    per_repo = template.render_prompt(template.validate({**base, "context_path": "context", "layout": "per_repo"}))
     check("per_repo layout keeps the page template",
           "context/<repo-name>.md" in per_repo and "Page template" in per_repo)
     check("existing layout has no per-repo template", "Page template" not in prompt)
     check("no em dashes in prompt", "—" not in prompt)
-    direct = recipe.render_prompt(recipe.validate({**base, "write_mode": "commit_to_branch"}))
+    direct = template.render_prompt(template.validate({**base, "write_mode": "commit_to_branch"}))
     check("commit_to_branch prompt has no PR step",
           "Do not open a pull request" in direct and "github__create_pull_request" not in direct)
     check("model only when set",
-          "model" not in agent and "model" in next(o for o in recipe.plan(recipe.validate(
+          "model" not in agent and "model" in next(o for o in template.plan(template.validate(
               {**base, "model": "claude-opus-4-8"})) if o.kind == "agent").spec)
 
     print("== create through the API ==")
@@ -203,16 +203,16 @@ async def main():
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with _RealClient(transport=transport, base_url="http://test") as cx:
-            r = await cx.get("/api/usecases/recipes")
-            check("recipe listed", any(x["key"] == "shared_code_context" for x in r.json()["recipes"]), r.text[:200])
+            r = await cx.get("/api/projects/templates")
+            check("template listed", any(x["key"] == "shared_code_context" for x in r.json()["templates"]), r.text[:200])
 
-            r = await cx.post("/api/usecases", json={"recipe": "shared_code_context", "params": base})
+            r = await cx.post("/api/projects", json={"template": "shared_code_context", "params": base})
             check("create without credential -> 400", r.status_code == 400, r.text)
 
             r = await cx.post("/api/integrations/github", json={"name": "gh", "token": "tok-1", "api_url": API})
             check("credential created", r.status_code == 201, r.text)
 
-            r = await cx.post("/api/usecases", json={"recipe": "shared_code_context",
+            r = await cx.post("/api/projects", json={"template": "shared_code_context",
                                                      "name": "acme context", "params": base})
             check("create -> 201", r.status_code == 201, r.text)
             inst = r.json()
@@ -271,7 +271,7 @@ async def main():
                   len(small.get("files") or []) == 1 and small.get("files_truncated") is False, json.dumps(small.get("files")))
 
             print("== summary ==")
-            r = await cx.get(f"/api/usecases/{uid}/summary")
+            r = await cx.get(f"/api/projects/{uid}/summary")
             s = r.json()
             check("summary shape", r.status_code == 200 and s["context_repo"] == "acme/context"
                   and isinstance(s["repos"], list) and len(s["repos"]) == 2 and "runs" in s
@@ -280,7 +280,7 @@ async def main():
             check("summary counts events per repo", app_row["events"] == 2 and app_row["last_commit"], json.dumps(app_row))
 
             print("== update: add and remove a repo ==")
-            r = await cx.put(f"/api/usecases/{uid}", json={"params": {**base, "source_repos": ["acme/lib", "acme/context2"]}})
+            r = await cx.put(f"/api/projects/{uid}", json={"params": {**base, "source_repos": ["acme/lib", "acme/context2"]}})
             check("update -> 200", r.status_code == 200, r.text[:300])
             rep = r.json().get("report", {})
             check("report: app removed, context2 created, others updated",
@@ -320,7 +320,7 @@ async def main():
                   json.dumps(log)[:300])
 
             print("== delete ==")
-            r = await cx.delete(f"/api/usecases/{uid}?purge_events=true")
+            r = await cx.delete(f"/api/projects/{uid}?purge_events=true")
             check("delete -> 200", r.status_code == 200, r.text)
             r = await cx.get("/api/sources")
             check("owned sources gone", not any(x["name"].startswith("ctx_acme_context_") for x in r.json()))

@@ -302,14 +302,14 @@ def validate_mcp_server_dict(m: dict) -> None:
 def import_yaml_to_db(store, text: str, engine=None) -> dict:
     """Validate and write a YAML catalog into the store. Returns counts.
 
-    `engine` (a usecases.engine.Engine) is needed only when the document carries a `usecases:`
-    section; without one, use cases in the document are an error rather than silently skipped."""
+    `engine` (a projects.engine.Engine) is needed only when the document carries a `projects:`
+    section; without one, projects in the document are an error rather than silently skipped."""
     return import_catalog_dict(store, yaml.safe_load(text) or {}, engine=engine)
 
 
 def import_catalog_dict(store, raw: dict, engine=None) -> dict:
-    """The dict form of import_yaml_to_db; also what the use-case engine applies a plan through,
-    so a use case's objects go through exactly the validation and writes a catalog import does."""
+    """The dict form of import_yaml_to_db; also what the project engine applies a plan through,
+    so a project's objects go through exactly the validation and writes a catalog import does."""
     sources = raw.get("sources", []) or []
     views = raw.get("views", []) or []
     triggers = raw.get("triggers", []) or []
@@ -381,29 +381,35 @@ def import_catalog_dict(store, raw: dict, engine=None) -> dict:
                                 m.get("auth_header"), auth_value,
                                 {str(k): str(v) for k, v in (m.get("headers") or {}).items()})
 
-    # use cases: {recipe, name, params}. Created (or, by name, updated) through the engine so
+    # projects: {template, name, params}. Created (or, by name, updated) through the engine so
     # they own their objects like a console-created instance would.
-    usecases = raw.get("usecases", []) or []
-    if usecases and engine is None:
-        raise CatalogError("this catalog declares usecases but no engine was given to apply them")
-    for u in usecases:
-        for field in ("recipe", "name"):
+    # `usecases:` with `recipe:` is the pre-1.14 form, read until two releases after 1.14
+    if raw.get("projects") and raw.get("usecases"):
+        raise CatalogError("this catalog has both a projects: and a usecases: section; keep one "
+                           "(usecases: is the old name of projects:)")
+    projects = raw.get("projects") or raw.get("usecases") or []
+    if projects and engine is None:
+        raise CatalogError("this catalog declares projects but no engine was given to apply them")
+    for u in projects:
+        if not u.get("template") and u.get("recipe"):
+            u = {**u, "template": u["recipe"]}
+        for field in ("template", "name"):
             if not u.get(field):
-                raise CatalogError(f"usecase is missing required field {field!r}")
-        existing = store.get_usecase_by_name(u["name"])
+                raise CatalogError(f"project is missing required field {field!r}")
+        existing = store.get_project_by_name(u["name"])
         if existing is None:
-            engine.create(u["recipe"], u.get("params") or {}, name=u["name"])
+            engine.create(u["template"], u.get("params") or {}, name=u["name"])
         else:
             engine.update(existing["id"], u.get("params") or {})
 
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
-            "agents": len(agents), "mcp_servers": len(mcp_servers), "usecases": len(usecases),
+            "agents": len(agents), "mcp_servers": len(mcp_servers), "projects": len(projects),
             "names": {"sources": [s["name"] for s in sources],
                       "views": [v["name"] for v in views],
                       "triggers": [t["name"] for t in triggers],
                       "agents": [a["name"] for a in agents],
                       "mcp_servers": [m["name"] for m in mcp_servers],
-                      "usecases": [u["name"] for u in usecases]}}
+                      "projects": [u["name"] for u in projects]}}
 
 
 def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool = False) -> str:
@@ -492,13 +498,13 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
         doc["agents"] = agent_out
     if mcp_out:
         doc["mcp_servers"] = mcp_out
-    # Use cases: recipe + name + params. Their objects are already in the sections above (they are
+    # Projects: template + name + params. Their objects are already in the sections above (they are
     # ordinary objects); on import the engine re-plans over them and re-claims ownership. Params
     # may hold references to credentials but never credential values, so this is safe to share.
-    uc_out = [{"recipe": u["recipe"], "name": u["name"], "params": u["params"]}
-              for u in store.list_usecases()]
+    uc_out = [{"template": u["template"], "name": u["name"], "params": u["params"]}
+              for u in store.list_projects()]
     if uc_out and want is None:
-        doc["usecases"] = uc_out
+        doc["projects"] = uc_out
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
 
 

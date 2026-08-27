@@ -1,10 +1,10 @@
-"""Use case: shared code context.
+"""Project: shared code context.
 
 A team keeps its shared context (what each service does, its interfaces, configuration, how the
-repos depend on each other) in one GitHub repository. This recipe watches commits across the
+repos depend on each other) in one GitHub repository. This template watches commits across the
 team's code repos and, whenever something lands, a Tares agent reads the diff and updates the
 context repo so it never goes stale. The context repo is the source of truth; the agent writes
-to it through GitHub's hosted MCP server, registered by the recipe with the same stored credential
+to it through GitHub's hosted MCP server, registered by the template with the same stored credential
 the sources use.
 
 Objects one instance owns (all names prefixed `ctx_<slug>_`): one `github` commits source per
@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 from ..github_credentials import CREDENTIAL_PREFIX
-from .base import PlannedObject, Recipe, UsecaseError
+from .base import PlannedObject, Template, ProjectError
 from .registry import register
 
 GITHUB_MCP_URL = "https://api.githubcopilot.com/mcp/"
@@ -113,7 +113,7 @@ WRITE_DIRECT = ("Write the changed pages with `github__create_or_update_file` di
 
 def _slug(text: str, n: int = 24) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")
-    return s[:n] or "usecase"
+    return s[:n] or "project"
 
 
 def _repo_name(repo: str) -> str:
@@ -131,11 +131,11 @@ def _norm_repo(value) -> str:
     if r.endswith(".git"):
         r = r[:-4]
     if not _REPO_RE.match(r):
-        raise UsecaseError(f"repository must be owner/name (got {value!r})")
+        raise ProjectError(f"repository must be owner/name (got {value!r})")
     return r
 
 
-class SharedCodeContext(Recipe):
+class SharedCodeContext(Template):
     key = "shared_code_context"
     title = "Shared code context"
     description = ("Keep one repository of shared context current: Tares watches commits across "
@@ -178,7 +178,7 @@ class SharedCodeContext(Recipe):
                        "help": "pull requests keep a human in the loop; commits keep the repo "
                                "current with no review"},
         "bootstrap": {"type": "boolean", "default": True, "label": "First look on start",
-                      "help": "when the use case starts, run the agent once per source repo over "
+                      "help": "when the project starts, run the agent once per source repo over "
                               "the last 7 days of commits so the context repo starts current; turn "
                               "off if it already is or to save model spend"},
         "model": {"type": "string", "default": "", "label": "Model",
@@ -200,43 +200,43 @@ class SharedCodeContext(Recipe):
             if isinstance(item, str):
                 item = {"repo": item}
             if not isinstance(item, dict):
-                raise UsecaseError("source_repos entries must be {repo, branch}")
+                raise ProjectError("source_repos entries must be {repo, branch}")
             repo = _norm_repo(item.get("repo"))
             if repo.lower() in seen:
-                raise UsecaseError(f"repository {repo} is listed twice")
+                raise ProjectError(f"repository {repo} is listed twice")
             seen.add(repo.lower())
             repos.append({"repo": repo, "branch": str(item.get("branch") or "").strip()})
         if not repos:
-            raise UsecaseError("pick at least one source repository")
+            raise ProjectError("pick at least one source repository")
         if len(repos) > MAX_REPOS:
-            raise UsecaseError(f"at most {MAX_REPOS} source repositories per use case")
+            raise ProjectError(f"at most {MAX_REPOS} source repositories per project")
         p["source_repos"] = repos
         p["context_repo"] = _norm_repo(p.get("context_repo"))
         if p["context_repo"].lower() in seen:
-            raise UsecaseError("the context repository cannot also be a source repository")
+            raise ProjectError("the context repository cannot also be a source repository")
         p["context_branch"] = str(p.get("context_branch") or "main").strip() or "main"
         path = str(p.get("context_path") or "").strip().strip("/")
         p["context_path"] = (path + "/") if path else ""
         p["bootstrap"] = bool(p.get("bootstrap", True))
         if p.get("layout") not in LAYOUTS:
-            raise UsecaseError(f"layout must be one of {sorted(LAYOUTS)}")
+            raise ProjectError(f"layout must be one of {sorted(LAYOUTS)}")
         if p.get("trigger") not in TRIGGERS:
-            raise UsecaseError(f"trigger must be one of {sorted(TRIGGERS)}")
+            raise ProjectError(f"trigger must be one of {sorted(TRIGGERS)}")
         if p.get("write_mode") not in WRITE_MODES:
-            raise UsecaseError(f"write_mode must be one of {list(WRITE_MODES)}")
+            raise ProjectError(f"write_mode must be one of {list(WRITE_MODES)}")
         p["model"] = str(p.get("model") or "").strip()
         try:
             rounds = int(p.get("max_rounds") or 12)
         except (TypeError, ValueError):
-            raise UsecaseError("max_rounds must be a whole number between 1 and 24")
+            raise ProjectError("max_rounds must be a whole number between 1 and 24")
         if not 1 <= rounds <= 24:
-            raise UsecaseError("max_rounds must be between 1 and 24")
+            raise ProjectError("max_rounds must be between 1 and 24")
         p["max_rounds"] = rounds
         return p
 
     def preflight(self, params: dict, store) -> None:
         if store.get_github_credential(params["credential"]) is None:
-            raise UsecaseError(f"GitHub credential {params['credential']!r} not found; add it "
+            raise ProjectError(f"GitHub credential {params['credential']!r} not found; add it "
                                "under Settings > GitHub first")
 
     # ── plan ─────────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ class SharedCodeContext(Recipe):
             write_instructions=write.format(**fmt), layout_instructions=layout,
             layout_templates=templates, **fmt)
 
-    # ── summary (the use case page) ──────────────────────────────────────────
+    # ── summary (the project page) ──────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
         params = instance["params"]
         n = self.names(params)

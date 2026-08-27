@@ -1,4 +1,4 @@
-"""The AI SRE demo as a use case: the same six objects `demo/catalog.demo.yaml` seeds (three
+"""The AI SRE demo as a project: the same six objects `demo/catalog.demo.yaml` seeds (three
 sources keyed by `service`, the `service_timeline` view, the `incident` trigger, the
 `incident-first-look` agent), created with one click in the console instead of importing the
 catalog. Same names on purpose, so the docs guide (docs.glassflow.ai/tares/guides/ai-sre) reads
@@ -7,11 +7,11 @@ duplicated.
 
 The demo stack itself (api-server, Prometheus, traffic) is Docker on the user's machine and stays
 outside Tares: SETUP shows the two commands, and the `inject` action calls the api-server's fault
-switch so an incident can be caused and cleared from the use case page.
+switch so an incident can be caused and cleared from the project page.
 
 Hosted mode: when the instance is pointed at a hosted demo stack (TARES_DEMO_* env vars, set by
 whoever runs the instance — the cloud chart, or a self-hoster with their own stack), the same
-recipe adapts: URL defaults come from the env, logs come from the stack's Loki through the loki
+template adapts: URL defaults come from the env, logs come from the stack's Loki through the loki
 connector instead of a local Docker container, SETUP loses the docker steps, detect() probes the
 endpoints instead of shelling docker ps, and the actions say plainly that the stack is shared.
 The env vars are read per call, never at import, so one process can be tested in both modes.
@@ -22,7 +22,7 @@ import os
 
 import httpx
 
-from .base import PlannedObject, Recipe, UsecaseError
+from .base import PlannedObject, Template, ProjectError
 from .registry import register
 
 SCENARIOS = ("error_spike", "latency", "dependency_outage", "clear")
@@ -55,7 +55,7 @@ check.
 """
 
 
-class AiSreDemo(Recipe):
+class AiSreDemo(Template):
     key = "ai_sre_demo"
     title = "AI SRE demo"
     description = ("Watch a small demo system, correlate its metrics, logs and alerts on one timeline, "
@@ -165,12 +165,12 @@ class AiSreDemo(Recipe):
         ]
         if _hosted():
             return {"you": ["give the agent an Anthropic key",
-                            "cause an incident from the use case page, or wait: the shared demo "
+                            "cause an incident from the project page, or wait: the shared demo "
                             "stack breaks itself every 30 minutes"],
                     "tares": tares}
         return {"you": ["start the demo stack with docker compose",
                         "give the agent an Anthropic key",
-                        "cause an incident from the use case page"],
+                        "cause an incident from the project page"],
                 "tares": tares}
 
     def describe(self) -> dict:
@@ -191,11 +191,11 @@ class AiSreDemo(Recipe):
         for k in ("prometheus_url", "api_server_url"):
             v = str(p.get(k) or P[k]["default"]).strip().rstrip("/")
             if not v.startswith(("http://", "https://")):
-                raise UsecaseError(f"{k} must start with http:// or https://")
+                raise ProjectError(f"{k} must start with http:// or https://")
             p[k] = v
         loki = str(p.get("loki_url") or "").strip().rstrip("/")
         if loki and not loki.startswith(("http://", "https://")):
-            raise UsecaseError("loki_url must start with http:// or https://")
+            raise ProjectError("loki_url must start with http:// or https://")
         p["loki_url"] = loki
         # the form may not have offered container (hosted mode); the stored default still applies
         p["container"] = str(p.get("container") or self.PARAMS["container"]["default"]).strip()
@@ -207,7 +207,7 @@ class AiSreDemo(Recipe):
         prom = params["prometheus_url"]
         # The shared read credential comes from the env, not the params: it belongs to the
         # instance's wiring (like the stack URLs' defaults), and a secret must not live in the
-        # stored use-case params, which any console reader can see.
+        # stored project params, which any console reader can see.
         h = _hosted()
         cred = ({"username": h["username"], "password": h["password"]}
                 if h and h["username"] else {})
@@ -334,20 +334,20 @@ class AiSreDemo(Recipe):
         if action == "inject":
             scenario = str(args.get("scenario") or "error_spike")
             if scenario not in SCENARIOS or scenario == "clear":
-                raise UsecaseError(f"scenario must be one of {[s for s in SCENARIOS if s != 'clear']}")
+                raise ProjectError(f"scenario must be one of {[s for s in SCENARIOS if s != 'clear']}")
         elif action == "clear":
             scenario = "clear"
         else:
-            raise UsecaseError(f"{self.key}: no action {action!r}")
+            raise ProjectError(f"{self.key}: no action {action!r}")
         url = params["api_server_url"] + "/demo/inject"
         h = _hosted()
         auth = (h["username"], h["password"]) if h and h["username"] else None
         try:
             r = httpx.post(url, json={"scenario": scenario}, timeout=10, auth=auth)
         except Exception as e:
-            raise UsecaseError(f"could not reach the demo api-server at {url}: {e}") from e
+            raise ProjectError(f"could not reach the demo api-server at {url}: {e}") from e
         if r.status_code >= 300:
-            raise UsecaseError(f"api-server answered {r.status_code} for {scenario}")
+            raise ProjectError(f"api-server answered {r.status_code} for {scenario}")
         msg = ("fault cleared; the alert resolves within about a minute" if scenario == "clear"
                else f"{scenario} injected; in about 30 seconds the alert fires, the trigger wakes the "
                     f"agent, and its run appears under Runs below")

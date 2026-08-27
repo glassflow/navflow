@@ -1,8 +1,8 @@
-"""The engine turns a recipe's plan into real objects and keeps them in step with the params.
+"""The engine turns a template's plan into real objects and keeps them in step with the params.
 
-Every write goes through the catalog importer (`config.import_catalog_dict`), so a use case's
+Every write goes through the catalog importer (`config.import_catalog_dict`), so a project's
 objects get exactly the validation, secret handling and runtime start a catalog import gets. What
-the engine adds is ownership (`owned_by` on the object rows, `usecase_objects` mapping plan keys to
+the engine adds is ownership (`owned_by` on the object rows, `project_objects` mapping plan keys to
 names), a diff on update, all-or-nothing create, pause/resume, delete and repair.
 """
 from __future__ import annotations
@@ -11,8 +11,8 @@ import traceback
 import uuid
 
 from ..config import CatalogError, agent_url, import_catalog_dict
-from .base import PlannedObject, UsecaseError
-from .registry import get_recipe, list_recipes as _list_recipes
+from .base import PlannedObject, ProjectError
+from .registry import get_template, list_templates as _list_templates
 
 # delete order: dependents first (an agent references a trigger, a trigger a view, a view sources;
 # an agent may reference an mcp server)
@@ -25,14 +25,14 @@ class Engine:
     def __init__(self, store, reload=None, runtime=None):
         """`reload`: called after every catalog change (the runtime's reload_catalog); None while
         the daemon is still booting, since the runtime builds its catalog from the DB afterwards.
-        `runtime`: handed to a recipe's after_create hook (bootstrap runs); None at boot."""
+        `runtime`: handed to a template's after_create hook (bootstrap runs); None at boot."""
         self.store = store
         self._reload = reload
         self.runtime = runtime
 
     # ── read side ────────────────────────────────────────────────────────────
-    def list_recipes(self) -> list[dict]:
-        return [r.describe() for r in _list_recipes()]
+    def list_templates(self) -> list[dict]:
+        return [r.describe() for r in _list_templates()]
 
     def _existing_names(self) -> dict[str, dict[str, dict]]:
         s = self.store
@@ -43,50 +43,52 @@ class Engine:
                 "mcp_server": {x["name"]: x for x in s.list_mcp_servers()}}
 
     def get(self, uid: str) -> dict | None:
-        inst = self.store.get_usecase(uid)
+        inst = self.store.get_project(uid)
         if inst is None:
             return None
         existing = self._existing_names()
         objects = []
-        for o in self.store.list_usecase_objects(uid):
+        for o in self.store.list_project_objects(uid):
             row = existing[o["kind"]].get(o["name"])
             objects.append({**o, "missing": row is None,
                             "customized": bool(row and row.get("customized")) or o["customized"]})
-        recipe = _safe_recipe(inst["recipe"])
-        return {**inst, "recipe_title": recipe.title if recipe else inst["recipe"],
-                "objects": objects}
+        template = _safe_template(inst["template"])
+        # `recipe` mirrors `template` for pre-1.14 clients; dropped two releases after 1.14
+        title = template.title if template else inst["template"]
+        return {**inst, "template_title": title, "objects": objects,
+                "recipe": inst["template"], "recipe_title": title}
 
     def list(self) -> list[dict]:
-        return [self.get(u["id"]) for u in self.store.list_usecases()]
+        return [self.get(u["id"]) for u in self.store.list_projects()]
 
     def summary(self, uid: str) -> dict:
         inst = self.get(uid)
         if inst is None:
-            raise KeyError(f"unknown use case {uid!r}")
-        recipe = _safe_recipe(inst["recipe"])
+            raise KeyError(f"unknown project {uid!r}")
+        template = _safe_template(inst["template"])
         extra = {}
-        if recipe is not None:
+        if template is not None:
             try:
-                extra = recipe.summary(inst, self.store) or {}
+                extra = template.summary(inst, self.store) or {}
             except Exception as e:   # a summary must never take the page down
                 extra = {"summary_error": f"{type(e).__name__}: {e}"}
-        # the instance's own fields win: a recipe summary adds detail, it never replaces
+        # the instance's own fields win: a template summary adds detail, it never replaces
         # id/objects/status/log that the pages depend on
-        base = {**inst, "log": self.store.list_usecase_log(uid)}
+        base = {**inst, "log": self.store.list_project_log(uid)}
         return {**{k: v for k, v in extra.items() if k not in base}, **base}
 
     # ── write side ───────────────────────────────────────────────────────────
-    def create(self, recipe_key: str, params: dict, name: str | None = None) -> dict:
-        recipe = get_recipe(recipe_key)
-        params = recipe.validate(params)
-        recipe.preflight(params, self.store)
-        name = (name or "").strip() or f"{recipe.title or recipe.key}"
-        if self.store.get_usecase_by_name(name) is not None:
-            raise UsecaseError(f"a use case named {name!r} already exists")
-        plan = recipe.plan(params)
+    def create(self, template_key: str, params: dict, name: str | None = None) -> dict:
+        template = get_template(template_key)
+        params = template.validate(params)
+        template.preflight(params, self.store)
+        name = (name or "").strip() or f"{template.title or template.key}"
+        if self.store.get_project_by_name(name) is not None:
+            raise ProjectError(f"a project named {name!r} already exists")
+        plan = template.plan(params)
         uid = "uc_" + uuid.uuid4().hex[:10]
-        self.store.create_usecase(uid, recipe.key, name, params, status="active")
-        self.store.log_usecase(uid, "create", f"{len(plan)} objects planned")
+        self.store.create_project(uid, template.key, name, params, status="active")
+        self.store.log_project(uid, "create", f"{len(plan)} objects planned")
         before = self._existing_names()
         try:
             self._check_ownership(uid, plan, before)
@@ -96,26 +98,26 @@ class Engine:
             # the failure on the instance so the UI can show it, then re-raise.
             created = [o for o in plan if o.name not in before[o.kind]]
             self._delete_objects(created, purge_events=False)
-            self.store.update_usecase(uid, status="error", last_error=_errtext(e))
-            self.store.log_usecase(uid, "create_failed", _errtext(e))
+            self.store.update_project(uid, status="error", last_error=_errtext(e))
+            self.store.log_project(uid, "create_failed", _errtext(e))
             self._do_reload()
             raise
         self._do_reload()
-        self.store.log_usecase(uid, "created", ", ".join(f"{o.kind}:{o.name}" for o in plan))
+        self.store.log_project(uid, "created", ", ".join(f"{o.kind}:{o.name}" for o in plan))
         inst = self.get(uid)
         try:
-            recipe.after_create(inst, self.store, self.runtime)
+            template.after_create(inst, self.store, self.runtime)
         except Exception as e:   # the objects exist; a failed bootstrap is a note, not a rollback
-            self.store.log_usecase(uid, "bootstrap_failed", _errtext(e))
+            self.store.log_project(uid, "bootstrap_failed", _errtext(e))
         return self.get(uid)
 
     def update(self, uid: str, params: dict) -> dict:
         inst = self._require(uid)
-        recipe = get_recipe(inst["recipe"])
-        params = recipe.validate(params)
-        recipe.preflight(params, self.store)
-        plan = recipe.plan(params)
-        existing = {(o["kind"], o["key"]): o for o in self.store.list_usecase_objects(uid)}
+        template = get_template(inst["template"])
+        params = template.validate(params)
+        template.preflight(params, self.store)
+        plan = template.plan(params)
+        existing = {(o["kind"], o["key"]): o for o in self.store.list_project_objects(uid)}
         current = self._existing_names()
         report = {"created": [], "updated": [], "kept": [], "deleted": []}
         to_apply: list[PlannedObject] = []
@@ -141,39 +143,39 @@ class Engine:
         self._check_ownership(uid, to_apply, current)
         self._delete_objects(removed, purge_events=False)
         for r in removed:
-            self.store.delete_usecase_object(uid, r.kind, r.key)
+            self.store.delete_project_object(uid, r.kind, r.key)
             report["deleted"].append(f"{r.kind}:{r.name}")
         try:
             self._apply(uid, to_apply)
         except Exception as e:
-            self.store.update_usecase(uid, status="error", last_error=_errtext(e))
-            self.store.log_usecase(uid, "update_failed", _errtext(e))
+            self.store.update_project(uid, status="error", last_error=_errtext(e))
+            self.store.log_project(uid, "update_failed", _errtext(e))
             self._do_reload()
             raise
-        self.store.update_usecase(uid, params=params, last_error=None,
+        self.store.update_project(uid, params=params, last_error=None,
                                   status="active" if inst["status"] == "error" else None)
         self._do_reload()
-        self.store.log_usecase(uid, "updated", "; ".join(
+        self.store.log_project(uid, "updated", "; ".join(
             f"{k}: {', '.join(v)}" for k, v in report.items() if v) or "no changes")
         return {**self.get(uid), "report": report}
 
     def pause(self, uid: str) -> dict:
         inst = self._require(uid)
-        for o in self.store.list_usecase_objects(uid):
+        for o in self.store.list_project_objects(uid):
             if o["kind"] == "trigger":
                 self.store.set_trigger_paused(o["name"], True)
             elif o["kind"] == "agent":
                 self.store.remove_subscription_by_url(agent_url(o["name"]))
-        self.store.update_usecase(uid, status="paused")
-        self.store.log_usecase(uid, "paused", "triggers paused, agents unsubscribed; sources keep ingesting")
+        self.store.update_project(uid, status="paused")
+        self.store.log_project(uid, "paused", "triggers paused, agents unsubscribed; sources keep ingesting")
         self._do_reload()
         return self.get(uid)
 
     def resume(self, uid: str) -> dict:
         inst = self._require(uid)
-        recipe = get_recipe(inst["recipe"])
-        plan = {(o.kind, o.key): o for o in recipe.plan(recipe.validate(inst["params"]))}
-        for o in self.store.list_usecase_objects(uid):
+        template = get_template(inst["template"])
+        plan = {(o.kind, o.key): o for o in template.plan(template.validate(inst["params"]))}
+        for o in self.store.list_project_objects(uid):
             if o["kind"] == "trigger":
                 self.store.set_trigger_paused(o["name"], False)
             elif o["kind"] == "agent":
@@ -184,45 +186,45 @@ class Engine:
                     if not self.store.subscription_by_url(url):
                         self.store.add_subscription("sub_" + uuid.uuid4().hex[:8],
                                                     agent["trigger"], url, created_by="tares")
-        self.store.update_usecase(uid, status="active")
-        self.store.log_usecase(uid, "resumed")
+        self.store.update_project(uid, status="active")
+        self.store.log_project(uid, "resumed")
         self._do_reload()
         return self.get(uid)
 
     def delete(self, uid: str, purge_events: bool = False) -> dict:
         self._require(uid)
         objs = [PlannedObject(o["kind"], o["key"], {"name": o["name"]})
-                for o in self.store.list_usecase_objects(uid)]
+                for o in self.store.list_project_objects(uid)]
         purged = self._delete_objects(objs, purge_events=purge_events)
-        self.store.delete_usecase(uid)
+        self.store.delete_project(uid)
         self._do_reload()
         return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in objs],
                 "purged_events": purged}
 
-    async def detect(self, recipe_key: str) -> dict:
-        recipe = get_recipe(recipe_key)
-        return await recipe.detect(self.store, self.runtime)
+    async def detect(self, template_key: str) -> dict:
+        template = get_template(template_key)
+        return await template.detect(self.store, self.runtime)
 
     def action(self, uid: str, name: str, args: dict | None = None) -> dict:
-        """Run one of the recipe's ACTIONS on an instance and log it."""
+        """Run one of the template's ACTIONS on an instance and log it."""
         inst = self._require(uid)
-        recipe = get_recipe(inst["recipe"])
-        if not any(a.get("name") == name for a in recipe.ACTIONS):
-            raise UsecaseError(f"{recipe.key}: no action {name!r}")
-        result = recipe.run_action(inst, name, dict(args or {}), self.store, self.runtime) or {}
-        self.store.log_usecase(uid, f"action:{name}", str(result.get("message", "")) if result else "")
+        template = get_template(inst["template"])
+        if not any(a.get("name") == name for a in template.ACTIONS):
+            raise ProjectError(f"{template.key}: no action {name!r}")
+        result = template.run_action(inst, name, dict(args or {}), self.store, self.runtime) or {}
+        self.store.log_project(uid, f"action:{name}", str(result.get("message", "")) if result else "")
         return {"ok": True, "action": name, **result}
 
     def repair(self, uid: str, key: str) -> dict:
         """Re-apply one planned object from the current params: re-creates a hand-deleted object,
         or resets a customized one back to the plan (ownership is re-claimed either way)."""
         inst = self._require(uid)
-        recipe = get_recipe(inst["recipe"])
-        plan = recipe.plan(recipe.validate(inst["params"]))
+        template = get_template(inst["template"])
+        plan = template.plan(template.validate(inst["params"]))
         target = next((o for o in plan if o.key == key or f"{o.kind}:{o.key}" == key), None)
         if target is None:
-            raise UsecaseError(f"no planned object with key {key!r}")
-        prev = next((o for o in self.store.list_usecase_objects(uid)
+            raise ProjectError(f"no planned object with key {key!r}")
+        prev = next((o for o in self.store.list_project_objects(uid)
                      if o["kind"] == target.kind and o["key"] == target.key), None)
         if prev and prev["name"] != target.name:
             self._delete_objects([PlannedObject(target.kind, target.key, {"name": prev["name"]})],
@@ -230,24 +232,24 @@ class Engine:
         self._check_ownership(uid, [target], self._existing_names())
         self._apply(uid, [target])
         self._do_reload()
-        self.store.log_usecase(uid, "repaired", f"{target.kind}:{target.name}")
+        self.store.log_project(uid, "repaired", f"{target.kind}:{target.name}")
         return self.get(uid)
 
     # ── internals ────────────────────────────────────────────────────────────
     def _require(self, uid: str) -> dict:
-        inst = self.store.get_usecase(uid)
+        inst = self.store.get_project(uid)
         if inst is None:
-            raise KeyError(f"unknown use case {uid!r}")
+            raise KeyError(f"unknown project {uid!r}")
         return inst
 
     def _check_ownership(self, uid: str, plan: list[PlannedObject], existing: dict) -> None:
         """A plan may adopt an unowned object of the same name (upsert), never one that belongs to
-        another use case."""
+        another project."""
         for o in plan:
             row = existing[o.kind].get(o.name)
             if row is not None and row.get("owned_by") and row["owned_by"] != uid:
-                raise UsecaseError(
-                    f"{o.kind} {o.name!r} belongs to another use case ({row['owned_by']})")
+                raise ProjectError(
+                    f"{o.kind} {o.name!r} belongs to another project ({row['owned_by']})")
 
     def _apply(self, uid: str, plan: list[PlannedObject]) -> None:
         if not plan:
@@ -258,10 +260,10 @@ class Engine:
         try:
             import_catalog_dict(self.store, doc)   # validates the whole doc, then writes
         except CatalogError as e:
-            raise UsecaseError(str(e)) from e
+            raise ProjectError(str(e)) from e
         for o in plan:
             self.store.set_owned_by(o.kind, o.name, uid)
-            self.store.upsert_usecase_object(uid, o.kind, o.key, o.name)
+            self.store.upsert_project_object(uid, o.kind, o.key, o.name)
 
     def _delete_objects(self, objs: list[PlannedObject], purge_events: bool) -> int:
         purged = 0
@@ -290,15 +292,15 @@ class Engine:
             self._reload()
 
 
-def _safe_recipe(key: str):
+def _safe_template(key: str):
     try:
-        return get_recipe(key)
-    except UsecaseError:
+        return get_template(key)
+    except ProjectError:
         return None
 
 
 def _errtext(e: Exception) -> str:
     text = str(e) or repr(e)
-    if not isinstance(e, (UsecaseError, CatalogError, KeyError, ValueError)):
+    if not isinstance(e, (ProjectError, CatalogError, KeyError, ValueError)):
         text = f"{type(e).__name__}: {text}\n{traceback.format_exc()[-1500:]}"
     return text

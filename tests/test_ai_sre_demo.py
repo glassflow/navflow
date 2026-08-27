@@ -1,4 +1,4 @@
-"""The AI SRE demo as a use case (TR-176): recipe shape, the six demo objects, adopting an
+"""The AI SRE demo as a project (TR-176): template shape, the six demo objects, adopting an
 existing unowned demo catalog, and the inject/clear actions against a fake api-server.
 Run: .venv/bin/python tests/test_ai_sre_demo.py   (no Docker needed)
 """
@@ -80,11 +80,11 @@ async def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     api_url = f"http://127.0.0.1:{srv.server_port}"
 
-    from tares.usecases import get_recipe
-    from tares.usecases.base import UsecaseError
-    r = get_recipe("ai_sre_demo")
+    from tares.projects import get_template
+    from tares.projects.base import ProjectError
+    r = get_template("ai_sre_demo")
 
-    print("== recipe ==")
+    print("== template ==")
     d = r.describe()
     check("tagged demo", d["tags"] == ["demo"])
     check("setup steps and actions advertised", len(d["setup"]) == 3 and
@@ -94,7 +94,7 @@ async def main():
           p["container"] == "tares-demo-api-server", json.dumps(p))
     try:
         r.validate({"prometheus_url": "localhost:9090"}); check("bad url rejected", False)
-    except UsecaseError:
+    except ProjectError:
         check("bad url rejected", True)
     plan = r.plan(r.validate({"prometheus_url": "http://prom:9090/"}))
     names = [(o.kind, o.name) for o in plan]
@@ -118,55 +118,55 @@ async def main():
             before = {s["name"] for s in (await cx.get("/api/sources")).json()}
 
             print("== create ==")
-            rr = await cx.post("/api/usecases", json={"recipe": "ai_sre_demo", "name": "AI SRE demo",
+            rr = await cx.post("/api/projects", json={"template": "ai_sre_demo", "name": "AI SRE demo",
                                                      "params": {"api_server_url": api_url}})
             check("create -> 201", rr.status_code == 201, rr.text[:300])
             inst = rr.json(); uid = inst["id"]
             after = {s["name"] for s in (await cx.get("/api/sources")).json()}
             check("no duplicate sources: adopted the existing ones", after == before, str(after ^ before))
             srcs = {s["name"]: s for s in (await cx.get("/api/sources")).json()}
-            check("demo sources owned by the use case",
+            check("demo sources owned by the project",
                   all(srcs[n]["owned_by"] == uid for n in ("demo_metrics", "demo_logs", "demo_alerts")))
             agents = (await cx.get("/api/agents/builtin")).json()["agents"]
             a = next(x for x in agents if x["name"] == "incident-first-look")
             check("agent owned and on the incident trigger", a["owned_by"] == uid and a["trigger"] == "incident")
 
             print("== actions ==")
-            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "latency"})
+            rr = await cx.post(f"/api/projects/{uid}/actions/inject", json={"scenario": "latency"})
             check("inject latency -> ok", rr.status_code == 200 and rr.json().get("scenario") == "latency", rr.text[:200])
-            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "clear"})
+            rr = await cx.post(f"/api/projects/{uid}/actions/inject", json={"scenario": "clear"})
             check("inject rejects clear as a scenario", rr.status_code == 400, rr.text[:200])
-            rr = await cx.post(f"/api/usecases/{uid}/actions/clear", json={})
+            rr = await cx.post(f"/api/projects/{uid}/actions/clear", json={})
             check("clear -> ok", rr.status_code == 200 and rr.json().get("scenario") == "clear", rr.text[:200])
-            rr = await cx.post(f"/api/usecases/{uid}/actions/nope", json={})
+            rr = await cx.post(f"/api/projects/{uid}/actions/nope", json={})
             check("unknown action -> 400", rr.status_code == 400, rr.text[:200])
             check("fake api-server received latency then clear", INJECTED == ["latency", "clear"], str(INJECTED))
-            log = (await cx.get(f"/api/usecases/{uid}/summary")).json()["log"]
+            log = (await cx.get(f"/api/projects/{uid}/summary")).json()["log"]
             check("actions logged", any(l["action"] == "action:inject" for l in log) and
                   any(l["action"] == "action:clear" for l in log), str([l["action"] for l in log]))
 
             print("== summary ==")
-            s = (await cx.get(f"/api/usecases/{uid}/summary")).json()
+            s = (await cx.get(f"/api/projects/{uid}/summary")).json()
             check("summary has sources, runs, guide",
                   set(s["sources"]) == {"demo_metrics", "demo_logs", "demo_alerts"} and "runs" in s and s["guide"].endswith("/guides/ai-sre"),
                   json.dumps({k: s.get(k) for k in ("sources", "guide")})[:300])
 
             print("== unreachable api-server ==")
-            rr = await cx.put(f"/api/usecases/{uid}", json={"params": {"api_server_url": "http://127.0.0.1:1"}})
+            rr = await cx.put(f"/api/projects/{uid}", json={"params": {"api_server_url": "http://127.0.0.1:1"}})
             check("update ok", rr.status_code == 200, rr.text[:200])
-            rr = await cx.post(f"/api/usecases/{uid}/actions/inject", json={"scenario": "error_spike"})
+            rr = await cx.post(f"/api/projects/{uid}/actions/inject", json={"scenario": "error_spike"})
             check("inject with unreachable api-server -> 400 with a named reason",
                   rr.status_code == 400 and "could not reach" in rr.text, rr.text[:200])
 
             print("== delete ==")
-            rr = await cx.delete(f"/api/usecases/{uid}")
+            rr = await cx.delete(f"/api/projects/{uid}")
             check("delete -> 200", rr.status_code == 200, rr.text[:200])
             after = {s["name"] for s in (await cx.get("/api/sources")).json()}
             check("demo sources gone", not ({"demo_metrics", "demo_logs", "demo_alerts"} & after), str(after))
 
     srv.shutdown()
 
-    # ── hosted mode: the same recipe against a hosted demo stack (TR-194) ────
+    # ── hosted mode: the same template against a hosted demo stack (TR-194) ────
     print("== hosted mode ==")
     stack = HTTPServer(("127.0.0.1", 0), FakeStack)
     threading.Thread(target=stack.serve_forever, daemon=True).start()

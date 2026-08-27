@@ -137,7 +137,7 @@ def forget_repos(name: str) -> None:
 async def list_tree(token: str, repo: str, ref: str = "", path: str = "",
                     api_url: str | None = None) -> dict:
     """What is at `path` in `repo` at `ref`: `{ref, path, dirs: [...], files: [...], markdown: [...],
-    exists: bool}`. One call to the contents API (a directory listing), used by the use case wizard
+    exists: bool}`. One call to the contents API (a directory listing), used by the project wizard
     to show the layout of a context repo before the agent is asked to maintain it."""
     api = (api_url or API_DEFAULT).rstrip("/")
     clean = path.strip("/")

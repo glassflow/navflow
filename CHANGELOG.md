@@ -6,6 +6,13 @@ the project follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- **Use cases are now projects; recipes are templates.** A project is a named set of sources,
+  views, triggers, agents and MCP servers with one page; the shipped recipes are Tares
+  templates. The API moves to `/api/projects` and `/api/projects/templates`, catalog YAML uses
+  `projects:` with `template:`, and the seed variable is `TARES_SEED_PROJECT`. The old routes
+  (`/api/usecases*`, with their old response shape), the old YAML keys (`usecases:`, `recipe:`)
+  and `TARES_SEED_USECASE` keep working for two releases. Ids (`uc_...`) and the database tables
+  are unchanged.
 - `claude_code` events label the repository the session ran in as `repo` (was `project`); the
   challenger session table, the memory proposals and the plugin's session-start memory lookup
   use the same word. On upgrade the saved `claude_code` sources and the views that read only

@@ -52,7 +52,7 @@ def _schedule_catchup(name: str, delay: float, store, catalog, dispatcher, eval_
     """Re-evaluate `name` once the debounce interval has passed, unless a catch-up is already
     pending. Evaluates without an affected-source filter so every key of the view is considered.
     The catalog is re-read at fire time through `dispatcher.runtime` when available, so a trigger
-    edited or a use case created inside the interval is evaluated as it is then, not as it was."""
+    edited or a project created inside the interval is evaluated as it is then, not as it was."""
     if name in _catchups and not _catchups[name].done():
         return
 

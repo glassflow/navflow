@@ -38,9 +38,9 @@ curl -s 'localhost:9090/api/v1/query?query=up'   # prometheus is scraping
 
 Two ways to wire Tares to the stack: one click in the console, or the catalog file.
 
-**In the console:** start Tares (`tares up`), open **Use cases**, pick **AI SRE demo** (tagged
+**In the console:** start Tares (`tares up`), open **Projects**, pick the **AI SRE demo** template (tagged
 demo), click Start. That creates the same three sources, view, trigger and agent the catalog below
-does, and the use case page gets a "Cause an incident" button so you never need `curl` for step 4.
+does, and the project page gets a "Cause an incident" button so you never need `curl` for step 4.
 
 **With the catalog file:**
 

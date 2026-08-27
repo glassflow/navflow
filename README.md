@@ -18,11 +18,11 @@ Tares is MIT licensed, runs on your own machine or server, and starts with two c
 ## What teams build with it
 
 - **An AI SRE.** An alert fires; the agent reads the service's whole timeline (logs, metrics, deploys, alerts) and writes the diagnosis onto it before anyone opens a dashboard. → [Build an AI SRE](https://docs.glassflow.ai/tares/guides/ai-sre)
-- **Shared code context.** Commits land; when a change matters to the team, the agent opens a pull request against the shared context repository. → [Use cases](https://docs.glassflow.ai/tares/use-cases)
+- **Shared code context.** Commits land; when a change matters to the team, the agent opens a pull request against the shared context repository. → [Projects](https://docs.glassflow.ai/tares/projects)
 - **Anything with a failure mode.** Failed jobs, sandbox runs, voice calls: each gets a timeline, a trigger on failure, and a finding that says what broke.
 - **A better read path for the agents you have.** Claude Code, Cursor or your own loop asks one question and gets the correlated history of an entity instead of ten tool calls.
 
-Pick one under **Use cases** in the console, answer a few questions, click Start; Tares creates the sources, view, trigger and agent, each on its own page and editable there.
+Pick a template under **Projects** in the console, answer a few questions, click Start; Tares creates the sources, view, trigger and agent, each on its own page and editable there.
 
 ## Who Tares is for
 
@@ -78,7 +78,7 @@ curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/docker-compo
 docker compose up -d                      # start the stack to ingest from
 ```
 
-In the console, open **Use cases**, pick **AI SRE demo**, click Start: the setup page detects the running stack and creates the three sources, the correlated view, the trigger and the agent, and gives you a Cause an incident button. Or do the same from a file: stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog:
+In the console, open **Projects**, pick the **AI SRE demo** template, click Start: the setup page detects the running stack and creates the three sources, the correlated view, the trigger and the agent, and gives you a Cause an incident button. Or do the same from a file: stop the daemon from the previous step (Ctrl-C), then restart it seeded with the demo catalog:
 
 ```bash
 curl -O https://raw.githubusercontent.com/glassflow/tares/main/demo/catalog.demo.yaml

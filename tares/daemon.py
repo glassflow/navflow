@@ -25,7 +25,7 @@ import httpx
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from .config import (SLACK_URL_PREFIX, CatalogError, agent_url, export_db_to_yaml,
                      validate_mcp_server_dict,
@@ -47,7 +47,7 @@ from . import slack as slack_mod
 from . import slack_verify
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
 from .store import Store, StoreUnavailable
-from .usecases import Engine as UsecaseEngine, UsecaseError
+from .projects import Engine as ProjectEngine, ProjectError
 from .views import resolve_query_full, resolve_read
 
 CATALOG_PATH = os.getenv("TARES_CATALOG", "catalog.yaml")
@@ -80,11 +80,12 @@ WORKSPACE_URL = os.getenv("TARES_WORKSPACE_URL", "").strip()
 # resolve_slack_token(store): env TARES_SLACK_BOT_TOKEN wins over the console-stored value
 # (infrastructure wiring, not a metered credential — see the note on resolve_token).
 
-# Seed a use case on first boot (additive, env-gated): the named recipe is created once, so a
+# Seed a project on first boot (additive, env-gated): the named template is created once, so a
 # hosted cell is born with its demo already running instead of an empty system. A settings
-# marker makes it one-shot — deleting the use case never resurrects it. Meaningful for a
+# marker makes it one-shot — deleting the project never resurrects it. Meaningful for a
 # self-hoster building a golden image too; harmlessly unset otherwise.
-SEED_USECASE = os.getenv("TARES_SEED_USECASE", "").strip()
+# TARES_SEED_USECASE is the old name, accepted until two releases after 1.14.
+SEED_PROJECT = (os.getenv("TARES_SEED_PROJECT", "") or os.getenv("TARES_SEED_USECASE", "")).strip()
 
 
 _STARTED_MONO = time.monotonic()
@@ -304,18 +305,26 @@ class ImportReq(BaseModel):
     mode: str = "merge"    # merge (upsert) | replace (clear catalog first)
 
 
-class UsecaseIn(BaseModel):
-    recipe: str
-    name: str = ""         # defaults to the recipe title
+class ProjectIn(BaseModel):
+    template: str = ""
+    name: str = ""         # defaults to the template title
     params: dict = {}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_recipe(cls, data):
+        # `recipe` is the pre-1.14 name of the field; accepted until two releases after 1.14
+        if isinstance(data, dict) and not data.get("template") and data.get("recipe"):
+            data = {**data, "template": data["recipe"]}
+        return data
 
-class UsecaseUpdate(BaseModel):
+
+class ProjectUpdate(BaseModel):
     params: dict
     name: str = ""         # blank = unchanged
 
 
-class UsecaseRepair(BaseModel):
+class ProjectRepair(BaseModel):
     key: str               # a plan key (or "kind:key")
 
 
@@ -352,26 +361,26 @@ class SlackSigningSecretIn(BaseModel):
     secret: str  # the signing secret behind POST /api/slack/events; same write-only contract
 
 
-def _seed_usecase(store, usecases) -> None:
-    """Create TARES_SEED_USECASE's use case once, on the first boot that carries the var. The
-    `seeded_usecase` settings marker is the one-shot record: it is written after the attempt
-    (success or failure), so a user who deletes the seeded use case never gets it back on a pod
-    restart. An unknown recipe key writes NO marker — a config typo stays fixable by fixing the
+def _seed_project(store, projects) -> None:
+    """Create TARES_SEED_PROJECT's project once, on the first boot that carries the var. The
+    `seeded_project` settings marker (`seeded_usecase` before 1.14) is the one-shot record: it is written after the attempt
+    (success or failure), so a user who deletes the seeded project never gets it back on a pod
+    restart. An unknown template key writes NO marker — a config typo stays fixable by fixing the
     config. Never raises: a failed seed is a log line, not a dead cell."""
-    if not SEED_USECASE:
+    if not SEED_PROJECT:
         return
-    if store.get_setting("seeded_usecase"):
+    if store.get_setting("seeded_project") or store.get_setting("seeded_usecase"):
         return
-    from .usecases.registry import list_recipes
-    if SEED_USECASE not in {r.key for r in list_recipes()}:
-        print(f"taresd: TARES_SEED_USECASE names unknown recipe {SEED_USECASE!r}; not seeded")
+    from .projects.registry import list_templates
+    if SEED_PROJECT not in {r.key for r in list_templates()}:
+        print(f"taresd: TARES_SEED_PROJECT names unknown template {SEED_PROJECT!r}; not seeded")
         return
     try:
-        inst = usecases.create(SEED_USECASE, params={})
-        print(f"taresd: seeded use case {SEED_USECASE!r} ({inst['id']})")
+        inst = projects.create(SEED_PROJECT, params={})
+        print(f"taresd: seeded project {SEED_PROJECT!r} ({inst['id']})")
     except Exception as e:
-        print(f"taresd: seeding use case {SEED_USECASE!r} failed: {type(e).__name__}: {e}")
-    store.set_setting("seeded_usecase", SEED_USECASE)
+        print(f"taresd: seeding project {SEED_PROJECT!r} failed: {type(e).__name__}: {e}")
+    store.set_setting("seeded_project", SEED_PROJECT)
 
 
 def make_app() -> FastAPI:
@@ -390,23 +399,23 @@ def make_app() -> FastAPI:
     # the file stays the source of truth (the admin interface for a read-only demo: edit + restart).
     if Path(CATALOG_PATH).exists() and (store.catalog_empty() or CATALOG_SYNC):
         counts = import_yaml_to_db(store, Path(CATALOG_PATH).read_text(),
-                                   engine=UsecaseEngine(store))
+                                   engine=ProjectEngine(store))
         store.migrate_claude_code_repo_label()   # an old catalog file may still say `project`
         how = "synced" if CATALOG_SYNC else "imported"
         print(f"taresd: {how} {CATALOG_PATH} into catalog "
               f"({counts['sources']} sources, {counts['views']} views, {counts['triggers']} triggers"
-              f"{', ' + str(counts['usecases']) + ' usecases' if counts.get('usecases') else ''})")
+              f"{', ' + str(counts['projects']) + ' projects' if counts.get('projects') else ''})")
 
     dispatcher = Dispatcher(store)
     runtime = Runtime(store, dispatcher)
-    # Use cases: recipes instantiated with params; they create and own ordinary catalog objects.
-    usecases = UsecaseEngine(store, reload=runtime.reload_catalog, runtime=runtime)
+    # Projects: templates instantiated with params; they create and own ordinary catalog objects.
+    projects = ProjectEngine(store, reload=runtime.reload_catalog, runtime=runtime)
     # Tares agents are the second kind of subscriber to a firing (the first is an external agent's
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
     dispatcher.runtime = runtime
 
-    _seed_usecase(store, usecases)
+    _seed_project(store, projects)
 
     def _otlp_source_for(header: str | None) -> str:
         """Resolve the OTLP source for an export (shared by the HTTP and gRPC receivers). Raises
@@ -836,9 +845,9 @@ def make_app() -> FastAPI:
     _seed_lock = asyncio.Lock()
 
     async def _seed_challenger(token: str, body) -> None:
-        """The first marked session creates the challenger_workflow use case (view, trigger,
+        """The first marked session creates the challenger_workflow project (view, trigger,
         summarizer). Best effort: an ingest never fails because of it."""
-        from .usecases.challenger_workflow import ensure_instance, has_challenger_line
+        from .projects.challenger_workflow import ensure_instance, has_challenger_line
         if not has_challenger_line(body):
             return
         cfg = runtime.catalog.sources.get(token) or next(
@@ -847,12 +856,12 @@ def make_app() -> FastAPI:
             return
         async with _seed_lock:
             try:
-                uid = ensure_instance(usecases)   # inline, like the create route: reload needs the loop
+                uid = ensure_instance(projects)   # inline, like the create route: reload needs the loop
             except Exception as e:
-                print(f"taresd: could not create the challenger workflow use case: {e}")
+                print(f"taresd: could not create the challenger workflow project: {e}")
                 return
         if uid:
-            print(f"taresd: created the challenger workflow use case {uid} (first challenger session)")
+            print(f"taresd: created the challenger workflow project {uid} (first challenger session)")
 
     # ── OTLP receiver (OpenTelemetry/HTTP JSON; gRPC counterpart in lifespan) ──
     def _resolve_otlp_source(header: str | None) -> str:
@@ -2088,101 +2097,125 @@ def make_app() -> FastAPI:
     async def subscriptions():
         return store.list_all_subscriptions()
 
-    # ── management API: use cases (recipes instantiated with params) ─────────
-    # A use case creates and owns ordinary objects; those stay editable and deletable on their own
+    # ── management API: projects (templates instantiated with params) ─────────
+    # A project creates and owns ordinary objects; those stay editable and deletable on their own
     # pages. These routes are the instance's lifecycle and its combined view.
     def _uc_err(e: Exception):
         if isinstance(e, KeyError):
             _err(e, 404)
-        if isinstance(e, (UsecaseError, CatalogError, ValueError)):
+        if isinstance(e, (ProjectError, CatalogError, ValueError)):
             _err(e, 400)
         raise e
 
-    @app.get("/api/usecases/recipes")
-    async def usecase_recipes():
-        return {"recipes": usecases.list_recipes()}
+    @app.get("/api/projects/templates")
+    async def project_templates():
+        return {"templates": projects.list_templates()}
 
-    @app.get("/api/usecases")
-    async def list_usecases():
-        return {"usecases": usecases.list()}
+    @app.get("/api/projects")
+    async def list_projects():
+        return {"projects": projects.list()}
 
-    @app.post("/api/usecases", status_code=201)
-    async def create_usecase(body: UsecaseIn):
+    @app.post("/api/projects", status_code=201)
+    async def create_project(body: ProjectIn):
         try:
-            return usecases.create(body.recipe, body.params, name=body.name or None)
+            return projects.create(body.template, body.params, name=body.name or None)
         except Exception as e:
             _uc_err(e)
 
-    @app.get("/api/usecases/{uid}")
-    async def get_usecase(uid: str):
-        inst = usecases.get(uid)
+    @app.get("/api/projects/{uid}")
+    async def get_project(uid: str):
+        inst = projects.get(uid)
         if inst is None:
-            _err(KeyError(f"unknown use case {uid!r}"), 404)
+            _err(KeyError(f"unknown project {uid!r}"), 404)
         return inst
 
-    @app.put("/api/usecases/{uid}")
-    async def update_usecase(uid: str, body: UsecaseUpdate):
+    @app.put("/api/projects/{uid}")
+    async def update_project(uid: str, body: ProjectUpdate):
         try:
-            out = usecases.update(uid, body.params)
+            out = projects.update(uid, body.params)
             if body.name.strip():
-                store.update_usecase(uid, name=body.name.strip())
-                out = {**usecases.get(uid), "report": out["report"]}
+                store.update_project(uid, name=body.name.strip())
+                out = {**projects.get(uid), "report": out["report"]}
             return out
         except Exception as e:
             _uc_err(e)
 
-    @app.delete("/api/usecases/{uid}")
-    async def delete_usecase(uid: str, purge_events: bool = False):
+    @app.delete("/api/projects/{uid}")
+    async def delete_project(uid: str, purge_events: bool = False):
         try:
-            return usecases.delete(uid, purge_events=purge_events)
+            return projects.delete(uid, purge_events=purge_events)
         except Exception as e:
             _uc_err(e)
 
-    @app.post("/api/usecases/{uid}/pause")
-    async def pause_usecase(uid: str):
+    @app.post("/api/projects/{uid}/pause")
+    async def pause_project(uid: str):
         try:
-            return usecases.pause(uid)
+            return projects.pause(uid)
         except Exception as e:
             _uc_err(e)
 
-    @app.post("/api/usecases/{uid}/resume")
-    async def resume_usecase(uid: str):
+    @app.post("/api/projects/{uid}/resume")
+    async def resume_project(uid: str):
         try:
-            return usecases.resume(uid)
+            return projects.resume(uid)
         except Exception as e:
             _uc_err(e)
 
-    @app.post("/api/usecases/{uid}/repair")
-    async def repair_usecase(uid: str, body: UsecaseRepair):
+    @app.post("/api/projects/{uid}/repair")
+    async def repair_project(uid: str, body: ProjectRepair):
         try:
-            return usecases.repair(uid, body.key)
+            return projects.repair(uid, body.key)
         except Exception as e:
             _uc_err(e)
 
-    @app.post("/api/usecases/recipes/{key}/detect")
-    async def usecase_detect(key: str):
+    @app.post("/api/projects/templates/{key}/detect")
+    async def project_detect(key: str):
         try:
-            return await usecases.detect(key)
+            return await projects.detect(key)
         except Exception as e:
             _uc_err(e)
 
-    @app.post("/api/usecases/{uid}/actions/{name}")
-    async def usecase_action(uid: str, name: str, request: Request):
+    @app.post("/api/projects/{uid}/actions/{name}")
+    async def project_action(uid: str, name: str, request: Request):
         try:
             body = await request.json()
         except Exception:
             body = {}
         try:
-            return await asyncio.to_thread(usecases.action, uid, name, body if isinstance(body, dict) else {})
+            return await asyncio.to_thread(projects.action, uid, name, body if isinstance(body, dict) else {})
         except Exception as e:
             _uc_err(e)
 
-    @app.get("/api/usecases/{uid}/summary")
-    async def usecase_summary(uid: str):
+    @app.get("/api/projects/{uid}/summary")
+    async def project_summary(uid: str):
         try:
-            return usecases.summary(uid)
+            return projects.summary(uid)
         except Exception as e:
             _uc_err(e)
+
+    # /api/usecases*: the pre-1.14 routes, same handlers, old response shape ({"usecases"},
+    # {"recipes"}, and `recipe` on an instance, which get() still emits). Not in the schema;
+    # removed two releases after 1.14.
+    async def legacy_recipes():
+        return {"recipes": projects.list_templates()}
+
+    async def legacy_list():
+        return {"usecases": projects.list()}
+
+    for _path, _fn, _methods, _status in (
+            ("/api/usecases/recipes", legacy_recipes, ["GET"], 200),
+            ("/api/usecases", legacy_list, ["GET"], 200),
+            ("/api/usecases", create_project, ["POST"], 201),
+            ("/api/usecases/{uid}", get_project, ["GET"], 200),
+            ("/api/usecases/{uid}", update_project, ["PUT"], 200),
+            ("/api/usecases/{uid}", delete_project, ["DELETE"], 200),
+            ("/api/usecases/{uid}/pause", pause_project, ["POST"], 200),
+            ("/api/usecases/{uid}/resume", resume_project, ["POST"], 200),
+            ("/api/usecases/{uid}/repair", repair_project, ["POST"], 200),
+            ("/api/usecases/recipes/{key}/detect", project_detect, ["POST"], 200),
+            ("/api/usecases/{uid}/actions/{name}", project_action, ["POST"], 200),
+            ("/api/usecases/{uid}/summary", project_summary, ["GET"], 200)):
+        app.add_api_route(_path, _fn, methods=_methods, status_code=_status, include_in_schema=False)
 
     # ── management API: catalog import/export ────────────────────────────────
     @app.get("/api/catalog/export")
@@ -2199,9 +2232,9 @@ def make_app() -> FastAPI:
         if body.mode == "replace":
             store.clear_catalog()
         try:
-            counts = import_yaml_to_db(store, body.yaml, engine=usecases)
+            counts = import_yaml_to_db(store, body.yaml, engine=projects)
             store.migrate_claude_code_repo_label()
-        except (CatalogError, UsecaseError) as e:
+        except (CatalogError, ProjectError) as e:
             _err(e)
         except Exception as e:
             _err(ValueError(f"invalid YAML: {e}"))
