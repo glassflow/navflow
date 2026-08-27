@@ -177,72 +177,84 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
 }
 
 type Decision = "accepted" | "rejected";
-const storeKey = (runId: string, i: number) => `tares.proposal:${runId}:${i}`;
-function readDecision(runId: string, i: number): Decision | undefined {
-  try { return (localStorage.getItem(storeKey(runId, i)) as Decision) || undefined; } catch { return undefined; }
-}
-function writeDecision(runId: string, i: number, d: Decision) {
-  try { localStorage.setItem(storeKey(runId, i), d); } catch { /* private mode */ }
-}
+type Row = { runId: string; i: number; project: string; text: string; agent: string; started_at?: string; decision?: Decision };
 
 export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["runs"]> }) {
-  const withProposals = runs.filter((r) => r.id && r.proposals && r.proposals.length);
-  const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState<string>();
   const [err, setErr] = useState<string>();
-  if (!withProposals.length) return null;
+  // decided locally this render cycle, until the next poll brings the state back from Tares
+  const [local, setLocal] = useState<Record<string, Decision>>({});
+  const rows: Row[] = runs.flatMap((r) => (r.id && r.proposals ? r.proposals : []).map((text, i) => ({
+    runId: r.id!, i, project: r.project ?? "", text, agent: r.agent ?? "challenger_summarizer",
+    started_at: r.started_at, decision: local[`${r.id}:${i}`] ?? r.decisions?.[String(i)],
+  })));
+  if (!rows.length) return null;
+  const open = rows.filter((x) => !x.decision);
+  const done = rows.filter((x) => x.decision);
 
-  const accept = async (runId: string, i: number, project: string, text: string) => {
-    setBusy(storeKey(runId, i)); setErr(undefined);
+  const decide = async (x: Row, d: Decision) => {
+    const k = `${x.runId}:${x.i}`;
+    setBusy(k); setErr(undefined);
     try {
-      await api.remember({ key: project, content: text, memory_type: "decision" });
-      writeDecision(runId, i, "accepted");
+      await api.remember({ key: x.project, content: x.text, memory_type: d === "accepted" ? "decision" : "rejected_proposal" });
+      setLocal({ ...local, [k]: d });
     } catch (e) { setErr(String((e as Error).message ?? e)); }
-    setBusy(undefined); setTick(tick + 1);
+    setBusy(undefined);
   };
-  const reject = (runId: string, i: number) => { writeDecision(runId, i, "rejected"); setTick(tick + 1); };
+
+  const cell = (x: Row) => (
+    <td className="mono" style={{ whiteSpace: "nowrap" }}>
+      {x.project || <span className="dim" title="the session's project is unknown, so accept has no key">unknown</span>}
+      <div><Link to={`/agents/${encodeURIComponent(x.agent)}?run=${encodeURIComponent(x.runId)}`} className="help"><TimeAgo ts={x.started_at ?? null} /></Link></div>
+    </td>
+  );
 
   return (
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Memory proposals</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        What the summarizer thinks is worth remembering about a project. Accept writes it as a decision
+        What the summarizer thinks is worth remembering about a project. Accept stores it as a decision
         on the memory source, keyed by the project, and the plugin hands it to Claude at the start of
-        the next session there. Reject hides it; nothing is written.
+        the next session there. Reject keeps it out of memory for good.
       </p>
       {err && <div className="alert error">{err}</div>}
-      <table>
-        <thead><tr><th>project</th><th>proposal</th><th aria-label="decision" /></tr></thead>
-        <tbody>
-          {withProposals.flatMap((r) => (r.proposals ?? []).map((text, i) => {
-            const runId = r.id!;
-            const project = r.project ?? "";
-            const d = readDecision(runId, i);
-            return (
-              <tr key={storeKey(runId, i)}>
-                <td className="mono" style={{ whiteSpace: "nowrap" }}>
-                  {project || <span className="dim" title="the session's project is unknown, so accept has no key">unknown</span>}
-                  <div><Link to={`/agents/${encodeURIComponent(r.agent ?? "challenger_summarizer")}?run=${encodeURIComponent(runId)}`} className="help"><TimeAgo ts={r.started_at ?? null} /></Link></div>
-                </td>
-                <td style={{ whiteSpace: "pre-wrap" }}>{text}</td>
+      {open.length ? (
+        <table>
+          <thead><tr><th>project</th><th>proposal</th><th aria-label="decision" /></tr></thead>
+          <tbody>
+            {open.map((x) => (
+              <tr key={`${x.runId}:${x.i}`}>
+                {cell(x)}
+                <td style={{ whiteSpace: "pre-wrap" }}>{x.text}</td>
                 <td>
-                  {d === "accepted" ? <span className="badge ok">accepted</span>
-                    : d === "rejected" ? <span className="help">rejected</span>
-                    : (
-                      <div className="btnrow" style={{ justifyContent: "flex-end" }}>
-                        <button className="primary" disabled={!project || busy === storeKey(runId, i)}
-                                onClick={() => accept(runId, i, project, text)}>
-                          {busy === storeKey(runId, i) ? "saving…" : "Accept"}
-                        </button>
-                        <button onClick={() => reject(runId, i)}>Reject</button>
-                      </div>
-                    )}
+                  <div className="btnrow" style={{ justifyContent: "flex-end" }}>
+                    <button className="primary" disabled={!x.project || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "accepted")}>
+                      {busy === `${x.runId}:${x.i}` ? "saving…" : "Accept"}
+                    </button>
+                    <button disabled={!x.project || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "rejected")}>Reject</button>
+                  </div>
                 </td>
               </tr>
-            );
-          }))}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      ) : <div className="empty">nothing waiting for a decision</div>}
+      {done.length > 0 && (
+        <details className="uc-how" style={{ marginTop: 10 }}>
+          <summary>{done.length} decided</summary>
+          <table style={{ marginTop: 8 }}>
+            <tbody>
+              {done.map((x) => (
+                <tr key={`${x.runId}:${x.i}`}>
+                  {cell(x)}
+                  <td style={{ whiteSpace: "pre-wrap" }}>{x.text}</td>
+                  <td>{x.decision === "accepted" ? <span className="badge ok">accepted</span> : <span className="help">rejected</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
     </div>
   );
 }

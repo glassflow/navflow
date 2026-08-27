@@ -476,7 +476,8 @@ export interface UsecaseSummary extends Usecase {
   guide?: string;
   runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
            max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null;
-           session?: string; project?: string | null; proposals?: string[] }[];
+           session?: string; project?: string | null; proposals?: string[];
+           decisions?: Record<string, "accepted" | "rejected"> }[];
   sessions?: ChallengerSession[];
   names?: Record<string, string>;
   prs?: { open?: number; merged?: number };

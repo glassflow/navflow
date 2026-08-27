@@ -194,6 +194,11 @@ class ChallengerWorkflow(Recipe):
                          "status": r.get("status"), "rounds": r.get("rounds"),
                          "max_rounds": r.get("max_rounds"), "finding": finding,
                          "proposals": parse_proposals(finding), "error": r.get("error")})
+        decided = proposal_decisions(store)
+        for r in runs:
+            r["decisions"] = {str(i): decided.get((r["project"], text))
+                              for i, text in enumerate(r["proposals"])
+                              if decided.get((r["project"], text))}
         summarized = {r["session"]: r["id"] for r in reversed(runs) if r["status"] == "ok"}
         for x in sessions:
             x["run_id"] = summarized.get(x["session"])
@@ -243,6 +248,30 @@ def ensure_instance(engine) -> str | None:
     inst = engine.create("challenger_workflow", {})
     engine.store.log_usecase(inst["id"], "auto", "created on the first challenger session shipped by the plugin")
     return inst["id"]
+
+
+REJECTED_TYPE = "rejected_proposal"   # stored as custom:rejected_proposal; the plugin only reads decisions
+
+
+def proposal_decisions(store) -> dict:
+    """{(project, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
+    the proposal as a decision keyed by the project; reject writes it as a rejected_proposal, so
+    the choice is kept on Tares (not in one browser) without ever reaching Claude."""
+    out = {}
+    try:
+        rows = store.recent_events(source="agent_memory", limit=2000)
+    except Exception:
+        return out
+    for row in rows:
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        typ = row.get("event_type")
+        state = ("accepted" if typ == "decision"
+                 else "rejected" if typ == f"custom:{REJECTED_TYPE}" else None)
+        if state:
+            out.setdefault((row.get("key"), text), state)
+    return out
 
 
 SESSION_DAYS = 30

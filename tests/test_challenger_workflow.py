@@ -181,6 +181,14 @@ async def main(app):
             check("the run is recorded on the use case page (no key, so it did not conclude)",
                   any(r["session"] == "s1" for r in runs), json.dumps(runs)[:300])
 
+            print("== proposal decisions live on the memory source ==")
+            from tares.usecases.challenger_workflow import proposal_decisions
+            await cx.post("/remember", json={"key": "shop", "content": "use make test", "memory_type": "decision"})
+            await cx.post("/remember", json={"key": "shop", "content": "21 tests", "memory_type": "rejected_proposal"})
+            d = proposal_decisions(app.state.store)
+            check("accept -> accepted, reject -> rejected, keyed by project",
+                  d.get(("shop", "use make test")) == "accepted" and d.get(("shop", "21 tests")) == "rejected", str(d))
+
             print("== delete ==")
             rr = await cx.delete(f"/api/usecases/{uid}")
             check("delete -> 200", rr.status_code == 200, rr.text[:200])
