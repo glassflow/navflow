@@ -3,6 +3,21 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] - 2026-08-27
+
+### Added
+- **Challenger workflow**: a second model challenges Claude Code's plan and every commit,
+  locally, while Tares keeps the record. The `challenger_workflow` use case adds a per-session
+  view, a trigger on session end and a summarizer agent that writes a session summary with
+  memory proposals. `set_session_flow` MCP tool marks a session; the `claude_code` connector
+  gains the `flow` label and `challenge_plan` / `challenge_commit` / `challenge_waived` events
+  with verdict, sha, round and finding counts.
+- **Claude Code plugin 0.2.0**: `/tares:challenger` turns a session into a challenger session;
+  the plugin runs Codex on plan exit and after each commit (blocking on P1/P2 findings by
+  default, with a fix loop and `/tares:challenger-waive`), ships every review to Tares, and
+  hands accepted project memory to Claude at session start. Review mechanics adapted from
+  andreidavid/codex-review (MIT).
+
 ## [1.11.0] - 2026-08-26
 
 ### Added
