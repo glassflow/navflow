@@ -19,32 +19,32 @@
     "tares_url": {
       "type": "string",
       "title": "Tares URL",
-      "description": "Base URL of your Tares daemon. Local default works for `tares up`; set your remote URL otherwise.",
+      "description": "Base URL of your Tares (default http://127.0.0.1:8787 for a local tares up; your cell URL on Tares Cloud, e.g. https://<cell>.tares-glassflow.com).",
       "default": "http://127.0.0.1:8787"
     },
     "access_token": {
       "type": "string",
       "title": "API key / token (optional)",
-      "description": "Only if your Tares requires auth. Recommended: an API key with the read + ingest scopes (console -> Security -> API keys) — streams sessions and enables MCP read-back without admin rights. The root auth token also works.",
+      "description": "Leave empty on an open local instance. On a secured instance or Tares Cloud, a read + ingest API key from Security > API keys.",
       "sensitive": true,
       "default": ""
     },
     "stream_sessions": {
       "type": "boolean",
       "title": "Stream this session into Tares",
-      "description": "When on, this session's transcript is shipped to Tares's claude_code source as it progresses.",
+      "description": "true or false; empty = true. When on, this session's transcript is shipped to Tares's claude_code source as it progresses.",
       "default": true
     },
     "challenger_mode": {
       "type": "string",
       "title": "Challenger mode for commits",
-      "description": "strict: P1/P2 findings from the Codex review block Claude until fixed (default). advise: findings come back as context only. Plans are always advisory.",
+      "description": "strict or advise; empty = strict. strict: P1/P2 Codex findings on a commit block Claude until fixed and amended. advise: findings come back as context only. Only matters in a challenger session.",
       "default": "strict"
     },
     "codex_bin": {
       "type": "string",
       "title": "Codex CLI path (optional)",
-      "description": "Leave empty to use `codex` from PATH.",
+      "description": "Empty = codex on PATH. Full path to the Codex CLI otherwise.",
       "default": ""
     },
     "codex_sandbox": {
