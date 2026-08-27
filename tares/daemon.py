@@ -430,6 +430,7 @@ def make_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app):
+        dispatcher.agents.attach_loop()
         runtime.start_all()
         print(f"taresd: {len(runtime.catalog.sources)} source(s); "
               f"console at / · agent API at /query · management API at /api")

@@ -220,9 +220,6 @@ class AgentRunner:
         run_id = "run_" + uuid.uuid4().hex[:12]
         marker = (agent_name, key)
         self._inflight.add(marker)
-        self.store.start_agent_run(run_id, agent_name, trigger_name, "", key,
-                                   prompt_hash(agent["prompt"]), effective_max_rounds(agent))
-
         async def go():
             try:
                 await self._run(agent, trigger_name, key, payload, run_id, None)
@@ -233,8 +230,19 @@ class AgentRunner:
             finally:
                 self._inflight.discard(marker)
 
-        self._spawn(go)
+        try:
+            self._spawn(go)
+        except RuntimeError:
+            self._inflight.discard(marker)
+            raise
+        self.store.start_agent_run(run_id, agent_name, trigger_name, "", key,
+                                   prompt_hash(agent["prompt"]), effective_max_rounds(agent))
         return run_id
+
+    def attach_loop(self) -> None:
+        """Remember the daemon's loop. Called at startup (the app is built before uvicorn's loop
+        exists), so run_now() from a worker thread finds it."""
+        self._event_loop = asyncio.get_running_loop()
 
     def _spawn(self, coro_fn) -> None:
         """Start `coro_fn()` as a task on the daemon's loop, from that loop or from a thread."""

@@ -39,10 +39,13 @@ def line(sid, typ, ts, **extra):
     return json.dumps(o)
 
 
-async def main():
+def clean():
     for p in (DB, DB + ".wal", CATALOG):
         if os.path.exists(p):
             os.remove(p)
+
+
+async def main(app):
 
     from tares.usecases import get_recipe
     from tares.usecases.base import UsecaseError
@@ -92,7 +95,7 @@ async def main():
     check("caps at five", len(parse_proposals("Memory proposals\n" + "\n".join(f"- {i}" for i in range(9)))) == 5)
 
     from tares.daemon import make_app
-    app = make_app()
+    # the app is built before the loop, like `tares up` (the runner attaches the loop at startup)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as cx:
@@ -189,4 +192,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from tares.daemon import make_app
+    clean()
+    asyncio.run(main(make_app()))
