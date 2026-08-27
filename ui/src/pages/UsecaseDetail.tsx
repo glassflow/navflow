@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
-import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
+import { Combo, ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import ConfirmDialog from "../components/ConfirmDialog";
 import type { Recipe, RecipeActionOption, UsecaseObject, UsecaseSummary } from "../types";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
@@ -193,11 +193,18 @@ export default function UsecaseDetail() {
                 {Object.entries(a.params ?? {}).map(([k, spec]) => {
                   const o = opts(spec.options);
                   if (!o.length) {
-                    // free-form parameter: a text field; known values (the sessions on this page) are
-                    // offered as suggestions, anything else can still be typed
+                    // free-form parameter: a text field; the sessions on this page are offered as
+                    // suggestions in the console's own list, anything else can still be typed
                     const suggestions = k === "session" ? (s.sessions ?? []) : [];
-                    const listId = `${a.name}-${k}-suggestions`;
                     return (
+                      <Combo key={k} value={actionArgs[`${a.name}.${k}`] ?? ""} placeholder={spec.label ?? k}
+                             options={suggestions.map((x) => x.session)} style={{ width: 340 }}
+                             hints={Object.fromEntries(suggestions.map((x) => [x.session,
+                               [x.project, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")]))}
+                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })} />
+                    );
+                  }
+                  return (
                       <span key={k}>
                         <input type="text" placeholder={spec.label ?? k} aria-label={spec.label ?? k}
                                list={suggestions.length ? listId : undefined}
