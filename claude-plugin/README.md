@@ -51,7 +51,7 @@ Claude calls the `set_session_flow` MCP tool; the shipper sees that call in the 
 the session locally and on Tares, and from then on:
 
 - when Claude leaves plan mode, the OpenAI Codex CLI on your laptop critiques the plan and Claude
-  gets the findings before you see the plan (advisory);
+  gets the findings before you see the plan (advisory; only `[P1]` counts as blocking on a plan);
 - after every `git commit` Claude makes, Codex reviews the commit. `[P1]`/`[P2]` findings block
   Claude until it fixes and amends (strict, the default) or come back as context (`challenger_mode`
   = `advise`). Errors, timeouts and inconclusive reviews never block. Consecutive failed rounds are

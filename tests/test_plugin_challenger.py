@@ -178,6 +178,13 @@ def main():
           ev["type"] == "challenge_plan" and ev["flow"] == "challenger" and ev["challenge"]["verdict"] == "FAIL"
           and ev["challenge"]["blocking_count"] == 1 and ev["challenge"]["finding_count"] == 2, json.dumps(ev)[:300])
 
+    sys.path.insert(0, os.path.dirname(CHAL))
+    import challenger as _c
+    check("on a plan only P1 blocks (P2 is advice)",
+          _c.counts([{"priority": "P2"}, {"priority": "P1"}], _c.PLAN_BLOCKING) == (2, 1, 0)
+          and _c.counts([{"priority": "P2"}], _c.PLAN_BLOCKING) == (1, 0, 0)
+          and _c.counts([{"priority": "P2"}]) == (1, 1, 0))
+
     print("== commit challenged: FAIL blocks ==")
     o, p = run(CHAL, commit("pricing v1"), env)
     check("strict mode blocks on P1", isinstance(o, dict) and o.get("decision") == "block" and "amend" in o.get("reason", ""),
