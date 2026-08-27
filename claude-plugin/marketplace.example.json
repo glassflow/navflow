@@ -10,7 +10,7 @@
       "name": "tares",
       "source": "./claude-plugin",
       "description": "Connect Claude Code to Tares (MCP read-back, session capture, challenger sessions).",
-      "version": "0.2.0"
+      "version": "0.2.1"
     }
   ]
 }

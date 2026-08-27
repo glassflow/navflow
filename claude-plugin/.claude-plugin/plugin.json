@@ -1,7 +1,7 @@
 {
   "name": "tares",
   "displayName": "Tares",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Connect Claude Code to Tares: query your data plane over MCP, stream this session into Tares, and run challenger sessions where Codex challenges the plan and every commit.",
   "author": {
     "name": "GlassFlow",

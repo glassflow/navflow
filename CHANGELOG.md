@@ -3,6 +3,28 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.13.0] - 2026-08-27
+
+### Added
+- **Challenger workflow in the console**: the use case page lists every challenger session with
+  the plan and per-commit review outcomes, the Claude/Codex exchange as one thread, a Summarize
+  button per session, and the summarizer's memory proposals with Accept / Reject. Decisions are
+  kept on the memory source (reject writes a `rejected_proposal` the plugin never hands out).
+- The first session marked as a challenger session creates the `challenger_workflow` use case
+  by itself; `/tares:challenger` in Claude Code is the whole setup.
+
+### Fixed
+- Plugin: the `set_session_flow` call is recognised under Claude Code's plugin-namespaced tool
+  name, so marking a session works from a marketplace install.
+- Plugin: commits made with options between `git` and `commit` (`git -c ... commit`) are reviewed.
+- Plugin: Codex 0.150 dropped `--full-auto`; reviews run with `--sandbox read-only`.
+- Plugin: only `[P1]` findings count as blocking on a plan critique.
+- Use case actions that start an agent run (`summarize`) failed with "no running event loop"
+  under `tares up` and left a run stuck at running.
+- Challenge outcomes read "no findings" / "N findings (M blocking)" instead of Codex's PASS/FAIL,
+  which elsewhere in the console means a broken run.
+- Agent page: the opened run no longer scrolls back into view on every refresh.
+
 ## [1.12.0] - 2026-08-27
 
 ### Added
