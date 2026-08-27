@@ -192,11 +192,29 @@ export default function UsecaseDetail() {
               <span key={a.name} className="uc-actions" title={a.help}>
                 {Object.entries(a.params ?? {}).map(([k, spec]) => {
                   const o = opts(spec.options);
-                  if (!o.length) return (   // free-form parameter: a text field, not an empty menu
-                    <input key={k} type="text" placeholder={spec.label ?? k} aria-label={spec.label ?? k}
-                           value={actionArgs[`${a.name}.${k}`] ?? ""} style={{ width: 260 }}
-                           onChange={(e) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: e.target.value })} />
-                  );
+                  if (!o.length) {
+                    // free-form parameter: a text field; known values (the sessions on this page) are
+                    // offered as suggestions, anything else can still be typed
+                    const suggestions = k === "session" ? (s.sessions ?? []) : [];
+                    const listId = `${a.name}-${k}-suggestions`;
+                    return (
+                      <span key={k}>
+                        <input type="text" placeholder={spec.label ?? k} aria-label={spec.label ?? k}
+                               list={suggestions.length ? listId : undefined}
+                               value={actionArgs[`${a.name}.${k}`] ?? ""} style={{ width: 300 }}
+                               onChange={(e) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: e.target.value })} />
+                        {suggestions.length > 0 && (
+                          <datalist id={listId}>
+                            {suggestions.map((x) => (
+                              <option key={x.session} value={x.session}>
+                                {[x.project, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")}
+                              </option>
+                            ))}
+                          </datalist>
+                        )}
+                      </span>
+                    );
+                  }
                   return (
                     <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
