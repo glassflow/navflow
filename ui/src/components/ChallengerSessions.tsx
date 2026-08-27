@@ -27,9 +27,19 @@ function verdictText(v: string | undefined | null, findings?: string | number, b
   return "no verdict";
 }
 
-function Verdict({ v, findings, blocking }: { v: string | undefined | null; findings?: string | number; blocking?: string | number }) {
-  if (!v) return <span className="dim">not reviewed</span>;
-  return <span className={`badge ${verdictClass(v)}`} title={`Codex verdict: ${v}`}>{verdictText(v, findings, blocking)}</span>;
+function Verdict({ v, findings, blocking, compact, what }: {
+  v: string | undefined | null; findings?: string | number; blocking?: string | number;
+  compact?: boolean;   // the collapsed row: just the finding count, wording on hover
+  what?: string;
+}) {
+  if (!v) return <span className="dim">{compact ? "none" : "not reviewed"}</span>;
+  const text = verdictText(v, findings, blocking);
+  const title = `${what ? what + ": " : ""}${text} (Codex verdict ${v})`;
+  if (compact) {
+    const n = v === "PASS" ? 0 : Number(findings);
+    return <span className={`badge ${verdictClass(v)}`} title={title}>{v === "FAIL" || v === "PASS" ? (Number.isFinite(n) ? n : "?") : "?"}</span>;
+  }
+  return <span className={`badge ${verdictClass(v)}`} title={title}>{text}</span>;
 }
 
 export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
@@ -51,18 +61,19 @@ export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Sessions</h2>
       <table>
-        <thead><tr><th>when</th><th>project</th><th>branch</th><th>plan</th><th>commits</th><th>state</th><th aria-label="actions" /></tr></thead>
+        <thead><tr><th>when</th><th>project</th><th>branch</th><th title="findings on the plan">plan</th><th title="findings per reviewed commit, in order">commits</th><th>state</th><th aria-label="actions" /></tr></thead>
         <tbody>
           {sessions.map((x) => (
             <tr key={x.session} style={{ cursor: "pointer" }} onClick={() => setOpen(open === x.session ? undefined : x.session)}>
               <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={x.started_at ?? null} /></td>
               <td className="mono">{x.project ?? <span className="dim">unknown</span>}</td>
               <td className="mono">{x.branch ?? ""}</td>
-              <td><Verdict v={x.plan_verdict} findings={x.plan_findings ?? undefined} blocking={x.plan_blocking ?? undefined} /></td>
+              <td><Verdict compact what="plan" v={x.plan_verdict} findings={x.plan_findings ?? undefined} blocking={x.plan_blocking ?? undefined} /></td>
               <td>
                 {x.commits.length === 0 ? <span className="dim">none</span> : (
                   <span className="tl-labels">
-                    {x.commits.map((c, i) => <span key={i} className={`badge ${verdictClass(c.verdict)}`} title={`commit ${c.sha ?? "?"}${c.round ? `, round ${c.round}` : ""}: Codex verdict ${c.verdict ?? "?"}`}>{verdictText(c.verdict, c.findings, c.blocking)}</span>)}
+                    {x.commits.map((c, i) => <Verdict key={i} compact v={c.verdict} findings={c.findings} blocking={c.blocking}
+                                                       what={`commit ${c.sha ?? "?"}${c.round ? `, round ${c.round}` : ""}`} />)}
                   </span>
                 )}
                 {x.waived > 0 && <span className="help"> · {x.waived} waived</span>}
