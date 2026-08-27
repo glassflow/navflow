@@ -47,10 +47,14 @@ class Engine:
         if inst is None:
             return None
         existing = self._existing_names()
+        custom = _is_custom(inst["template"])
         objects = []
         for o in self.store.list_project_objects(uid):
             row = existing[o["kind"]].get(o["name"])
-            objects.append({**o, "missing": row is None,
+            # a custom project's object that was deleted by hand and recreated under another
+            # project is lost to this one: missing, and nothing here acts on it any more
+            lost = custom and row is not None and row.get("owned_by") not in (None, uid)
+            objects.append({**o, "missing": row is None or lost,
                             "customized": bool(row and row.get("customized")) or o["customized"]})
         template = _safe_template(inst["template"])
         # `recipe` mirrors `template` for pre-1.14 clients; dropped two releases after 1.14
@@ -82,7 +86,11 @@ class Engine:
         template = get_template(template_key)
         params = template.validate(params)
         template.preflight(params, self.store)
-        name = (name or "").strip() or f"{template.title or template.key}"
+        name = (name or "").strip()
+        if not name and _is_custom(template_key):
+            # a template title is a sensible default name; "From existing objects" is not
+            raise ProjectError("custom: a hand-assembled project needs a name")
+        name = name or f"{template.title or template.key}"
         if self.store.get_project_by_name(name) is not None:
             raise ProjectError(f"a project named {name!r} already exists")
         plan = template.plan(params)
@@ -92,10 +100,20 @@ class Engine:
         before = self._existing_names()
         try:
             self._check_ownership(uid, plan, before)
-            self._apply(uid, plan)
+            if _is_custom(template.key):
+                self._adopt(uid, plan, before)
+            else:
+                self._apply(uid, plan)
         except Exception as e:
             # all or nothing: remove what this create added (never what already existed), record
             # the failure on the instance so the UI can show it, then re-raise.
+            if _is_custom(template.key):
+                # _adopt already undid its own writes (it never touches another project's
+                # objects); with nothing created there is nothing to show on an error page, so
+                # the row goes and the caller gets the reason
+                self.store.delete_project(uid)
+                self._do_reload()
+                raise
             created = [o for o in plan if o.name not in before[o.kind]]
             self._delete_objects(created, purge_events=False)
             self.store.update_project(uid, status="error", last_error=_errtext(e))
@@ -117,6 +135,8 @@ class Engine:
         params = template.validate(params)
         template.preflight(params, self.store)
         plan = template.plan(params)
+        if _is_custom(inst["template"]):
+            return self._update_custom(uid, inst, params, plan)
         existing = {(o["kind"], o["key"]): o for o in self.store.list_project_objects(uid)}
         current = self._existing_names()
         report = {"created": [], "updated": [], "kept": [], "deleted": []}
@@ -161,7 +181,17 @@ class Engine:
 
     def pause(self, uid: str) -> dict:
         inst = self._require(uid)
-        for o in self.store.list_project_objects(uid):
+        objects = self._live_objects(uid)
+        if _is_custom(inst["template"]) and inst["status"] != "paused":
+            # no planned version says which agents were on: remember it for resume (a repeated
+            # pause finds nothing on and must not forget the first answer)
+            on = [o["name"] for o in objects if o["kind"] == "agent"
+                  and self.store.subscription_by_url(agent_url(o["name"]))]
+            paused = {t["name"] for t in self.store.list_catalog_triggers() if t.get("paused")}
+            live = [o["name"] for o in objects if o["kind"] == "trigger" and o["name"] not in paused]
+            self.store.update_project(uid, params={**inst["params"], "resume_agents": on,
+                                                   "resume_triggers": live})
+        for o in objects:
             if o["kind"] == "trigger":
                 self.store.set_trigger_paused(o["name"], True)
             elif o["kind"] == "agent":
@@ -175,26 +205,52 @@ class Engine:
         inst = self._require(uid)
         template = get_template(inst["template"])
         plan = {(o.kind, o.key): o for o in template.plan(template.validate(inst["params"]))}
-        for o in self.store.list_project_objects(uid):
+        custom = _is_custom(inst["template"])
+        resume_agents = set(inst["params"].get("resume_agents") or []) if custom else set()
+        resume_triggers = set(inst["params"].get("resume_triggers") or []) if custom else set()
+        for o in self._live_objects(uid):
             if o["kind"] == "trigger":
-                self.store.set_trigger_paused(o["name"], False)
+                # a custom project's trigger that the user had paused before stays paused
+                if not custom or o["name"] in resume_triggers:
+                    self.store.set_trigger_paused(o["name"], False)
             elif o["kind"] == "agent":
                 spec = plan.get(("agent", o["key"]))
                 agent = self.store.get_catalog_agent(o["name"])
-                if agent and spec is not None and spec.spec.get("enabled", False):
+                wanted = (o["name"] in resume_agents) if custom else bool(
+                    spec is not None and spec.spec.get("enabled", False))
+                if agent and wanted:
                     url = agent_url(o["name"])
                     if not self.store.subscription_by_url(url):
                         self.store.add_subscription("sub_" + uuid.uuid4().hex[:8],
                                                     agent["trigger"], url, created_by="tares")
+        if custom:
+            self.store.update_project(uid, params={k: v for k, v in inst["params"].items()
+                                                   if k not in ("resume_agents", "resume_triggers")})
         self.store.update_project(uid, status="active")
         self.store.log_project(uid, "resumed")
         self._do_reload()
         return self.get(uid)
 
     def delete(self, uid: str, purge_events: bool = False) -> dict:
-        self._require(uid)
+        inst = self._require(uid)
         objs = [PlannedObject(o["kind"], o["key"], {"name": o["name"]})
                 for o in self.store.list_project_objects(uid)]
+        if _is_custom(inst["template"]):
+            # the objects were there before the project: release them, never delete them. A
+            # paused project is resumed first so its triggers and agents are left as they were.
+            if inst["status"] == "paused":
+                self.resume(uid)
+            # purge only what is still this project's: a source deleted by hand and recreated
+            # under another project keeps its events
+            live = {(o["kind"], o["name"]) for o in self._live_objects(uid)}
+            self._release(uid, objs)
+            purged = sum(self.store.purge_events(o.name) for o in objs
+                         if o.kind == "source" and ("source", o.name) in live) \
+                if purge_events else 0
+            self.store.delete_project(uid)
+            self._do_reload()
+            return {"ok": True, "deleted": [], "released": [f"{o.kind}:{o.name}" for o in objs],
+                    "purged_events": purged}
         purged = self._delete_objects(objs, purge_events=purge_events)
         self.store.delete_project(uid)
         self._do_reload()
@@ -219,6 +275,9 @@ class Engine:
         """Re-apply one planned object from the current params: re-creates a hand-deleted object,
         or resets a customized one back to the plan (ownership is re-claimed either way)."""
         inst = self._require(uid)
+        if _is_custom(inst["template"]):
+            raise ProjectError("a project assembled from existing objects has no planned version "
+                               "to repair; edit the project to change its objects")
         template = get_template(inst["template"])
         plan = template.plan(template.validate(inst["params"]))
         target = next((o for o in plan if o.key == key or f"{o.kind}:{o.key}" == key), None)
@@ -236,6 +295,11 @@ class Engine:
         return self.get(uid)
 
     # ── internals ────────────────────────────────────────────────────────────
+    def _live_objects(self, uid: str) -> list[dict]:
+        """The project's objects that are still its to act on (see get(): a custom project's
+        object recreated under another project is missing here)."""
+        return [o for o in (self.get(uid) or {}).get("objects", []) if not o["missing"]]
+
     def _require(self, uid: str) -> dict:
         inst = self.store.get_project(uid)
         if inst is None:
@@ -265,6 +329,94 @@ class Engine:
             self.store.set_owned_by(o.kind, o.name, uid)
             self.store.upsert_project_object(uid, o.kind, o.key, o.name)
 
+    # ── custom projects: adopt and release instead of create and delete ─────
+    def _adopt(self, uid: str, objs: list[PlannedObject], existing: dict) -> None:
+        """Take ownership of objects that already exist. Checks everything first (the object
+        exists and is unowned or ours), then writes; a failure part-way releases what this call
+        adopted, so ownership is never left half applied."""
+        for o in objs:
+            if o.name not in existing[o.kind]:
+                raise ProjectError(f"{o.kind} {o.name!r} does not exist")
+        self._check_ownership(uid, objs, existing)
+        done: list[PlannedObject] = []
+        try:
+            for o in objs:
+                # a conditional claim, not a blind write: were another project to adopt the same
+                # object between the check above and here, exactly one of the two wins
+                if not self.store.claim_owned_by(o.kind, o.name, uid):
+                    raise ProjectError(f"{o.kind} {o.name!r} was just claimed by another project")
+                self.store.upsert_project_object(uid, o.kind, o.key, o.name)
+                done.append(o)
+        except Exception:
+            self._release(uid, done)
+            raise
+
+    def _release(self, uid: str, objs: list[PlannedObject]) -> None:
+        """Drop ownership; the objects stay exactly as they are. Ownership is cleared only where
+        the row is still ours: a same-name object recreated by hand may belong elsewhere now."""
+        for o in objs:
+            self.store.release_owned_by(o.kind, o.name, uid)
+            self.store.delete_project_object(uid, o.kind, o.key)
+
+    def _update_custom(self, uid: str, inst: dict, params: dict, plan: list[PlannedObject]) -> dict:
+        existing = {(o["kind"], o["key"]): o for o in self.store.list_project_objects(uid)}
+        planned = {(o.kind, o.key) for o in plan}
+        added = [o for o in plan if (o.kind, o.key) not in existing]
+        removed = [PlannedObject(k, key, {"name": o["name"]})
+                   for (k, key), o in existing.items() if (k, key) not in planned]
+        current = self._existing_names()
+        # a kept object that was deleted by hand and recreated under the same name is unowned
+        # again: re-adopt it, or another project could claim it while it is still listed here
+        reclaim = [o for o in plan if (o.kind, o.key) in existing
+                   and (row := current[o.kind].get(o.name)) is not None and not row.get("owned_by")]
+        added = added + reclaim
+        # validate before the first write: the additions must exist and be free
+        for o in added:
+            if o.name not in current[o.kind]:
+                raise ProjectError(f"{o.kind} {o.name!r} does not exist")
+        self._check_ownership(uid, added, current)
+        try:
+            self._release(uid, removed)
+            self._adopt(uid, added, current)
+        except Exception as e:
+            self._adopt(uid, [o for o in removed if o.name in current[o.kind]], current)
+            self.store.update_project(uid, status="error", last_error=_errtext(e))
+            self.store.log_project(uid, "update_failed", _errtext(e))
+            self._do_reload()
+            raise
+        resume_agents = list(inst["params"].get("resume_agents") or [])
+        resume_triggers = list(inst["params"].get("resume_triggers") or [])
+        if inst["status"] == "paused":
+            # additions join a paused project paused: triggers off, agents unsubscribed and
+            # remembered, so resume brings back exactly what was on. An agent that was already
+            # off when added stays off on resume: the user disabled it on its own page, and a
+            # project resume must not undo that (enable it there).
+            paused_now = {t["name"] for t in self.store.list_catalog_triggers() if t.get("paused")}
+            for o in added:
+                if o.kind == "trigger":
+                    if o.name not in paused_now:
+                        resume_triggers.append(o.name)
+                    self.store.set_trigger_paused(o.name, True)
+                elif o.kind == "agent" and self.store.subscription_by_url(agent_url(o.name)):
+                    self.store.remove_subscription_by_url(agent_url(o.name))
+                    resume_agents.append(o.name)
+            gone = {o.name for o in removed}
+            resume_agents = [a for a in resume_agents if a not in gone]
+            resume_triggers = [t for t in resume_triggers if t not in gone]
+        keep = ({"resume_agents": resume_agents, "resume_triggers": resume_triggers}
+                if inst["status"] == "paused" else {})
+        self.store.update_project(uid, params={**keep, **params}, last_error=None,
+                                  status="active" if inst["status"] == "error" else None)
+        self._do_reload()
+        report = {"created": [], "updated": [], "deleted": [],
+                  "added": [f"{o.kind}:{o.name}" for o in added if o not in reclaim],
+                  "reclaimed": [f"{o.kind}:{o.name}" for o in reclaim],
+                  "released": [f"{o.kind}:{o.name}" for o in removed],
+                  "kept": [f"{o.kind}:{o.name}" for o in plan if (o.kind, o.key) in existing]}
+        self.store.log_project(uid, "updated", "; ".join(
+            f"{k}: {', '.join(v)}" for k, v in report.items() if v) or "no changes")
+        return {**self.get(uid), "report": report}
+
     def _delete_objects(self, objs: list[PlannedObject], purge_events: bool) -> int:
         purged = 0
         s = self.store
@@ -290,6 +442,10 @@ class Engine:
     def _do_reload(self) -> None:
         if self._reload is not None:
             self._reload()
+
+
+def _is_custom(template_key: str) -> bool:
+    return template_key == "custom"
 
 
 def _safe_template(key: str):

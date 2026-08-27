@@ -4,26 +4,27 @@ from __future__ import annotations
 
 from .base import Template, ProjectError
 
-_RECIPES: dict[str, Template] = {}
+_TEMPLATES: dict[str, Template] = {}
 
 
 def register(template: Template) -> Template:
     if not template.key:
         raise ProjectError("a template needs a key")
-    _RECIPES[template.key] = template
+    _TEMPLATES[template.key] = template
     return template
 
 
 def unregister(key: str) -> None:
-    _RECIPES.pop(key, None)
+    _TEMPLATES.pop(key, None)
 
 
 def get_template(key: str) -> Template:
     try:
-        return _RECIPES[key]
+        return _TEMPLATES[key]
     except KeyError:
-        raise ProjectError(f"unknown template {key!r} (available: {', '.join(sorted(_RECIPES))})")
+        raise ProjectError(f"unknown template {key!r} (available: {', '.join(sorted(_TEMPLATES))})")
 
 
 def list_templates() -> list[Template]:
-    return [_RECIPES[k] for k in sorted(_RECIPES)]
+    """The templates a user picks from; `hidden` ones (custom) are reachable by key only."""
+    return [_TEMPLATES[k] for k in sorted(_TEMPLATES) if not getattr(_TEMPLATES[k], "hidden", False)]

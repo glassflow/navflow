@@ -396,11 +396,15 @@ def import_catalog_dict(store, raw: dict, engine=None) -> dict:
         for field in ("template", "name"):
             if not u.get(field):
                 raise CatalogError(f"project is missing required field {field!r}")
+        params = dict(u.get("params") or {})
+        if u.get("template") == "custom" and "objects" in u:
+            # a hand-assembled project: `objects: [{kind, name}]` is its whole configuration
+            params["objects"] = u["objects"]
         existing = store.get_project_by_name(u["name"])
         if existing is None:
-            engine.create(u["template"], u.get("params") or {}, name=u["name"])
+            engine.create(u["template"], params, name=u["name"])
         else:
-            engine.update(existing["id"], u.get("params") or {})
+            engine.update(existing["id"], params)
 
     return {"sources": len(sources), "views": len(views), "triggers": len(triggers),
             "agents": len(agents), "mcp_servers": len(mcp_servers), "projects": len(projects),
@@ -501,8 +505,23 @@ def export_db_to_yaml(store, sources: list | None = None, include_secrets: bool 
     # Projects: template + name + params. Their objects are already in the sections above (they are
     # ordinary objects); on import the engine re-plans over them and re-claims ownership. Params
     # may hold references to credentials but never credential values, so this is safe to share.
-    uc_out = [{"template": u["template"], "name": u["name"], "params": u["params"]}
-              for u in store.list_projects()]
+    uc_out = []
+    owner = {"source": {x["name"]: x.get("owned_by") for x in store.list_catalog_sources()},
+             "view": {x["name"]: x.get("owned_by") for x in store.list_catalog_views()},
+             "trigger": {x["name"]: x.get("owned_by") for x in store.list_catalog_triggers()},
+             "agent": {x["name"]: x.get("owned_by") for x in store.list_catalog_agents()},
+             "mcp_server": {x["name"]: x.get("owned_by") for x in store.list_mcp_servers()}}
+    for u in store.list_projects():
+        if u["template"] == "custom":
+            # only objects that are in the sections above and still this project's: one deleted
+            # by hand (or recreated under another project) would make the file fail to import
+            objs = [o for o in (u["params"].get("objects") or [])
+                    if o.get("name") in owner.get(o.get("kind"), {})
+                    and owner[o["kind"]][o["name"]] in (None, u["id"])]
+            if objs:   # a project with nothing left to list is not worth a failing import
+                uc_out.append({"template": "custom", "name": u["name"], "objects": objs})
+        else:
+            uc_out.append({"template": u["template"], "name": u["name"], "params": u["params"]})
     if uc_out and want is None:
         doc["projects"] = uc_out
     return yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)

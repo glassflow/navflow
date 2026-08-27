@@ -75,6 +75,7 @@ function TemplateCard({ r }: { r: Template }) {
 }
 
 export default function Projects() {
+  const navigate = useNavigate();
   const { data: rec, error: recError, reload: reloadRec } = usePolling(() => api.templates(), 60000);
   const { data: inst, error: instError, reload: reloadInst } = usePolling(() => api.projects(), 10000);
   const templates = rec?.templates ?? [];
@@ -141,6 +142,20 @@ export default function Projects() {
       )}
       <div className="uc-cards">
         {templates.map((r) => <TemplateCard key={r.key} r={r} />)}
+        {rec && (
+          <div className="panel uc-card">
+            <div className="uc-card-main">
+              <div className="uc-card-title">From existing objects</div>
+              <p className="help uc-card-desc">
+                Assemble a project from sources, views, triggers, agents and MCP servers you already have.
+                Nothing is created; the project page shows their runs and firings.
+              </p>
+            </div>
+            <div className="uc-card-side">
+              <button className="primary" onClick={() => navigate("/projects/new/custom")}>Assemble</button>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -309,6 +309,7 @@ class ProjectIn(BaseModel):
     template: str = ""
     name: str = ""         # defaults to the template title
     params: dict = {}
+    objects: list | None = None   # template "custom": the objects, each {kind, name}
 
     @model_validator(mode="before")
     @classmethod
@@ -320,8 +321,9 @@ class ProjectIn(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    params: dict
+    params: dict = {}
     name: str = ""         # blank = unchanged
+    objects: list | None = None   # template "custom": the new object list
 
 
 class ProjectRepair(BaseModel):
@@ -2118,7 +2120,8 @@ def make_app() -> FastAPI:
     @app.post("/api/projects", status_code=201)
     async def create_project(body: ProjectIn):
         try:
-            return projects.create(body.template, body.params, name=body.name or None)
+            params = {**body.params, "objects": body.objects} if body.objects is not None else body.params
+            return projects.create(body.template, params, name=body.name or None)
         except Exception as e:
             _uc_err(e)
 
@@ -2132,7 +2135,8 @@ def make_app() -> FastAPI:
     @app.put("/api/projects/{uid}")
     async def update_project(uid: str, body: ProjectUpdate):
         try:
-            out = projects.update(uid, body.params)
+            params = {**body.params, "objects": body.objects} if body.objects is not None else body.params
+            out = projects.update(uid, params)
             if body.name.strip():
                 store.update_project(uid, name=body.name.strip())
                 out = {**projects.get(uid), "report": out["report"]}

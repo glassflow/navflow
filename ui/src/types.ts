@@ -441,6 +441,11 @@ export interface Template {
   // says different things than a local docker one). Absent on older daemons.
   facts?: { you: string[]; tares: string[] };
 }
+export interface McpServer {
+  name: string; url: string; auth_header: string; auth_value_configured: boolean;
+  auth_credential: string; headers: Record<string, string>; updated_at: string;
+  owned_by?: string | null; customized?: boolean;
+}
 export type ProjectObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
 export interface ProjectObject {
   kind: ProjectObjectKind;
@@ -482,6 +487,7 @@ export interface ProjectSummary extends Project {
   names?: Record<string, string>;
   prs?: { open?: number; merged?: number };
   trigger_last_fired?: string | null;
+  triggers?: { name: string; last_fired?: string | null }[];   // custom projects
   [k: string]: unknown;
 }
 export interface ChallengeEvent {
@@ -495,4 +501,4 @@ export interface ChallengerSession {
   commits: { sha?: string; verdict?: string; round?: string | number; findings?: string | number; blocking?: string | number }[];
   thread: ChallengeEvent[];
 }
-export interface ProjectUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }
+export interface ProjectUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[]; added?: string[]; released?: string[] }

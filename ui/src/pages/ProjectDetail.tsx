@@ -57,6 +57,12 @@ const HOW_IT_WORKS: Record<string, string[]> = {
     "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
     "Accept a proposal below to store it as memory for the repo; the plugin gives it to Claude at the start of the next session in that repo.",
   ],
+  custom: [
+    "You assembled this project from objects that already existed; nothing was created for it.",
+    "Runs are the runs of its agents; the trigger cards come from its triggers; Objects lists what is in it.",
+    "Edit adds or removes objects. Removing one from the project, or deleting the project, leaves the object in place.",
+    "Pause stops its triggers and agents; sources keep ingesting so the timeline stays complete.",
+  ],
   default: [
     "The project created ordinary sources, views, triggers and agents; see Configuration for the list.",
     "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
@@ -127,6 +133,7 @@ export default function ProjectDetail() {
   const repos = s.repos;
   const runs = s.runs;
   const p = s.params as Record<string, unknown>;
+  const custom = s.template === "custom";   // assembled from existing objects: no plan, no Repair
 
   return (
     <>
@@ -155,8 +162,10 @@ export default function ProjectDetail() {
       {s.summary_error && <div className="alert warn">summary unavailable: <span className="mono">{s.summary_error}</span></div>}
       {missing.length > 0 && (
         <div className="alert warn">
-          {missing.length} object{missing.length === 1 ? " was" : "s were"} deleted by hand. Repair re-creates
-          {missing.length === 1 ? " it" : " them"} from the plan; or leave as is if that was the intent.
+          {missing.length} object{missing.length === 1 ? " was" : "s were"} deleted by hand.{" "}
+          {custom
+            ? "Edit the project to drop it from the list, or create it again under the same name."
+            : <>Repair re-creates{missing.length === 1 ? " it" : " them"} from the plan; or leave as is if that was the intent.</>}
         </div>
       )}
 
@@ -277,7 +286,7 @@ export default function ProjectDetail() {
         )}
         {runs && runs.length > 0 ? (
           <table>
-            <thead><tr><th>when</th><th>{s.sessions ? "session" : "repo"}</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
+            <thead><tr><th>when</th><th>{s.sessions ? "session" : custom ? "agent" : "repo"}</th><th>status</th><th>rounds</th><th>result</th></tr></thead>
             <tbody>
               {runs.map((r, i) => {
                 const link = prLink(r);
@@ -288,7 +297,7 @@ export default function ProjectDetail() {
                         ? <Link to={`/agents/${encodeURIComponent(r.agent)}?run=${encodeURIComponent(r.id)}`}><TimeAgo ts={r.started_at ?? null} /></Link>
                         : <TimeAgo ts={r.started_at ?? null} />}
                     </td>
-                    <td className="mono">{r.repo ?? r.key ?? ""}</td>
+                    <td className="mono">{custom ? (r.agent ?? "") : (r.repo ?? r.key ?? "")}</td>
                     <td>
                       <span className={`badge ${statusClass(r.status)}`}>{r.status ?? "?"}</span>
                       {r.first_look && <span className="badge" style={{ marginLeft: 6 }}>first look</span>}
@@ -380,7 +389,8 @@ export default function ProjectDetail() {
                 <tr key={o.key}>
                   <td>{o.missing ? <span className="mono">{o.name}</span> : <Link to={OBJECT_ROUTE.source(o.name)} className="mono">{o.name}</Link>}</td>
                   <td>{o.missing
-                    ? <button onClick={() => repair(o.key)} disabled={busyKey === o.key}>{busyKey === o.key ? "repairing…" : "Repair"}</button>
+                    ? custom ? <span className="badge error">missing</span>
+                      : <button onClick={() => repair(o.key)} disabled={busyKey === o.key}>{busyKey === o.key ? "repairing…" : "Repair"}</button>
                     : o.customized ? <span className="help">customized</span> : <span className="badge ok">ok</span>}</td>
                 </tr>
               ))}
@@ -390,10 +400,29 @@ export default function ProjectDetail() {
       </div>
       )}
 
+      {s.triggers && s.triggers.length > 0 && (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Triggers</h2>
+          <table>
+            <thead><tr><th>trigger</th><th>last fired</th></tr></thead>
+            <tbody>
+              {s.triggers.map((t) => (
+                <tr key={t.name}>
+                  <td><Link to={OBJECT_ROUTE.trigger(t.name)} className="mono">{t.name}</Link></td>
+                  <td><TimeAgo ts={t.last_fired ?? null} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="panel">
-        <h2 style={{ marginTop: 0 }}>What it created</h2>
+        <h2 style={{ marginTop: 0 }}>{custom ? "Objects" : "What it created"}</h2>
         <p className="help" style={{ marginTop: 0 }}>
-          Ordinary objects, on their normal pages. Edit them there; the project keeps your version.
+          {custom
+            ? "Ordinary objects, on their normal pages. Edit the project to add or remove some; removing never deletes."
+            : "Ordinary objects, on their normal pages. Edit them there; the project keeps your version."}
         </p>
         <table>
           <thead><tr><th>kind</th><th>name</th><th>state</th><th aria-label="actions" /></tr></thead>
@@ -404,7 +433,7 @@ export default function ProjectDetail() {
                 <td>{o.missing ? <span className="mono dim">{o.name}</span> : <Link to={OBJECT_ROUTE[o.kind](o.name)} className="mono">{o.name}</Link>}</td>
                 <td>{o.missing ? <span className="badge error">missing</span> : o.customized ? <span className="help">customized</span> : <span className="badge ok">ok</span>}</td>
                 <td>
-                  {o.missing && (
+                  {o.missing && !custom && (
                     <div className="btnrow" style={{ justifyContent: "flex-end" }}>
                       <button onClick={() => repair(o.key)} disabled={busyKey === o.key}>{busyKey === o.key ? "repairing…" : "Repair"}</button>
                     </div>
@@ -439,7 +468,9 @@ export default function ProjectDetail() {
       {confirmDel && (
         <ConfirmDialog
           title={`Delete ${s.name}?`}
-          message="Deletes the sources, view, trigger, MCP server and agent this project created. Events already stored stay unless you purge them."
+          message={custom
+            ? "Removes the project. Its objects stay in place, no longer part of a project. Events already stored stay unless you purge them."
+            : "Deletes the sources, view, trigger, MCP server and agent this project created. Events already stored stay unless you purge them."}
           confirmLabel="Delete project" danger onConfirm={remove} onCancel={() => setConfirmDel(false)}>
           <label className="check" style={{ marginTop: 10, display: "block" }}>
             <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />{" "}

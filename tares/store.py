@@ -788,6 +788,13 @@ class Store:
             ).fetchone()
         return r[0] if r else None
 
+    def last_fired_any(self, trigger: str):
+        """When the trigger last fired for any key (a custom project's trigger card)."""
+        with self._lock:
+            r = self.con.execute("SELECT MAX(last_fired) FROM trigger_state WHERE trigger = ?",
+                                 [trigger]).fetchone()
+        return r[0] if r else None
+
     def set_fired(self, trigger: str, key: str, ts: datetime) -> None:
         with self._lock:
             self.con.execute(
@@ -1021,6 +1028,13 @@ class Store:
                  cache_read_input_tokens, cost_usd, run_id],
             )
 
+    def count_agent_runs(self, agent: str) -> tuple[int, int]:
+        """(all runs, runs that ended ok) for one agent."""
+        with self._lock:
+            r = self.con.execute("SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'ok') "
+                                 "FROM agent_runs WHERE agent = ?", [agent]).fetchone()
+        return (int(r[0]), int(r[1])) if r else (0, 0)
+
     def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
                "started_at, duration_ms, finding, error, external_tools, max_rounds, "
@@ -1236,6 +1250,26 @@ class Store:
             self.con.execute(f"UPDATE {table} SET owned_by = ?, customized = FALSE WHERE name = ?",
                              [project_id, name])
 
+    def claim_owned_by(self, kind: str, name: str, project_id: str) -> bool:
+        """Take ownership only if the object is unowned or already this project's; returns whether
+        the claim holds afterwards. The check and the write share the store lock, so two projects
+        adopting the same object cannot both win."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            self.con.execute(f"UPDATE {table} SET owned_by = ?, customized = FALSE "
+                             f"WHERE name = ? AND (owned_by IS NULL OR owned_by = ?)",
+                             [project_id, name, project_id])
+            row = self.con.execute(f"SELECT owned_by FROM {table} WHERE name = ?", [name]).fetchone()
+        return bool(row and row[0] == project_id)
+
+    def release_owned_by(self, kind: str, name: str, project_id: str) -> None:
+        """Clear ownership only while the object is still this project's (a same-name object
+        recreated by hand and claimed by another project is left alone)."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            self.con.execute(f"UPDATE {table} SET owned_by = NULL, customized = FALSE "
+                             f"WHERE name = ? AND owned_by = ?", [name, project_id])
+
     def mark_customized(self, kind: str, name: str) -> bool:
         """Called by the normal update paths: if the object is owned by a project, flag it so the
         engine keeps the user's version on the next re-plan. Returns whether it was owned."""
@@ -1244,6 +1278,9 @@ class Store:
             row = self.con.execute(f"SELECT owned_by FROM {table} WHERE name = ?", [name]).fetchone()
             if not row or not row[0]:
                 return False
+            owner = self.con.execute("SELECT recipe FROM usecases WHERE id = ?", [row[0]]).fetchone()
+            if owner and owner[0] == "custom":
+                return True   # adopted, not planned: there is no planned version to diverge from
             self.con.execute(f"UPDATE {table} SET customized = TRUE WHERE name = ?", [name])
             self.con.execute("UPDATE usecase_objects SET customized = TRUE "
                              "WHERE usecase_id = ? AND kind = ? AND name = ?", [row[0], kind, name])

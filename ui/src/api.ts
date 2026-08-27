@@ -5,7 +5,7 @@ import type {
   AgentPreset, AgentRun, BuiltinAgent,
   GithubCredential,
   LabelFacet, ModelUsage, QueryLogEntry,
-  Template, Project, ProjectSummary, ProjectUpdateReport,
+  McpServer, Template, Project, ProjectObjectKind, ProjectSummary, ProjectUpdateReport,
   Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
 } from "./types";
@@ -219,11 +219,7 @@ export const api = {
       { method: "POST", body: JSON.stringify({ trigger, url }) }),
 
   // ── MCP connections: external tool servers agents can opt into ──
-  mcpServers: () =>
-    request<{ servers: { name: string; url: string; auth_header: string;
-                         auth_value_configured: boolean; auth_credential: string;
-                         headers: Record<string, string>; updated_at: string;
-                         owned_by?: string | null; customized?: boolean }[] }>("/api/mcp-servers"),
+  mcpServers: () => request<{ servers: McpServer[] }>("/api/mcp-servers"),
   createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string;
                             headers?: Record<string, string> }) =>
     request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
@@ -267,13 +263,16 @@ export const api = {
     request<{ ok: boolean; source: string }>("/remember", { method: "POST", body: JSON.stringify(body) }),
   projectSummary: (id: string) =>
     request<ProjectSummary>(`/api/projects/${encodeURIComponent(id)}/summary`),
-  createProject: (body: { template: string; name?: string; params: Record<string, unknown> }) =>
+  // template "custom" takes `objects` ({kind, name} each) instead of params
+  createProject: (body: { template: string; name?: string; params?: Record<string, unknown>;
+                          objects?: { kind: ProjectObjectKind; name: string }[] }) =>
     request<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
-  updateProject: (id: string, body: { params: Record<string, unknown>; name?: string }) =>
+  updateProject: (id: string, body: { params?: Record<string, unknown>; name?: string;
+                                      objects?: { kind: ProjectObjectKind; name: string }[] }) =>
     request<Project & { report?: ProjectUpdateReport }>(`/api/projects/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(body) }),
   deleteProject: (id: string, purgeEvents = false) =>
-    request<{ ok: boolean; deleted?: string[]; purged_events?: number }>(
+    request<{ ok: boolean; deleted?: string[]; released?: string[]; purged_events?: number }>(
       `/api/projects/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
       { method: "DELETE" }),
   pauseProject: (id: string) =>

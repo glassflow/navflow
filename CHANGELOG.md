@@ -5,6 +5,15 @@ the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Projects from existing objects.** On the Projects page, next to the templates, "From existing
+  objects" assembles a project from the sources, views, triggers, agents and MCP servers you
+  already have (any that are not part of another project). Nothing is created: the project
+  adopts them, its page shows their runs and firings, Edit changes the list, and removing an
+  object or deleting the project leaves the object in place. The API is
+  `POST /api/projects {"template": "custom", "name": ..., "objects": [{"kind", "name"}, ...]}`;
+  catalog YAML takes the same shape.
+
 ### Changed
 - **Use cases are now projects; recipes are templates.** A project is a named set of sources,
   views, triggers, agents and MCP servers with one page; the shipped recipes are Tares

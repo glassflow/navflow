@@ -16,6 +16,7 @@ os.environ["TARES_DB"] = DB
 os.environ["TARES_CATALOG"] = CATALOG
 
 import httpx
+import json
 
 from tares.projects import PlannedObject, Template, register
 from tares.projects.registry import unregister
@@ -250,6 +251,184 @@ async def main():
             check("aliases are not in the schema",
                   not any(p.startswith("/api/usecases") for p in (await cx.get("/openapi.json")).json()["paths"]))
             await cx.delete(f"/api/projects/{ucs['old form']['id']}")
+
+            print("== hand-assembled project (template custom) ==")
+            st = app.state.store
+            check("custom is not offered as a template",
+                  "custom" not in [x["key"] for x in (await cx.get("/api/projects/templates")).json()["templates"]])
+            # free objects to assemble from: a source, a view, a trigger, an enabled agent
+            r = await cx.post("/api/catalog/import", json={"yaml": (
+                "sources:\n  - name: free_src\n    connector: webhook\n    poll: 5s\n"
+                "    config: {event_type: log, text_template: '{msg}', labels: [{name: app, const: x, primary: true}]}\n"
+                "views:\n  - name: free_view\n    key_field: app\n    sources: [free_src]\n"
+                "triggers:\n  - name: free_trigger\n    view: free_view\n"
+                "    condition: {aggregate: count, predicate: '> 0', window: 5m, group_by: [key_value]}\n"
+                "    emit: {kind: demo}\n    cooldown: 1m\n"
+                "agents:\n  - name: free_agent\n    trigger: free_trigger\n    prompt: say hi\n    enabled: true\n")})
+            check("free objects imported", r.status_code == 200, r.text[:300])
+            from tares.config import agent_url
+            check("free_agent is subscribed", st.subscription_by_url(agent_url("free_agent")) is not None)
+            objs = [{"kind": "source", "name": "free_src"}, {"kind": "view", "name": "free_view"},
+                    {"kind": "trigger", "name": "free_trigger"}, {"kind": "agent", "name": "free_agent"}]
+            r = await cx.post("/api/projects", json={"template": "custom", "name": "mine",
+                                                     "objects": objs + [{"kind": "source", "name": "t_ui"}]})
+            check("an object owned by another project is refused", r.status_code == 400 and "belongs" in r.text, r.text[:200])
+            r = await cx.post("/api/projects", json={"template": "custom", "name": "mine",
+                                                     "objects": objs + [{"kind": "view", "name": "ghost"}]})
+            check("a missing object is refused", r.status_code == 400 and "does not exist" in r.text, r.text[:200])
+            srcs = {x["name"]: x["owned_by"] for x in (await cx.get("/api/sources")).json()}
+            check("nothing adopted by the failed creates, and the other project's source is still its",
+                  srcs["free_src"] is None and srcs["t_ui"] == uid, str(srcs))
+            r = await cx.post("/api/projects", json={"template": "custom", "objects": objs})
+            check("custom create without a name -> 400", r.status_code == 400 and "name" in r.text, r.text[:200])
+            r = await cx.post("/api/projects", json={"template": "custom", "name": "mine", "objects": objs})
+            check("custom create -> 201", r.status_code == 201, r.text[:300])
+            cid = r.json()["id"]
+            check("four objects adopted, none missing or customized",
+                  len(r.json()["objects"]) == 4 and not any(o["missing"] or o["customized"] for o in r.json()["objects"]),
+                  r.text[:300])
+            src = next(x for x in (await cx.get("/api/sources")).json() if x["name"] == "free_src")
+            check("source carries the ownership badge", src["owned_by"] == cid)
+            # hand edit an adopted object: no customized flag (there is no planned version)
+            r = await cx.put("/api/views/free_view", json={"name": "free_view", "key_field": "app", "sources": ["free_src"], "filters": []})
+            v = next(x for x in (await cx.get("/api/views")).json() if x["name"] == "free_view")
+            check("editing an adopted object does not mark it customized", r.status_code == 200 and not v["customized"], r.text[:200])
+            # activity: a run and a firing show on the page
+            for i in range(22):
+                st.start_agent_run(f"run_c{i}", "free_agent", "free_trigger", "d1", "x", "h")
+                st.finish_agent_run(f"run_c{i}", "ok" if i else "error", rounds=1)
+            from datetime import datetime, timezone
+            st.set_fired("free_trigger", "x", datetime.now(timezone.utc))
+            sm = (await cx.get(f"/api/projects/{cid}/summary")).json()
+            check("summary lists the agent's runs, capped, with totals over all of them",
+                  {r["agent"] for r in sm["runs"]} == {"free_agent"} and len(sm["runs"]) == 20
+                  and sm["runs_total"] == 22 and sm["runs_ok"] == 21, json.dumps(sm)[:300])
+            check("summary lists the trigger with its last firing",
+                  sm["triggers"][0]["name"] == "free_trigger" and sm["triggers"][0]["last_fired"]
+                  and sm["trigger_last_fired"], json.dumps(sm.get("triggers"))[:200])
+            r = await cx.post(f"/api/projects/{cid}/repair", json={"key": "view:free_view"})
+            check("repair is refused", r.status_code == 400, r.text[:200])
+            # pause remembers which agents were on; resume brings exactly those back
+            await cx.post("/api/catalog/import", json={"yaml": (
+                "triggers:\n  - name: off_trigger\n    view: free_view\n    paused: true\n"
+                "    condition: {aggregate: count, predicate: '> 0', window: 5m, group_by: [key_value]}\n"
+                "    emit: {kind: demo}\n    cooldown: 1m\n")})
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs + [{"kind": "trigger", "name": "off_trigger"}]})
+            check("a paused trigger adopted", r.status_code == 200, r.text[:200])
+            r = await cx.post(f"/api/projects/{cid}/pause")
+            check("pause remembers only the trigger that was on", r.json()["params"]["resume_triggers"] == ["free_trigger"], r.text[:300])
+            check("pause unsubscribes the agent and pauses the trigger", r.json()["status"] == "paused"
+                  and st.subscription_by_url(agent_url("free_agent")) is None
+                  and next(t for t in (await cx.get("/api/triggers")).json() if t["name"] == "free_trigger")["paused"])
+            r = await cx.post(f"/api/projects/{cid}/pause")
+            check("a second pause keeps the remembered agents", r.json()["params"]["resume_agents"] == ["free_agent"], r.text[:300])
+            r = await cx.post(f"/api/projects/{cid}/resume")
+            check("resume re-subscribes the agent", r.json()["status"] == "active"
+                  and st.subscription_by_url(agent_url("free_agent")) is not None
+                  and "resume_agents" not in r.json()["params"], r.text[:300])
+            trs = {t["name"]: t["paused"] for t in (await cx.get("/api/triggers")).json()}
+            check("resume unpauses only the trigger that was on", trs["free_trigger"] is False and trs["off_trigger"] is True, str(trs))
+            await cx.put(f"/api/projects/{cid}", json={"objects": objs})
+            await cx.delete("/api/triggers/off_trigger")
+            # an edit while paused keeps additions paused; a released agent drops out of the resume list
+            r = await cx.post("/api/catalog/import", json={"yaml": (
+                "agents:\n  - name: free_agent2\n    trigger: free_trigger\n    prompt: say hi\n    enabled: true\n")})
+            r = await cx.post("/api/catalog/import", json={"yaml": (
+                "agents:\n  - name: off_agent\n    trigger: free_trigger\n    prompt: say hi\n    enabled: false\n")})
+            await cx.post(f"/api/projects/{cid}/pause")
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs + [{"kind": "agent", "name": "free_agent2"},
+                                                                                {"kind": "agent", "name": "off_agent"}]})
+            check("an agent that was off when added is not on the resume list",
+                  r.status_code == 200 and "off_agent" not in r.json()["params"]["resume_agents"], r.text[:300])
+            check("an agent added while paused is unsubscribed and remembered", r.status_code == 200
+                  and st.subscription_by_url(agent_url("free_agent2")) is None
+                  and sorted(r.json()["params"]["resume_agents"]) == ["free_agent", "free_agent2"], r.text[:300])
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs})
+            check("releasing while paused leaves the agent as it was and forgets it",
+                  r.json()["params"]["resume_agents"] == ["free_agent"]
+                  and st.subscription_by_url(agent_url("free_agent2")) is None, r.text[:300])
+            await cx.post(f"/api/projects/{cid}/resume")
+            check("resume after the paused edit re-subscribes only what was on",
+                  st.subscription_by_url(agent_url("free_agent")) is not None
+                  and st.subscription_by_url(agent_url("free_agent2")) is None)
+            check("it stays off after resume", st.subscription_by_url(agent_url("off_agent")) is None)
+            await cx.delete("/api/agents/builtin/free_agent2")
+            await cx.delete("/api/agents/builtin/off_agent")
+            # a same-name object recreated by hand and claimed elsewhere is not released by us
+            r = await cx.post("/api/mcp-servers", json={"name": "lost_mcp", "url": "https://example.invalid/a"})
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs + [{"kind": "mcp_server", "name": "lost_mcp"}]})
+            check("mcp server adopted", r.status_code == 200 and "mcp_server:lost_mcp" in r.json()["report"]["added"], r.text[:200])
+            r = await cx.delete("/api/mcp-servers/lost_mcp")
+            check("hand delete of the adopted mcp server", r.status_code == 200, r.text[:200])
+            await cx.post("/api/mcp-servers", json={"name": "lost_mcp", "url": "https://example.invalid/b"})
+            r = await cx.post("/api/projects", json={"template": "custom", "name": "claimer",
+                                                     "objects": [{"kind": "mcp_server", "name": "lost_mcp"}]})
+            check("the recreated mcp server now belongs to another project", r.status_code == 201, r.text[:300])
+            claimer = r.json().get("id")
+            got = (await cx.get(f"/api/projects/{cid}")).json()
+            check("the lost object shows as missing on the original project",
+                  next(o for o in got["objects"] if o["name"] == "lost_mcp")["missing"], json.dumps(got["objects"])[:300])
+            y = (await cx.get("/api/catalog/export")).text
+            import yaml as _yaml
+            doc = _yaml.safe_load(y)
+            mine_exp = next(u for u in doc["projects"] if u["name"] == "mine")
+            check("export leaves the lost object out of the original project",
+                  not any(o["name"] == "lost_mcp" for o in mine_exp["objects"])
+                  and any(o["name"] == "lost_mcp" for o in next(u for u in doc["projects"] if u["name"] == "claimer")["objects"]),
+                  json.dumps(doc["projects"])[:400])
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs})
+            m = next(x for x in (await cx.get("/api/mcp-servers")).json()["servers"] if x["name"] == "lost_mcp")
+            check("releasing a lost object leaves the new owner's ownership alone",
+                  r.status_code == 200 and m["owned_by"] == claimer, r.text[:200])
+            await cx.delete(f"/api/projects/{claimer}")
+            # an object recreated by hand under the same name, still unowned, is reclaimed on edit
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs + [{"kind": "mcp_server", "name": "lost_mcp"}]})
+            await cx.delete("/api/mcp-servers/lost_mcp")
+            await cx.post("/api/mcp-servers", json={"name": "lost_mcp", "url": "https://example.invalid/c"})
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs + [{"kind": "mcp_server", "name": "lost_mcp"}]})
+            m = next(x for x in (await cx.get("/api/mcp-servers")).json()["servers"] if x["name"] == "lost_mcp")
+            check("a recreated unowned object is reclaimed by the edit",
+                  r.status_code == 200 and r.json()["report"]["reclaimed"] == ["mcp_server:lost_mcp"] and m["owned_by"] == cid,
+                  r.text[:300])
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs})
+            await cx.delete("/api/mcp-servers/lost_mcp")
+            # edit: drop the agent, add an mcp server
+            r = await cx.post("/api/mcp-servers", json={"name": "free_mcp", "url": "https://example.invalid/mcp"})
+            check("free mcp server created", r.status_code in (200, 201), r.text[:200])
+            r = await cx.put(f"/api/projects/{cid}", json={"objects": objs[:3] + [{"kind": "mcp_server", "name": "free_mcp"}]})
+            check("edit releases the agent and adopts the mcp server", r.status_code == 200
+                  and r.json()["report"]["released"] == ["agent:free_agent"]
+                  and r.json()["report"]["added"] == ["mcp_server:free_mcp"], r.text[:300])
+            ag = next(x for x in (await cx.get("/api/agents/builtin")).json()["agents"] if x["name"] == "free_agent")
+            check("the released agent still exists, unowned and still subscribed",
+                  ag["owned_by"] is None and st.subscription_by_url(agent_url("free_agent")) is not None)
+            y = (await cx.get("/api/catalog/export")).text
+            check("export writes the object list for a custom project",
+                  "template: custom" in y and "objects:" in y and "free_mcp" in y, y[-500:])
+            r = await cx.post("/api/catalog/import", json={"yaml": y})
+            check("re-import of the export is a no-op", r.status_code == 200 and
+                  len([u for u in (await cx.get("/api/projects")).json()["projects"] if u["name"] == "mine"]) == 1, r.text[:200])
+            await cx.post(f"/api/projects/{cid}/pause")
+            r = await cx.delete(f"/api/projects/{cid}")
+            check("delete releases, deletes nothing", r.status_code == 200 and r.json()["deleted"] == []
+                  and len(r.json()["released"]) == 4, r.text[:200])
+            check("deleting a paused project leaves its trigger unpaused",
+                  not next(t for t in (await cx.get("/api/triggers")).json() if t["name"] == "free_trigger")["paused"])
+            # a custom project whose only object is gone is left out of the export
+            r = await cx.post("/api/mcp-servers", json={"name": "solo_mcp", "url": "https://example.invalid/s"})
+            r = await cx.post("/api/projects", json={"template": "custom", "name": "solo",
+                                                     "objects": [{"kind": "mcp_server", "name": "solo_mcp"}]})
+            solo = r.json()["id"]
+            await cx.delete("/api/mcp-servers/solo_mcp")
+            y = (await cx.get("/api/catalog/export")).text
+            check("export skips a custom project with nothing left", "solo" not in y, y[-300:])
+            await cx.delete(f"/api/projects/{solo}")
+            names = {x["name"] for x in (await cx.get("/api/sources")).json()}
+            check("the source is still there, unowned", "free_src" in names and
+                  next(x for x in (await cx.get("/api/sources")).json() if x["name"] == "free_src")["owned_by"] is None)
+            for path in ("/api/agents/builtin/free_agent", "/api/triggers/free_trigger", "/api/views/free_view",
+                         "/api/sources/free_src", "/api/mcp-servers/free_mcp"):
+                await cx.delete(path)
 
             print("== delete ==")
             r = await cx.delete(f"/api/projects/{uid}?purge_events=true")
