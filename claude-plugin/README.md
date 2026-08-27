@@ -9,7 +9,8 @@ One install wires Claude Code to Tares in **both directions**:
   `{tares_url}/ingest/claude_code`.
 
 Both wires are configured once on install (`tares_url`, optional auth `access_token`, and a
-`stream_sessions` toggle).
+`stream_sessions` toggle). Challenger sessions (below) add `challenger_mode`, `codex_bin` and
+`codex_sandbox`.
 
 ## Prerequisites
 
@@ -42,6 +43,35 @@ dir), then users run:
 ```
 
 They're prompted for `tares_url` + token on install; the token is stored in the OS keychain.
+
+## Challenger sessions
+
+Say "make this a challenger session" (or type `/tares:challenger`) at the start of a session.
+Claude calls the `set_session_flow` MCP tool; the shipper sees that call in the transcript, marks
+the session locally and on Tares, and from then on:
+
+- when Claude leaves plan mode, the OpenAI Codex CLI on your laptop critiques the plan and Claude
+  gets the findings before you see the plan (advisory);
+- after every `git commit` Claude makes, Codex reviews the commit. `[P1]`/`[P2]` findings block
+  Claude until it fixes and amends (strict, the default) or come back as context (`challenger_mode`
+  = `advise`). Errors, timeouts and inconclusive reviews never block. Consecutive failed rounds are
+  capped at 8 and the fix loop at 5 turn ends;
+- every review lands on the session's timeline in Tares next to the transcript, and when the
+  session ends Tares's challenger use case writes the session summary with memory proposals.
+  Accepted memory is handed to Claude at the next session start on that project.
+
+`/tares:challenger off` turns it off mid-session. `/tares:challenger-waive [n|all]` suppresses a
+disputed finding. `touch .git/tares-challenger-skip` disables the hooks for a repository. State and
+history live under `.git/` (`tares-challenger-*`), never in the working tree.
+
+Needs `codex` on PATH (`npm install -g @openai/codex && codex login`) or the `codex_bin` option;
+reviews are billed to your OpenAI account and Tares never calls Codex. If reviews come back
+INCONCLUSIVE inside an already sandboxed session, set `codex_sandbox` to `danger-full-access`.
+
+The mechanism follows [andreidavid/codex-review](https://github.com/andreidavid/codex-review)
+(MIT): post-commit review, priority-tagged findings, the blocking fix loop, plan critique, state in
+`.git/`. This plugin reimplements it in Python, gates it on the session mark, and records the
+exchange in Tares.
 
 ## How capture works
 

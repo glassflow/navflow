@@ -185,6 +185,19 @@ async def remember(key: str, content: str, memory_type: str = "observation") -> 
     return r.text
 
 
+@mcp.tool()
+async def set_session_flow(flow: str = "challenger") -> str:
+    """Mark this Claude Code session as running a named flow, e.g. "challenger" (a second model
+    challenges your plan and every commit; Tares keeps the whole exchange and writes the session
+    summary). Pass an empty string to clear it. Call it when the user asks for the flow at the
+    start of a session. This tool only acknowledges: the Tares plugin sees the call in the
+    transcript and marks the session on both the laptop and Tares."""
+    flow = (flow or "").strip()
+    if flow:
+        return f"noted: the Tares plugin will mark this session as a {flow} session"
+    return "noted: the Tares plugin will clear this session's flow"
+
+
 # ── setup surface: an agent can wire up its own data sources ─────────────────
 
 @mcp.tool()

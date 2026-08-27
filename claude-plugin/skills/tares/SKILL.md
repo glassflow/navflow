@@ -21,6 +21,14 @@ this service healthy", "what has this customer done recently" — read Tares ins
 This plugin also streams the current Claude Code session into Tares (the `claude_code` source) when
 session streaming is enabled, so prior sessions are queryable as a source.
 
+## Challenger sessions
+
+When the user asks to make this a challenger session (any wording: "challenger session",
+"let Codex challenge this", "/tares:challenger"), call the `set_session_flow` tool with
+`flow="challenger"` and say so in one sentence. Do not run Codex yourself: the plugin's hooks
+challenge the plan when you leave plan mode and every commit you make, and hand you the findings.
+`set_session_flow` with an empty `flow` turns it off.
+
 ## Authoring: sources, labels, and views
 
 Tares's data model has three layers — get them right and correlation just works; guess and it
