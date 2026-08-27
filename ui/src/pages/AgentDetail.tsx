@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -318,11 +318,15 @@ function RunRow({ r, open, focused, onToggle }: {
       {r.finding ? " What it had so far:" : ""}
     </p>
   );
+  // Scroll the focused run into view once, when it is opened from a link; not on every poll
+  // re-render, which would drag the page back while the user reads the finding.
+  const rowRef = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { if (focused) rowRef.current?.scrollIntoView({ block: "center" }); }, [focused]);
   return (
     <>
       <tr className="clickable" onClick={onToggle}
           style={focused ? { outline: "2px solid var(--accent)", outlineOffset: -2 } : undefined}
-          ref={(el) => { if (el && focused) el.scrollIntoView({ block: "center" }); }}>
+          ref={rowRef}>
         <td>{statusBadge(r)}</td>
         <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={r.started_at} /></td>
         <td className="mono">{r.key}</td>
