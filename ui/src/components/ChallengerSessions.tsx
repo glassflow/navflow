@@ -36,8 +36,9 @@ function Verdict({ v, findings, blocking, compact, what }: {
   const text = verdictText(v, findings, blocking);
   const title = `${what ? what + ": " : ""}${text} (Codex verdict ${v})`;
   if (compact) {
-    const n = v === "PASS" ? 0 : Number(findings);
-    return <span className={`badge ${verdictClass(v)}`} title={title}>{v === "FAIL" || v === "PASS" ? (Number.isFinite(n) ? n : "?") : "?"}</span>;
+    const n = Number(findings);
+    const label = v === "PASS" ? "Pass" : v === "FAIL" ? `Findings (${Number.isFinite(n) ? n : "?"})` : "No verdict";
+    return <span className={`badge ${verdictClass(v)}`} title={title}>{label}</span>;
   }
   return <span className={`badge ${verdictClass(v)}`} title={title}>{text}</span>;
 }
