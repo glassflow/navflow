@@ -845,7 +845,7 @@ def make_app() -> FastAPI:
             return
         async with _seed_lock:
             try:
-                uid = await asyncio.to_thread(ensure_instance, usecases)
+                uid = ensure_instance(usecases)   # inline, like the create route: reload needs the loop
             except Exception as e:
                 print(f"taresd: could not create the challenger workflow use case: {e}")
                 return
