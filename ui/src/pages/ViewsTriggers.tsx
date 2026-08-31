@@ -27,6 +27,8 @@ export function TriggersPage() {
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
   const { data: views, error: viewsError } = usePolling(() => api.views(), 10000);
   const { data: dispatches } = usePolling(() => api.dispatches(100), 15000);
+  const { data: roster } = usePolling(() => api.agents(), 15000);
+  const { data: slack } = usePolling(() => api.slackChannels(), 60000);
 
   return (
     <>
@@ -34,6 +36,7 @@ export function TriggersPage() {
       {/* Either fetch failing is enough to make "no triggers" / "no views yet" a lie. */}
       <TriggersSection triggers={triggers ?? []} viewNames={(views ?? []).map((v) => v.name)}
                        dispatches={dispatches ?? []}
+                       roster={roster?.agents ?? []} slackChannels={slack?.channels ?? []}
                        loadError={error ?? viewsError} onChange={reload} />
     </>
   );
@@ -158,9 +161,38 @@ function ViewsSection({ views, triggers, loadError, onChange }:
 
 // ── triggers ─────────────────────────────────────────────────────────────────
 
-function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange }:
+function TriggersSection({ triggers, viewNames, dispatches, roster, slackChannels, loadError, onChange }:
   { triggers: Trigger[]; viewNames: string[]; dispatches: import("../types").DispatchLogEntry[];
+    roster: import("../types").AgentInfo[];
+    slackChannels: { id: string; name: string; is_private: boolean }[];
     loadError?: string; onChange: () => void }) {
+  const channelLabel = (raw: string) => {
+    const cid = raw.replace(/^#/, "");
+    const hit = slackChannels.find((c) => c.id === cid);
+    return hit ? (hit.is_private ? `🔒 ${hit.name}` : `#${hit.name}`) : raw;
+  };
+  // Everything subscribed to a trigger, from the same roster the Deliveries page shows. Active
+  // trigger + nobody = the warning; a paused trigger has its subscriptions parked by design.
+  const subscribers = (name: string) => roster.filter((a) => a.triggers.includes(name));
+  const SubscriberCell = ({ t }: { t: Trigger }) => {
+    if (t.paused) return <span className="dim">paused</span>;
+    const subs = subscribers(t.name);
+    if (!subs.length) return <span className="badge error">nobody</span>;
+    return (
+      <>
+        {subs.slice(0, 2).map((a) =>
+          a.kind === "tares"
+            ? <Link key={a.name} to={`/agents/${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>
+            : a.kind === "slack"
+              ? <span key={a.name} className="chip">{channelLabel(a.name)}</span>
+              : <Link key={a.name} to={`/deliveries?agent=${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>)}
+        {subs.length > 2 && (
+          <span className="chip dim" title={subs.slice(2).map((a) => a.name).join(", ")}>
+            +{subs.length - 2} more</span>
+        )}
+      </>
+    );
+  };
   // newest first, so the first hit per trigger is its latest firing; older than the fetched
   // window shows as a dash, which for a trigger list reads correctly as "not lately"
   const lastFired = (name: string) => dispatches.find((d) => d.trigger === name)?.fired_at ?? null;
@@ -229,7 +261,7 @@ function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange 
             <span className="count">{shown.length} of {triggers.length}</span>
           </div>
           <table>
-            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th>last fired</th><th></th></tr></thead>
+            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th>last fired</th><th>subscribers</th><th></th></tr></thead>
             <tbody>
               {shown.map((t) => (
                 <tr key={t.name} style={t.paused ? { opacity: 0.55 } : undefined}>
@@ -243,6 +275,7 @@ function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange 
                   </td>
                   <td className="mono">{t.cooldown}</td>
                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={lastFired(t.name)} /></td>
+                  <td><SubscriberCell t={t} /></td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}`}>agents</Link>
@@ -253,7 +286,7 @@ function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange 
                   </td>
                 </tr>
               ))}
-              {!shown.length && <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match the filter</td></tr>}
+              {!shown.length && <tr><td colSpan={7} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match the filter</td></tr>}
             </tbody>
           </table>
         </>
