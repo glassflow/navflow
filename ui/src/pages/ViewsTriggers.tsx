@@ -26,13 +26,14 @@ export function ViewsPage() {
 export function TriggersPage() {
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
   const { data: views, error: viewsError } = usePolling(() => api.views(), 10000);
+  const { data: dispatches } = usePolling(() => api.dispatches(100), 15000);
 
   return (
     <>
       <h1>Triggers</h1>
-      <p className="subtitle">conditions that <em>wake an agent</em> with a timeline</p>
       {/* Either fetch failing is enough to make "no triggers" / "no views yet" a lie. */}
       <TriggersSection triggers={triggers ?? []} viewNames={(views ?? []).map((v) => v.name)}
+                       dispatches={dispatches ?? []}
                        loadError={error ?? viewsError} onChange={reload} />
     </>
   );
@@ -157,8 +158,12 @@ function ViewsSection({ views, triggers, loadError, onChange }:
 
 // ── triggers ─────────────────────────────────────────────────────────────────
 
-function TriggersSection({ triggers, viewNames, loadError, onChange }:
-  { triggers: Trigger[]; viewNames: string[]; loadError?: string; onChange: () => void }) {
+function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange }:
+  { triggers: Trigger[]; viewNames: string[]; dispatches: import("../types").DispatchLogEntry[];
+    loadError?: string; onChange: () => void }) {
+  // newest first, so the first hit per trigger is its latest firing; older than the fetched
+  // window shows as a dash, which for a trigger list reads correctly as "not lately"
+  const lastFired = (name: string) => dispatches.find((d) => d.trigger === name)?.fired_at ?? null;
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
   const [view, setView] = useState("all");
@@ -224,7 +229,7 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
             <span className="count">{shown.length} of {triggers.length}</span>
           </div>
           <table>
-            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th></th></tr></thead>
+            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th>last fired</th><th></th></tr></thead>
             <tbody>
               {shown.map((t) => (
                 <tr key={t.name} style={t.paused ? { opacity: 0.55 } : undefined}>
@@ -237,6 +242,7 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
                     {t.condition.aggregate}({t.condition.field ?? "*"}) {t.condition.predicate} over {t.condition.window}
                   </td>
                   <td className="mono">{t.cooldown}</td>
+                  <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={lastFired(t.name)} /></td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}`}>agents</Link>
