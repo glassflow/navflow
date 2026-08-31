@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import AgentForm from "../components/AgentForm";
 import ConfirmDialog from "../components/ConfirmDialog";
-import UsecaseBadge from "../components/UsecaseBadge";
+import ProjectBadge from "../components/ProjectBadge";
 import { ErrorState, TimeAgo, fmtCost, fmtTokens, usePolling } from "../components/bits";
 import type { AgentRun, BuiltinAgent } from "../types";
 
@@ -27,7 +27,7 @@ function statusBadge(r: AgentRun) {
 }
 
 export default function AgentDetail() {
-  // A dispatch page links here as ?dispatch=<id> (and a use case as ?run=<id>): the Runs tab
+  // A dispatch page links here as ?dispatch=<id> (and a project as ?run=<id>): the Runs tab
   // opens with that run expanded, highlighted, and scrolled into view.
 
   const { name = "" } = useParams();
@@ -90,7 +90,7 @@ export default function AgentDetail() {
           <h1><span className="mono">{agent.name}</span>{" "}
             <span className="badge">Tares agent</span></h1>
           <p className="subtitle">a prompt that takes a first look when its trigger fires
-            {agent.owned_by && <> · <UsecaseBadge ownedBy={agent.owned_by} customized={agent.customized} /></>}
+            {agent.owned_by && <> · <ProjectBadge ownedBy={agent.owned_by} customized={agent.customized} /></>}
           </p>
         </div>
         {!editing && (

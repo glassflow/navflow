@@ -3,6 +3,32 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Projects from existing objects.** On the Projects page, next to the templates, "From existing
+  objects" assembles a project from the sources, views, triggers, agents and MCP servers you
+  already have (any that are not part of another project). Nothing is created: the project
+  adopts them, its page shows their runs and firings, Edit changes the list, and removing an
+  object or deleting the project leaves the object in place. The API is
+  `POST /api/projects {"template": "custom", "name": ..., "objects": [{"kind", "name"}, ...]}`;
+  catalog YAML takes the same shape.
+
+### Changed
+- **Use cases are now projects; recipes are templates.** A project is a named set of sources,
+  views, triggers, agents and MCP servers with one page; the shipped recipes are Tares
+  templates. The API moves to `/api/projects` and `/api/projects/templates`, catalog YAML uses
+  `projects:` with `template:`, and the seed variable is `TARES_SEED_PROJECT`. The old routes
+  (`/api/usecases*`, with their old response shape), the old YAML keys (`usecases:`, `recipe:`)
+  and `TARES_SEED_USECASE` keep working for two releases. Ids (`uc_...`) and the database tables
+  are unchanged.
+- `claude_code` events label the repository the session ran in as `repo` (was `project`); the
+  challenger session table, the memory proposals and the plugin's session-start memory lookup
+  use the same word. On upgrade the saved `claude_code` sources and the views that read only
+  them are rewritten to `repo`; events stored earlier keep their old label, like any label
+  change. Memory already accepted keeps reaching Claude: it is keyed by the repo name, which
+  did not change.
+
 ## [1.13.0] - 2026-08-27
 
 ### Added

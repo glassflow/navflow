@@ -225,10 +225,11 @@ def process_lines(raw_lines: list, flow: str, hook: dict) -> tuple:
 # ── SessionStart: hand accepted memory to Claude ─────────────────────────────
 
 def memory_context(cfg: dict, cwd: str) -> str:
-    """Accepted memory for this project (decisions on the memory source keyed by the project
-    name), as a short block Claude sees at session start. Empty on any failure."""
-    project = os.path.basename((cwd or "").rstrip("/")) or ""
-    if not project:
+    """Accepted memory for this repo (decisions on the memory source keyed by the repo name, the
+    working directory's basename), as a short block Claude sees at session start. Empty on any
+    failure."""
+    repo = os.path.basename((cwd or "").rstrip("/")) or ""
+    if not repo:
         return ""
     try:
         r = _get(f"{cfg['base']}/api/sources/agent_memory/events?limit=200",
@@ -238,7 +239,7 @@ def memory_context(cfg: dict, cwd: str) -> str:
         return ""
     lines = []
     for row in rows if isinstance(rows, list) else []:
-        if row.get("key") == project and row.get("event_type") == "decision" and row.get("text"):
+        if row.get("key") == repo and row.get("event_type") == "decision" and row.get("text"):
             lines.append(row["text"].strip())
     if not lines:
         return ""
@@ -246,7 +247,7 @@ def memory_context(cfg: dict, cwd: str) -> str:
     for l in lines:
         if l not in seen:
             seen.add(l); uniq.append(l)
-    return ("Memory from earlier Tares sessions on this project (accepted by the user):\n"
+    return ("Memory from earlier Tares sessions in this repo (accepted by the user):\n"
             + "\n".join(f"- {l}" for l in uniq[:20]))
 
 

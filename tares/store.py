@@ -212,8 +212,9 @@ CREATE TABLE IF NOT EXISTS dispatch_log (
   delivered   INTEGER,
   payload     TEXT
 );
--- Use cases: a recipe (code) instantiated with params. The instance owns the ordinary catalog
--- objects it created (owned_by on those tables). usecase_objects maps the recipe plan
+-- Projects: a template (code) instantiated with params. Table and column names predate the
+-- rename (use case, recipe) while the API says project and template. The project owns the ordinary
+-- catalog objects it created (owned_by on those tables). usecase_objects maps the template plan
 -- keys to the real object names so a re-plan can diff against what exists.
 CREATE TABLE IF NOT EXISTS usecases (
   id         TEXT PRIMARY KEY,
@@ -273,7 +274,7 @@ _MIGRATIONS = [
     # as number-typed labels (stored in `labels`); the raw values remain in `payload`. Metadata-only
     # drop in DuckDB, so this is instant even on a large table.
     "ALTER TABLE events DROP COLUMN IF EXISTS fields",
-    # Use-case ownership (see usecases tables). No DEFAULT for the same reason as paused above;
+    # Project ownership (see usecases tables). No DEFAULT for the same reason as paused above;
     # NULL reads as "not owned" / "not customized".
     "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS owned_by TEXT",
     "ALTER TABLE catalog_sources ADD COLUMN IF NOT EXISTS customized BOOLEAN",
@@ -455,10 +456,52 @@ class Store:
                     self.con.execute(stmt)
             for stmt in _MIGRATIONS:
                 self.con.execute(stmt)
+            self._migrate_claude_code_repo_label()
             self._init_source_stats()
             self._init_entity_counts()
         except Exception as e:
             raise StoreUnavailable(f"cannot initialize the database at {path}: {e}", path) from e
+
+    def migrate_claude_code_repo_label(self) -> None:
+        """1.14: the claude_code label `project` became `repo`. Rewrites what the catalog says
+        about the label: the declaration on every claude_code source, and the key or filters of
+        views that read only claude_code sources (a view mixing in other sources is left alone,
+        `project` may be another source's label there). Events already stored keep their old
+        label, as any label change does: new events only. Idempotent, cheap (catalog tables
+        only), run at every open and again after a catalog import, since an old catalog file can
+        bring the old label back."""
+        with self._lock:
+            self._migrate_claude_code_repo_label()
+
+    def _migrate_claude_code_repo_label(self) -> None:
+        rows = self.con.execute(
+            "SELECT name, config FROM catalog_sources WHERE connector = 'claude_code'").fetchall()
+        names = []
+        for name, raw in rows:
+            names.append(name)
+            cfg = json.loads(raw or "{}")
+            hit = False
+            for l in cfg.get("labels") or []:
+                if isinstance(l, dict) and l.get("name") == "project":
+                    l["name"] = "repo"
+                    if l.get("field") == "project":
+                        l["field"] = "repo"
+                    hit = True
+            if hit:
+                self.con.execute("UPDATE catalog_sources SET config = ? WHERE name = ?",
+                                 [json.dumps(cfg), name])
+        for name, key_field, sources, filters in self.con.execute(
+                "SELECT name, key_field, sources, filters FROM catalog_views").fetchall():
+            srcs = set(json.loads(sources or "[]"))
+            if not srcs or not srcs <= set(names):
+                continue
+            fl = json.loads(filters or "[]")
+            for f in fl:
+                if f.get("field") == "project":
+                    f["field"] = "repo"
+            if key_field == "project" or json.loads(filters or "[]") != fl:
+                self.con.execute("UPDATE catalog_views SET key_field = ?, filters = ? WHERE name = ?",
+                                 ["repo" if key_field == "project" else key_field, json.dumps(fl), name])
 
     def ping(self) -> None:
         """Cheapest possible liveness probe for /health — proves the connection still answers.
@@ -745,6 +788,13 @@ class Store:
             ).fetchone()
         return r[0] if r else None
 
+    def last_fired_any(self, trigger: str):
+        """When the trigger last fired for any key (a custom project's trigger card)."""
+        with self._lock:
+            r = self.con.execute("SELECT MAX(last_fired) FROM trigger_state WHERE trigger = ?",
+                                 [trigger]).fetchone()
+        return r[0] if r else None
+
     def set_fired(self, trigger: str, key: str, ts: datetime) -> None:
         with self._lock:
             self.con.execute(
@@ -978,6 +1028,13 @@ class Store:
                  cache_read_input_tokens, cost_usd, run_id],
             )
 
+    def count_agent_runs(self, agent: str) -> tuple[int, int]:
+        """(all runs, runs that ended ok) for one agent."""
+        with self._lock:
+            r = self.con.execute("SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'ok') "
+                                 "FROM agent_runs WHERE agent = ?", [agent]).fetchone()
+        return (int(r[0]), int(r[1])) if r else (0, 0)
+
     def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
                "started_at, duration_ms, finding, error, external_tools, max_rounds, "
@@ -1180,42 +1237,65 @@ class Store:
         with self._lock:
             self.con.execute("DELETE FROM mcp_servers WHERE name = ?", [name])
 
-    # ── use cases (recipes instantiated with params; they own ordinary catalog objects) ──
+    # ── projects (templates instantiated with params; they own ordinary catalog objects) ──
     _OWNED_TABLES = {"source": "catalog_sources", "view": "catalog_views",
                      "trigger": "catalog_triggers", "agent": "catalog_agents",
                      "mcp_server": "mcp_servers"}
 
-    def set_owned_by(self, kind: str, name: str, usecase_id: str | None) -> None:
-        """Mark an ordinary object as created by a use case (or clear it). Ownership is a badge and
+    def set_owned_by(self, kind: str, name: str, project_id: str | None) -> None:
+        """Mark an ordinary object as created by a project (or clear it). Ownership is a badge and
         a diff key, not a lock: the object stays editable and deletable everywhere."""
         table = self._OWNED_TABLES[kind]
         with self._lock:
             self.con.execute(f"UPDATE {table} SET owned_by = ?, customized = FALSE WHERE name = ?",
-                             [usecase_id, name])
+                             [project_id, name])
+
+    def claim_owned_by(self, kind: str, name: str, project_id: str) -> bool:
+        """Take ownership only if the object is unowned or already this project's; returns whether
+        the claim holds afterwards. The check and the write share the store lock, so two projects
+        adopting the same object cannot both win."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            self.con.execute(f"UPDATE {table} SET owned_by = ?, customized = FALSE "
+                             f"WHERE name = ? AND (owned_by IS NULL OR owned_by = ?)",
+                             [project_id, name, project_id])
+            row = self.con.execute(f"SELECT owned_by FROM {table} WHERE name = ?", [name]).fetchone()
+        return bool(row and row[0] == project_id)
+
+    def release_owned_by(self, kind: str, name: str, project_id: str) -> None:
+        """Clear ownership only while the object is still this project's (a same-name object
+        recreated by hand and claimed by another project is left alone)."""
+        table = self._OWNED_TABLES[kind]
+        with self._lock:
+            self.con.execute(f"UPDATE {table} SET owned_by = NULL, customized = FALSE "
+                             f"WHERE name = ? AND owned_by = ?", [name, project_id])
 
     def mark_customized(self, kind: str, name: str) -> bool:
-        """Called by the normal update paths: if the object is owned by a use case, flag it so the
+        """Called by the normal update paths: if the object is owned by a project, flag it so the
         engine keeps the user's version on the next re-plan. Returns whether it was owned."""
         table = self._OWNED_TABLES[kind]
         with self._lock:
             row = self.con.execute(f"SELECT owned_by FROM {table} WHERE name = ?", [name]).fetchone()
             if not row or not row[0]:
                 return False
+            owner = self.con.execute("SELECT recipe FROM usecases WHERE id = ?", [row[0]]).fetchone()
+            if owner and owner[0] == "custom":
+                return True   # adopted, not planned: there is no planned version to diverge from
             self.con.execute(f"UPDATE {table} SET customized = TRUE WHERE name = ?", [name])
             self.con.execute("UPDATE usecase_objects SET customized = TRUE "
                              "WHERE usecase_id = ? AND kind = ? AND name = ?", [row[0], kind, name])
         return True
 
-    def create_usecase(self, uid: str, recipe: str, name: str, params: dict,
+    def create_project(self, uid: str, template: str, name: str, params: dict,
                        status: str = "active") -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO usecases (id, recipe, name, params, status, created_at, updated_at, "
                 "last_error) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-                [uid, recipe, name, json.dumps(params), status, ts, ts])
+                [uid, template, name, json.dumps(params), status, ts, ts])
 
-    def update_usecase(self, uid: str, params: dict | None = None, status: str | None = None,
+    def update_project(self, uid: str, params: dict | None = None, status: str | None = None,
                        last_error: str | None = "", name: str | None = None) -> None:
         """last_error: "" (default) leaves it unchanged; None clears it; a string sets it."""
         sets, vals = ["updated_at = ?"], [now_utc()]
@@ -1232,41 +1312,41 @@ class Store:
             self.con.execute(f"UPDATE usecases SET {', '.join(sets)} WHERE id = ?", vals)
 
     @staticmethod
-    def _usecase_row(r) -> dict:
-        return {"id": r[0], "recipe": r[1], "name": r[2], "params": json.loads(r[3] or "{}"),
+    def _project_row(r) -> dict:
+        return {"id": r[0], "template": r[1], "name": r[2], "params": json.loads(r[3] or "{}"),
                 "status": r[4], "created_at": r[5], "updated_at": r[6], "last_error": r[7]}
 
-    def list_usecases(self) -> list[dict]:
+    def list_projects(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT id, recipe, name, params, status, created_at, updated_at, last_error "
                 "FROM usecases ORDER BY created_at").fetchall()
-        return [self._usecase_row(r) for r in rows]
+        return [self._project_row(r) for r in rows]
 
-    def get_usecase(self, uid: str) -> dict | None:
+    def get_project(self, uid: str) -> dict | None:
         with self._lock:
             r = self.con.execute(
                 "SELECT id, recipe, name, params, status, created_at, updated_at, last_error "
                 "FROM usecases WHERE id = ?", [uid]).fetchone()
-        return self._usecase_row(r) if r else None
+        return self._project_row(r) if r else None
 
-    def get_usecase_by_name(self, name: str) -> dict | None:
-        return next((u for u in self.list_usecases() if u["name"] == name), None)
+    def get_project_by_name(self, name: str) -> dict | None:
+        return next((u for u in self.list_projects() if u["name"] == name), None)
 
-    def delete_usecase(self, uid: str) -> None:
+    def delete_project(self, uid: str) -> None:
         with self._lock:
             self.con.execute("DELETE FROM usecase_objects WHERE usecase_id = ?", [uid])
             self.con.execute("DELETE FROM usecase_log WHERE usecase_id = ?", [uid])
             self.con.execute("DELETE FROM usecases WHERE id = ?", [uid])
 
-    def upsert_usecase_object(self, uid: str, kind: str, key: str, name: str) -> None:
+    def upsert_project_object(self, uid: str, kind: str, key: str, name: str) -> None:
         with self._lock:
             self.con.execute(
                 "INSERT INTO usecase_objects (usecase_id, kind, key, name, customized, created_at) "
                 "VALUES (?, ?, ?, ?, FALSE, ?) ON CONFLICT (usecase_id, kind, key) DO UPDATE SET "
                 "name = excluded.name", [uid, kind, key, name, now_utc()])
 
-    def list_usecase_objects(self, uid: str) -> list[dict]:
+    def list_project_objects(self, uid: str) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT kind, key, name, customized, created_at FROM usecase_objects "
@@ -1274,17 +1354,17 @@ class Store:
         return [{"kind": r[0], "key": r[1], "name": r[2], "customized": bool(r[3]),
                  "created_at": r[4]} for r in rows]
 
-    def delete_usecase_object(self, uid: str, kind: str, key: str) -> None:
+    def delete_project_object(self, uid: str, kind: str, key: str) -> None:
         with self._lock:
             self.con.execute("DELETE FROM usecase_objects WHERE usecase_id = ? AND kind = ? "
                              "AND key = ?", [uid, kind, key])
 
-    def log_usecase(self, uid: str, action: str, detail: str = "") -> None:
+    def log_project(self, uid: str, action: str, detail: str = "") -> None:
         with self._lock:
             self.con.execute("INSERT INTO usecase_log (usecase_id, logged_at, action, detail) "
                              "VALUES (?, ?, ?, ?)", [uid, now_utc(), action, detail[:2000]])
 
-    def list_usecase_log(self, uid: str, limit: int = 100) -> list[dict]:
+    def list_project_log(self, uid: str, limit: int = 100) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT logged_at, action, detail FROM usecase_log WHERE usecase_id = ? "

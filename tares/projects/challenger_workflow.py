@@ -1,4 +1,4 @@
-"""Use case: challenger workflow.
+"""Project: challenger workflow.
 
 A user works in Claude Code on their laptop and marks a session as a challenger session (Claude
 calls the `set_session_flow` MCP tool). From then on a second model, the Codex CLI running on the
@@ -6,7 +6,7 @@ laptop, challenges Claude's plan and every commit; the Tares plugin ships the wh
 the `claude_code` source on one session timeline. Tares is the record and the after-session
 brain, never the control point: nothing here decides whether Codex runs.
 
-This recipe owns the Tares side: the `claude_code` source (adopted from the plugin, which creates
+This template owns the Tares side: the `claude_code` source (adopted from the plugin, which creates
 it on first run), a view per session, a trigger that fires when a challenger session ends, and a
 Tares agent that reads the session and writes one finding: the session summary and up to five
 memory proposals. Proposals live inside the finding; nothing is written to memory until a person
@@ -19,7 +19,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from ..connectors.claude_code import ClaudeCodeConnector
-from .base import PlannedObject, Recipe, UsecaseError
+from .base import PlannedObject, Template, ProjectError
 from .registry import register
 
 FLOW = "challenger"
@@ -62,7 +62,7 @@ Do not speculate beyond the evidence. The summary is your final message and noth
 """.format(heading=PROPOSALS_HEADING, max_proposals=MAX_PROPOSALS)
 
 
-class ChallengerWorkflow(Recipe):
+class ChallengerWorkflow(Template):
     key = "challenger_workflow"
     title = "Challenger workflow"
     description = ("Let a second model challenge Claude Code's plan and every commit on your laptop, "
@@ -123,7 +123,7 @@ class ChallengerWorkflow(Recipe):
         p = super().validate(params)
         ch = str(p.get("slack_channel") or "").strip()
         if ch and not re.fullmatch(r"[A-Z][A-Z0-9]{6,}", ch):
-            raise UsecaseError("slack_channel must be a Slack channel id like C0123456789")
+            raise ProjectError("slack_channel must be a Slack channel id like C0123456789")
         p["slack_channel"] = ch
         p["model"] = str(p.get("model") or "").strip()
         return p
@@ -167,38 +167,38 @@ class ChallengerWorkflow(Recipe):
     # ── actions ──────────────────────────────────────────────────────────────
     def run_action(self, instance: dict, action: str, args: dict, store, runtime) -> dict:
         if action != "summarize":
-            raise UsecaseError(f"{self.key}: no action {action!r}")
+            raise ProjectError(f"{self.key}: no action {action!r}")
         session = str(args.get("session") or "").strip()
         if not session:
-            raise UsecaseError("session id is required")
+            raise ProjectError("session id is required")
         agents = getattr(getattr(runtime, "dispatcher", None), "agents", None)
         if agents is None or not hasattr(agents, "run_now"):
-            raise UsecaseError("the agent runner is not available")
+            raise ProjectError("the agent runner is not available")
         run_id = agents.run_now(AGENT, TRIGGER, session, f"summarize session {session} on request")
         return {"session": session, "run_id": run_id,
                 "message": f"summarizer started on session {session}; its finding appears under Runs"}
 
-    # ── summary (the use case page) ──────────────────────────────────────────
+    # ── summary (the project page) ──────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
         params = self.validate(instance["params"])
         stats = {x["source"]: x for x in store.event_stats()}
         st = stats.get(SOURCE) or {}
         sessions = recent_sessions(store) if SOURCE in {x["source"] for x in stats.values()} else []
-        projects = {x["session"]: x["project"] for x in sessions}
+        repos = {x["session"]: x["repo"] for x in sessions}
         runs = []
         for r in store.list_agent_runs(AGENT, limit=20):
             finding = r.get("finding") or ""
             runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
                          "key": r.get("key"), "session": r.get("key"), "agent": AGENT,
-                         "project": projects.get(r.get("key")),
+                         "repo": repos.get(r.get("key")),
                          "status": r.get("status"), "rounds": r.get("rounds"),
                          "max_rounds": r.get("max_rounds"), "finding": finding,
                          "proposals": parse_proposals(finding), "error": r.get("error")})
         decided = proposal_decisions(store)
         for r in runs:
-            r["decisions"] = {str(i): decided.get((r["project"], text))
+            r["decisions"] = {str(i): decided.get((r["repo"], text))
                               for i, text in enumerate(r["proposals"])
-                              if decided.get((r["project"], text))}
+                              if decided.get((r["repo"], text))}
         summarized = {r["session"]: r["id"] for r in reversed(runs) if r["status"] == "ok"}
         for x in sessions:
             x["run_id"] = summarized.get(x["session"])
@@ -240,13 +240,13 @@ def has_challenger_line(payload) -> bool:
 
 
 def ensure_instance(engine) -> str | None:
-    """Create the challenger_workflow use case the first time a marked session ships, so saying
+    """Create the challenger_workflow project the first time a marked session ships, so saying
     "make this a challenger session" in Claude Code is the whole setup. Returns the new instance id,
     or None when one already exists."""
-    if any(u.get("recipe") == "challenger_workflow" for u in engine.store.list_usecases()):
+    if any(u.get("template") == "challenger_workflow" for u in engine.store.list_projects()):
         return None
     inst = engine.create("challenger_workflow", {})
-    engine.store.log_usecase(inst["id"], "auto", "created on the first challenger session shipped by the plugin")
+    engine.store.log_project(inst["id"], "auto", "created on the first challenger session shipped by the plugin")
     return inst["id"]
 
 
@@ -254,8 +254,8 @@ REJECTED_TYPE = "rejected_proposal"   # stored as custom:rejected_proposal; the 
 
 
 def proposal_decisions(store) -> dict:
-    """{(project, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
-    the proposal as a decision keyed by the project; reject writes it as a rejected_proposal, so
+    """{(repo, proposal text): "accepted" | "rejected"} from the memory source. Accept writes
+    the proposal as a decision keyed by the repo; reject writes it as a rejected_proposal, so
     the choice is kept on Tares (not in one browser) without ever reaching Claude."""
     out = {}
     try:
@@ -299,7 +299,7 @@ def recent_sessions(store) -> list[dict]:
         typ = str(raw.get("type") or "")
         cwd = str(raw.get("cwd") or "")
         sess = by_session.setdefault(sid, {
-            "session": sid, "project": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
+            "session": sid, "repo": cwd.rstrip("/").rsplit("/", 1)[-1] or None,
             "branch": raw.get("gitBranch"), "started_at": _iso(event_time), "last_at": None,
             "ended": False, "events": 0, "plan_verdict": None, "plan_findings": None,
             "plan_blocking": None, "commits": [], "waived": 0,

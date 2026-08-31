@@ -6,7 +6,8 @@ https://docs.glassflow.ai/tares; this file is about the repo itself.
 ## Layout
 
 - `tares/` the package: `daemon.py` (HTTP API + console), `cli.py` (`tares up`, `tares mcp`),
-  `store.py` (DuckDB), `connectors/`, `agent*.py` (Tares agents), `mcp*.py` (the MCP proxy).
+  `store.py` (DuckDB), `connectors/`, `agent*.py` (Tares agents), `mcp*.py` (the MCP proxy),
+  `projects/` (projects and the Tares templates they start from).
 - `ui/` the console, a Vite + React app. The daemon serves `ui/dist` and the wheel bundles it.
 - `tests/` plain scripts. `demo/` the demo stack. `skills/` the install skill agents use.
 
@@ -46,7 +47,7 @@ Every knob is a `TARES_*` variable read at start. The ones you will meet most:
 | `TARES_AGENT_MODEL` | model for Tares agents |
 | `TARES_MAX_DB_SIZE` | cap on the DuckDB file; `/api/usage` reports against it |
 | `TARES_SLACK_BOT_TOKEN`, `TARES_SLACK_SIGNING_SECRET` | the Slack surface |
-| `TARES_SEED_USECASE` | use case to seed on first boot |
+| `TARES_SEED_PROJECT` | template of the project to seed on first boot (`TARES_SEED_USECASE` still read) |
 
 `grep -rhoE "TARES_[A-Z_]+" tares/*.py | sort -u` is the authoritative list.
 

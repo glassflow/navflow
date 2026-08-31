@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { ErrorState, TimeAgo, fmtCost, fmtTokens, formatBytes, usePolling } from "../components/bits";
-import type { ModelUsage, Usage, Usecase } from "../types";
+import type { ModelUsage, Usage, Project } from "../types";
 
 // The instance at a glance. This exists because the numbers that describe the WHOLE instance —
 // how full the disk is, how much has been ingested, how hard the agents are working — were living
@@ -27,7 +27,7 @@ let emptyRedirectDone = false;
 export default function Home() {
   const { data: u, error: usageError, reload: reloadUsage } = usePolling(() => api.usage(), 30000);
   const { data: sources, error: sourcesError } = usePolling(() => api.sources(), 30000);
-  const { data: uc } = usePolling(() => api.usecases(), 30000);
+  const { data: uc } = usePolling(() => api.projects(), 30000);
   const { data: mu, error: muError, reload: reloadMu } = usePolling(() => api.modelUsage(30), 30000);
   const navigate = useNavigate();
 
@@ -88,7 +88,7 @@ export default function Home() {
           reason is said out loud here. See the rule in components/bits.tsx. */}
       {sourcesError && <ErrorState error={sourcesError} what="the source list" />}
 
-      {uc && uc.usecases.length > 0 && <UsecasesPanel usecases={uc.usecases} />}
+      {uc && uc.projects.length > 0 && <ProjectsPanel projects={uc.projects} />}
 
       <ModelSpendPanel usage={mu} error={muError} reload={reloadMu} />
 
@@ -238,23 +238,23 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
   );
 }
 
-// Use cases at a glance: one line per instance, because a use case is the thing a user set up on
+// Projects at a glance: one line per instance, because a project is the thing a user set up on
 // purpose and the first thing they will ask "is it running?" about.
-function UsecasesPanel({ usecases }: { usecases: Usecase[] }) {
+function ProjectsPanel({ projects }: { projects: Project[] }) {
   return (
     <div className="panel">
       <div className="pagehead" style={{ marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>Use cases</h2>
-        <Link className="btn" to="/usecases">All use cases</Link>
+        <h2 style={{ margin: 0 }}>Projects</h2>
+        <Link className="btn" to="/projects">All projects</Link>
       </div>
       <table>
         <tbody>
-          {usecases.map((u) => {
+          {projects.map((u) => {
             const missing = u.objects.filter((o) => o.missing).length;
             return (
               <tr key={u.id}>
-                <td><Link to={`/usecases/${encodeURIComponent(u.id)}`}><strong>{u.name}</strong></Link></td>
-                <td className="help">{u.recipe_title}</td>
+                <td><Link to={`/projects/${encodeURIComponent(u.id)}`}><strong>{u.name}</strong></Link></td>
+                <td className="help">{u.template_title}</td>
                 <td>
                   <span className={`badge ${u.status === "active" ? "ok" : u.status === "paused" ? "paused" : "error"}`}>{u.status}</span>
                   {missing > 0 && <span className="help" style={{ marginLeft: 6 }}>{missing} missing</span>}

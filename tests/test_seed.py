@@ -1,8 +1,8 @@
-"""TARES_SEED_USECASE: a cell born with its use case already running.
+"""TARES_SEED_USECASE: a cell born with its project already running.
 
 Boots real daemons (subprocess, like test_agents) against the hosted-demo stubs and checks the
 one-shot semantics: seeded on first boot, marker written, a user's deletion never resurrected,
-an unknown recipe fixable (no marker), and no seeding at all when the var is unset.
+an unknown template fixable (no marker), and no seeding at all when the var is unset.
 """
 import asyncio
 import json
@@ -25,7 +25,7 @@ B = f"http://127.0.0.1:{PORT}"
 
 
 class FakeStack(BaseHTTPRequestHandler):
-    """Just enough of the hosted demo stack for the recipe's plan/detect to be happy."""
+    """Just enough of the hosted demo stack for the template's plan/detect to be happy."""
     def log_message(self, *a):
         pass
 
@@ -72,8 +72,8 @@ def stop(proc):
         proc.kill()
 
 
-async def usecases(cx):
-    return (await cx.get(f"{B}/api/usecases")).json()["usecases"]
+async def projects(cx):
+    return (await cx.get(f"{B}/api/projects")).json()["projects"]
 
 
 async def main():
@@ -88,8 +88,8 @@ async def main():
     try:
         ck("daemon up", up)
         async with httpx.AsyncClient(timeout=20) as cx:
-            uc = await usecases(cx)
-            ck("use case seeded on first boot", len(uc) == 1 and uc[0]["recipe"] == "ai_sre_demo",
+            uc = await projects(cx)
+            ck("project seeded on first boot", len(uc) == 1 and uc[0]["template"] == "ai_sre_demo",
                json.dumps(uc)[:200])
             uid = uc[0]["id"] if uc else ""
             srcs = {s["name"] for s in (await cx.get(f"{B}/api/sources")).json()}
@@ -98,8 +98,8 @@ async def main():
             logs = next(s for s in (await cx.get(f"{B}/api/sources")).json() if s["name"] == "demo_logs")
             ck("seeded in hosted mode", logs["connector"] == "loki", logs["connector"])
             # a user deletes it on purpose
-            r = await cx.delete(f"{B}/api/usecases/{uid}")
-            ck("user can delete the seeded use case", r.status_code == 200, r.text[:200])
+            r = await cx.delete(f"{B}/api/projects/{uid}")
+            ck("user can delete the seeded project", r.status_code == 200, r.text[:200])
     finally:
         stop(proc)
 
@@ -108,26 +108,26 @@ async def main():
     try:
         ck("daemon back up", up)
         async with httpx.AsyncClient(timeout=20) as cx:
-            uc = await usecases(cx)
-            ck("deleted use case is NOT resurrected on restart", uc == [], json.dumps(uc)[:200])
+            uc = await projects(cx)
+            ck("deleted project is NOT resurrected on restart", uc == [], json.dumps(uc)[:200])
     finally:
         stop(proc)
 
-    # ── unknown recipe: warns, no marker, so fixing the config still seeds ───
+    # ── unknown template: warns, no marker, so fixing the config still seeds ───
     for p in (DB, DB + ".wal"):
         os.path.exists(p) and os.remove(p)
-    proc, up = await boot(daemon_env(stack.server_port, "no_such_recipe"))
+    proc, up = await boot(daemon_env(stack.server_port, "no_such_template"))
     try:
-        ck("daemon healthy despite unknown seed recipe", up)
+        ck("daemon healthy despite unknown seed template", up)
         async with httpx.AsyncClient(timeout=20) as cx:
-            ck("nothing seeded for an unknown recipe", await usecases(cx) == [])
+            ck("nothing seeded for an unknown template", await projects(cx) == [])
     finally:
         stop(proc)
     proc, up = await boot(daemon_env(stack.server_port, "ai_sre_demo"))
     try:
         ck("daemon up after fixing the config", up)
         async with httpx.AsyncClient(timeout=20) as cx:
-            uc = await usecases(cx)
+            uc = await projects(cx)
             ck("fixed config seeds on the next boot (typo wrote no marker)",
                len(uc) == 1, json.dumps(uc)[:200])
     finally:
@@ -140,7 +140,7 @@ async def main():
     try:
         ck("daemon up without the var", up)
         async with httpx.AsyncClient(timeout=20) as cx:
-            ck("no seeding without TARES_SEED_USECASE", await usecases(cx) == [])
+            ck("no seeding without TARES_SEED_USECASE", await projects(cx) == [])
     finally:
         stop(proc)
 

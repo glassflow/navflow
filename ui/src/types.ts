@@ -19,8 +19,8 @@ export interface Source {
   paused: boolean;
   health: SourceHealth | null;
   ingest_key?: string;   // stable path segment for push endpoints: /ingest/<ingest_key>
-  owned_by?: string | null;   // the use case that created it, if any
-  customized?: boolean;       // edited by hand since; the use case keeps that version
+  owned_by?: string | null;   // the project that created it, if any
+  customized?: boolean;       // edited by hand since; the project keeps that version
 }
 
 export interface ConnectorField {
@@ -411,7 +411,7 @@ export interface GithubCredential {
   mcp_servers: string[];
 }
 
-// ── Use cases: a recipe (code) instantiated with params; the instance owns ordinary objects ──
+// ── Projects: a template (code) instantiated with params; the instance owns ordinary objects ──
 export interface RecipeParam {
   type?: string;              // string | number | bool | list | json | choice
   required?: boolean;
@@ -428,7 +428,7 @@ export interface RecipeAction {
   docs?: { label: string; url: string };
   params?: Record<string, { label?: string; options?: (string | RecipeActionOption)[] }>;
 }
-export interface Recipe {
+export interface Template {
   key: string;
   title: string;
   description: string;
@@ -441,32 +441,37 @@ export interface Recipe {
   // says different things than a local docker one). Absent on older daemons.
   facts?: { you: string[]; tares: string[] };
 }
-export type UsecaseObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
-export interface UsecaseObject {
-  kind: UsecaseObjectKind;
+export interface McpServer {
+  name: string; url: string; auth_header: string; auth_value_configured: boolean;
+  auth_credential: string; headers: Record<string, string>; updated_at: string;
+  owned_by?: string | null; customized?: boolean;
+}
+export type ProjectObjectKind = "source" | "view" | "trigger" | "agent" | "mcp_server";
+export interface ProjectObject {
+  kind: ProjectObjectKind;
   key: string;
   name: string;
   customized: boolean;
   missing: boolean;
   created_at: string;
 }
-export interface Usecase {
+export interface Project {
   id: string;
-  recipe: string;
-  recipe_title: string;
+  template: string;
+  template_title: string;
   name: string;
   params: Record<string, unknown>;
   status: "active" | "paused" | "error";
   created_at: string;
   updated_at: string;
   last_error: string | null;
-  objects: UsecaseObject[];
+  objects: ProjectObject[];
 }
-export interface UsecaseLogEntry { at: string; action: string; detail: string }
-// summary = instance + log + whatever the recipe reports. The recipe part is free-form; the
-// shapes below are what the shared code context recipe returns and the page renders when present.
-export interface UsecaseSummary extends Usecase {
-  log: UsecaseLogEntry[];
+export interface ProjectLogEntry { at: string; action: string; detail: string }
+// summary = instance + log + whatever the template reports. The template part is free-form; the
+// shapes below are what the shared code context template returns and the page renders when present.
+export interface ProjectSummary extends Project {
+  log: ProjectLogEntry[];
   summary_error?: string;
   repos?: { repo: string; branch?: string; source?: string; last_commit?: string | null;
             events?: number }[];
@@ -474,25 +479,26 @@ export interface UsecaseSummary extends Usecase {
   runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
   sources?: Record<string, { events: number; last: string | null }>;
   guide?: string;
-  runs?: { id?: string; started_at?: string; key?: string; repo?: string; status?: string; rounds?: number; first_look?: boolean;
+  runs?: { id?: string; started_at?: string; key?: string; repo?: string | null; status?: string; rounds?: number; first_look?: boolean;
            max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null;
-           session?: string; project?: string | null; proposals?: string[];
+           session?: string; proposals?: string[];
            decisions?: Record<string, "accepted" | "rejected"> }[];
   sessions?: ChallengerSession[];
   names?: Record<string, string>;
   prs?: { open?: number; merged?: number };
   trigger_last_fired?: string | null;
+  triggers?: { name: string; last_fired?: string | null }[];   // custom projects
   [k: string]: unknown;
 }
 export interface ChallengeEvent {
   at: string; event_type: string; text: string; labels: Record<string, string>;
 }
 export interface ChallengerSession {
-  session: string; project?: string | null; branch?: string | null;
+  session: string; repo?: string | null; branch?: string | null;
   started_at?: string | null; last_at?: string | null; ended: boolean; events: number;
   plan_verdict?: string | null; plan_findings?: string | number | null; plan_blocking?: string | number | null;
   waived: number; run_id?: string | null;
   commits: { sha?: string; verdict?: string; round?: string | number; findings?: string | number; blocking?: string | number }[];
   thread: ChallengeEvent[];
 }
-export interface UsecaseUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[] }
+export interface ProjectUpdateReport { created: string[]; updated: string[]; kept: string[]; deleted: string[]; added?: string[]; released?: string[] }

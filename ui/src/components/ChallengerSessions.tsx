@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { TimeAgo } from "./bits";
-import type { ChallengerSession, TimelineEventRow, UsecaseSummary } from "../types";
+import type { ChallengerSession, TimelineEventRow, ProjectSummary } from "../types";
 
-// The challenger workflow's own panels on the use case page: the sessions Codex challenged (with
+// The challenger workflow's own panels on the project page: the sessions Codex challenged (with
 // the plan and commit verdicts, and the Claude/Codex exchange as one thread) and the summarizer's
 // memory proposals with accept / reject. A proposal is text inside a finding until the user
 // accepts it; accept is the only thing that writes memory, so the plugin only ever hands Claude
@@ -62,12 +62,12 @@ export function SessionsPanel({ sessions, view, onSummarize, busy, message }: {
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Sessions</h2>
       <table>
-        <thead><tr><th>when</th><th>project</th><th>branch</th><th title="findings on the plan">plan</th><th title="findings per reviewed commit, in order">commits</th><th>state</th><th aria-label="actions" /></tr></thead>
+        <thead><tr><th>when</th><th>repo</th><th>branch</th><th title="findings on the plan">plan</th><th title="findings per reviewed commit, in order">commits</th><th>state</th><th aria-label="actions" /></tr></thead>
         <tbody>
           {sessions.map((x) => (
             <tr key={x.session} style={{ cursor: "pointer" }} onClick={() => setOpen(open === x.session ? undefined : x.session)}>
               <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={x.started_at ?? null} /></td>
-              <td className="mono">{x.project ?? <span className="dim">unknown</span>}</td>
+              <td className="mono">{x.repo ?? <span className="dim">unknown</span>}</td>
               <td className="mono">{x.branch ?? ""}</td>
               <td><Verdict compact what="plan" v={x.plan_verdict} findings={x.plan_findings ?? undefined} blocking={x.plan_blocking ?? undefined} /></td>
               <td>
@@ -124,7 +124,7 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
     <div style={{ marginTop: 14 }}>
       <div className="tl-head">
         <div>
-          <h3 style={{ margin: 0 }}><span className="mono">{s.project ?? s.session}</span>{s.branch && <span className="help"> on {s.branch}</span>}</h3>
+          <h3 style={{ margin: 0 }}><span className="mono">{s.repo ?? s.session}</span>{s.branch && <span className="help"> on {s.branch}</span>}</h3>
           <span className="subtitle" style={{ margin: 0 }}>
             challenger session · plan <Verdict v={s.plan_verdict} findings={s.plan_findings ?? undefined} blocking={s.plan_blocking ?? undefined} /> · {s.commits.length} commit{s.commits.length === 1 ? "" : "s"} reviewed
             {blocking > 0 && <> · {blocking} blocking finding{blocking === 1 ? "" : "s"}</>}
@@ -177,15 +177,15 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
 }
 
 type Decision = "accepted" | "rejected";
-type Row = { runId: string; i: number; project: string; text: string; agent: string; started_at?: string; decision?: Decision };
+type Row = { runId: string; i: number; repo: string; text: string; agent: string; started_at?: string; decision?: Decision };
 
-export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["runs"]> }) {
+export function ProposalsPanel({ runs }: { runs: NonNullable<ProjectSummary["runs"]> }) {
   const [busy, setBusy] = useState<string>();
   const [err, setErr] = useState<string>();
   // decided locally this render cycle, until the next poll brings the state back from Tares
   const [local, setLocal] = useState<Record<string, Decision>>({});
   const rows: Row[] = runs.flatMap((r) => (r.id && r.proposals ? r.proposals : []).map((text, i) => ({
-    runId: r.id!, i, project: r.project ?? "", text, agent: r.agent ?? "challenger_summarizer",
+    runId: r.id!, i, repo: r.repo ?? "", text, agent: r.agent ?? "challenger_summarizer",
     started_at: r.started_at, decision: local[`${r.id}:${i}`] ?? r.decisions?.[String(i)],
   })));
   if (!rows.length) return null;
@@ -196,7 +196,7 @@ export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["run
     const k = `${x.runId}:${x.i}`;
     setBusy(k); setErr(undefined);
     try {
-      await api.remember({ key: x.project, content: x.text, memory_type: d === "accepted" ? "decision" : "rejected_proposal" });
+      await api.remember({ key: x.repo, content: x.text, memory_type: d === "accepted" ? "decision" : "rejected_proposal" });
       setLocal({ ...local, [k]: d });
     } catch (e) { setErr(String((e as Error).message ?? e)); }
     setBusy(undefined);
@@ -204,7 +204,7 @@ export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["run
 
   const cell = (x: Row) => (
     <td className="mono" style={{ whiteSpace: "nowrap" }}>
-      {x.project || <span className="dim" title="the session's project is unknown, so accept has no key">unknown</span>}
+      {x.repo || <span className="dim" title="the session's repo is unknown, so accept has no key">unknown</span>}
       <div><Link to={`/agents/${encodeURIComponent(x.agent)}?run=${encodeURIComponent(x.runId)}`} className="help"><TimeAgo ts={x.started_at ?? null} /></Link></div>
     </td>
   );
@@ -213,14 +213,14 @@ export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["run
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Memory proposals</h2>
       <p className="help" style={{ marginTop: 0 }}>
-        What the summarizer thinks is worth remembering about a project. Accept stores it as a decision
-        on the memory source, keyed by the project, and the plugin hands it to Claude at the start of
+        What the summarizer thinks is worth remembering about a repo. Accept stores it as a decision
+        on the memory source, keyed by the repo, and the plugin hands it to Claude at the start of
         the next session there. Reject keeps it out of memory for good.
       </p>
       {err && <div className="alert error">{err}</div>}
       {open.length ? (
         <table>
-          <thead><tr><th>project</th><th>proposal</th><th aria-label="decision" /></tr></thead>
+          <thead><tr><th>repo</th><th>proposal</th><th aria-label="decision" /></tr></thead>
           <tbody>
             {open.map((x) => (
               <tr key={`${x.runId}:${x.i}`}>
@@ -228,10 +228,10 @@ export function ProposalsPanel({ runs }: { runs: NonNullable<UsecaseSummary["run
                 <td style={{ whiteSpace: "pre-wrap" }}>{x.text}</td>
                 <td>
                   <div className="btnrow" style={{ justifyContent: "flex-end" }}>
-                    <button className="primary" disabled={!x.project || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "accepted")}>
+                    <button className="primary" disabled={!x.repo || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "accepted")}>
                       {busy === `${x.runId}:${x.i}` ? "saving…" : "Accept"}
                     </button>
-                    <button disabled={!x.project || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "rejected")}>Reject</button>
+                    <button disabled={!x.repo || busy === `${x.runId}:${x.i}`} onClick={() => decide(x, "rejected")}>Reject</button>
                   </div>
                 </td>
               </tr>

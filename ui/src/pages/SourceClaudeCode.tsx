@@ -40,7 +40,7 @@ export default function SourceClaudeCode() {
       <h1>Connect Claude Code</h1>
       <p className="subtitle">
         Install the Tares plugin for Claude Code; it streams your sessions into the{" "}
-        <span className="mono">claude_code</span> source (keyed by session, with project / branch /
+        <span className="mono">claude_code</span> source (keyed by session, with repo / branch /
         model labels; secrets redacted server-side) and adds MCP read-back. Same steps local or remote.
       </p>
 

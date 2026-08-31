@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
-import UsecaseBadge from "../components/UsecaseBadge";
+import ProjectBadge from "../components/ProjectBadge";
 import ViewEditor from "../components/ViewEditor";
 import { ErrorState, TimeAgo, usePolling } from "../components/bits";
 
@@ -41,7 +41,7 @@ export default function ViewDetail() {
           <h1><span className="mono">{view.name}</span></h1>
           <p className="subtitle">
             one read returns the correlated timeline of a <span className="mono">{view.key_field}</span>
-            {view.owned_by && <> · <UsecaseBadge ownedBy={view.owned_by} customized={view.customized} /></>}
+            {view.owned_by && <> · <ProjectBadge ownedBy={view.owned_by} customized={view.customized} /></>}
           </p>
         </div>
         <span className="btnrow">

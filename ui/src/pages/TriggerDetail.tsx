@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, type SlackChannels } from "../api";
 import type { AgentInfo } from "../types";
 import ConfirmDialog from "../components/ConfirmDialog";
-import UsecaseBadge from "../components/UsecaseBadge";
+import ProjectBadge from "../components/ProjectBadge";
 import TriggerEditor from "../components/TriggerEditor";
 import { ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 
@@ -85,7 +85,7 @@ export default function TriggerDetail() {
           <p className="subtitle">
             watches <Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
             {" "}· fires when the condition trips, delivering to every subscriber
-            {trigger.owned_by && <> · <UsecaseBadge ownedBy={trigger.owned_by} customized={trigger.customized} /></>}
+            {trigger.owned_by && <> · <ProjectBadge ownedBy={trigger.owned_by} customized={trigger.customized} /></>}
           </p>
         </div>
         {!editing && (

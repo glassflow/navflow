@@ -54,7 +54,7 @@ TOOL_TIMEOUT = 120        # per Anthropic request
 # Cost ceiling. A trigger in a hot loop can fire far more often than anyone expects; without a cap
 # the first surprise is the bill. Per-agent and per-day, counted from the run log.
 DAILY_RUN_CAP = int(os.getenv("TARES_AGENT_DAILY_CAP", "50"))
-MAX_BOOTSTRAP_KEYS = 50    # a use case bootstraps at most this many entities in one go
+MAX_BOOTSTRAP_KEYS = 50    # a project bootstraps at most this many entities in one go
 
 def effective_max_rounds(agent: dict) -> int:
     """The round cap a run is held to: the agent's own setting when set, else the default for its
@@ -175,7 +175,7 @@ class AgentRunner:
         self.store = store
         self.runtime = runtime
         self._tasks: set[asyncio.Task] = set()
-        # The daemon's loop, so run_now() also works from a worker thread (a use case action runs
+        # The daemon's loop, so run_now() also works from a worker thread (a project action runs
         # in one); None when constructed outside a loop (tests building a runner by hand).
         try:
             self._event_loop = asyncio.get_running_loop()
@@ -210,7 +210,7 @@ class AgentRunner:
 
     # ── manual and bootstrap runs (no firing behind them) ────────────────────
     def run_now(self, agent_name: str, trigger_name: str, key: str, payload: str) -> str | None:
-        """Run an agent once outside a firing (a use case bootstrapping its first pages, a manual
+        """Run an agent once outside a firing (a project bootstrapping its first pages, a manual
         re-run). Same run record, same caps and dedupe as a firing; no delivery row, since there is
         no dispatch. Returns the run id, or None when the agent does not exist or is already
         running for this key."""
@@ -263,7 +263,7 @@ class AgentRunner:
                   window: str = "7d", limit: int = 20, delay_s: float = 90.0,
                   concurrency: int = 10) -> None:
         """Schedule one run per key over a wide window of the view, a little later (the sources
-        behind a fresh use case need their first poll before there is anything to read). Keys whose
+        behind a fresh project need their first poll before there is anything to read). Keys whose
         timeline is empty at that point are skipped, so an idle repo costs nothing. Runs go through
         run_now, so the daily cap and dedupe apply."""
 

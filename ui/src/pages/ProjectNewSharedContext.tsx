@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { Combo, Picker } from "../components/bits";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
-import type { GithubCredential, Recipe, Usecase } from "../types";
+import type { GithubCredential, Template, Project } from "../types";
 
 // The shared code context wizard: pick the GitHub repos that are the sources of context, pick
 // the repo the agent maintains, choose when it runs, click Start. Four steps, then Tares creates
@@ -21,21 +21,21 @@ const STEPS = ["GitHub access", "Source repos", "Context repo", "Trigger and age
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
-// Mirrors the recipe's naming (tares/usecases/shared_code_context.py): objects are named after the
+// Mirrors the template's naming (tares/projects/shared_code_context.py): objects are named after the
 // context repo, slugged to 24 chars; sources append the source repo slugged to 48.
 function slugOf(text: string, n = 24) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, n) || "usecase";
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, n) || "project";
 }
 
-export default function UsecaseNewSharedContext() {
+export default function ProjectNewSharedContext() {
   const navigate = useNavigate();
   const params = useParams();
   const editId = new URLSearchParams(window.location.search).get("edit") ?? undefined;
-  const recipeKey = params.recipe ?? RECIPE;
+  const templateKey = params.template ?? RECIPE;
 
-  const [recipe, setRecipe] = useState<Recipe>();
-  const [recipeErr, setRecipeErr] = useState<string>();
-  const [existing, setExisting] = useState<Usecase>();
+  const [template, setRecipe] = useState<Template>();
+  const [templateErr, setRecipeErr] = useState<string>();
+  const [existing, setExisting] = useState<Project>();
   const [step, setStep] = useState(0);
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -77,10 +77,10 @@ export default function UsecaseNewSharedContext() {
   const [bootstrap, setBootstrap] = useState(true);
 
   useEffect(() => {
-    api.recipes()
+    api.templates()
       .then((r) => {
-        const found = r.recipes.find((x) => x.key === recipeKey);
-        if (!found) setRecipeErr(`this instance has no use case named ${recipeKey}`);
+        const found = r.templates.find((x) => x.key === templateKey);
+        if (!found) setRecipeErr(`this instance has no project named ${templateKey}`);
         setRecipe(found);
         const d = found?.params ?? {};
         if (typeof d.context_path?.default === "string") setContextPath(d.context_path.default as string);
@@ -90,7 +90,7 @@ export default function UsecaseNewSharedContext() {
       })
       .catch((e) => setRecipeErr(String((e as Error).message ?? e)));
     api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
-  }, [recipeKey, editId]);
+  }, [templateKey, editId]);
 
   const loadCredentials = () =>
     api.githubCredentials().then((r) => {
@@ -102,7 +102,7 @@ export default function UsecaseNewSharedContext() {
   // Edit: fill from the instance's params.
   useEffect(() => {
     if (!editId) return;
-    api.usecase(editId).then((u) => {
+    api.project(editId).then((u) => {
       setExisting(u);
       const p = u.params as Record<string, unknown>;
       setName(u.name);
@@ -238,9 +238,9 @@ export default function UsecaseNewSharedContext() {
     if (maxRounds.trim()) p.max_rounds = Number(maxRounds);
     try {
       const u = editId
-        ? await api.updateUsecase(editId, { params: p, name: name.trim() })
-        : await api.createUsecase({ recipe: recipeKey, name: name.trim(), params: p });
-      navigate(`/usecases/${encodeURIComponent(u.id)}`, { replace: true });
+        ? await api.updateProject(editId, { params: p, name: name.trim() })
+        : await api.createProject({ template: templateKey, name: name.trim(), params: p });
+      navigate(`/projects/${encodeURIComponent(u.id)}`, { replace: true });
     } catch (e) { setErr(String((e as Error).message ?? e)); }
     setBusy(false);
   };
@@ -251,14 +251,14 @@ export default function UsecaseNewSharedContext() {
     <>
       <div className="pagehead">
         <div>
-          <h1>{editId ? `Edit ${existing?.name ?? "use case"}` : recipe?.title ?? "Shared code context"}</h1>
+          <h1>{editId ? `Edit ${existing?.name ?? "project"}` : template?.title ?? "Shared code context"}</h1>
           <p className="subtitle">
-            {recipe?.description ?? "pick the repos that are the sources of context and the repo that holds it; Tares keeps it current"}
+            {template?.description ?? "pick the repos that are the sources of context and the repo that holds it; Tares keeps it current"}
           </p>
         </div>
       </div>
 
-      {recipeErr && <div className="alert error">{recipeErr} · <Link to="/usecases">back to use cases</Link></div>}
+      {templateErr && <div className="alert error">{templateErr} · <Link to="/projects">back to projects</Link></div>}
 
       <ol className="uc-steps" aria-label="steps">
         {STEPS.map((s, i) => (
@@ -275,7 +275,7 @@ export default function UsecaseNewSharedContext() {
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>GitHub access</h2>
           <p className="help">
-            One token, stored once under <Link to="/settings?tab=github">Settings</Link>, used by every source this use case creates and by
+            One token, stored once under <Link to="/settings?tab=github">Settings</Link>, used by every source this project creates and by
             the agent when it writes to the context repo.
           </p>
           {credentials === undefined && <div className="dim">loading…</div>}
@@ -383,7 +383,7 @@ export default function UsecaseNewSharedContext() {
               </tbody>
             </table>
           )}
-          {sources.length > 50 && <div className="alert error">at most 50 repos in one use case</div>}
+          {sources.length > 50 && <div className="alert error">at most 50 repos in one project</div>}
         </div>
       )}
 
@@ -471,7 +471,7 @@ export default function UsecaseNewSharedContext() {
             <label className="field">
               <span className="lbl">name</span>
               <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" value={name} onChange={(e) => setName(e.target.value)} />
-              <span className="help">shown on the Use cases page; object names derive from it</span>
+              <span className="help">shown on the Projects page; object names derive from it</span>
             </label>
             <div className="field">
               <span className="lbl">runs</span>
@@ -518,7 +518,7 @@ export default function UsecaseNewSharedContext() {
             <input type="checkbox" checked={bootstrap} onChange={(e) => setBootstrap(e.target.checked)} />{" "}
             <strong>First look on start:</strong> run the agent once per source repo over the last 7 days of commits, so the context repo starts current. Turn off if it already is, or to save model spend.
           </label>
-          <p className="help">Everything created shows on its own page with a "part of use case" badge and stays editable there.</p>
+          <p className="help">Everything created shows on its own page with a "part of project" badge and stays editable there.</p>
         </div>
       )}
 
@@ -534,7 +534,7 @@ export default function UsecaseNewSharedContext() {
             {busy ? (editId ? "saving…" : "starting…") : editId ? "Save changes" : "Start"}
           </button>
         )}
-        <Link className="btn" to={editId ? `/usecases/${encodeURIComponent(editId)}` : "/usecases"}>Cancel</Link>
+        <Link className="btn" to={editId ? `/projects/${encodeURIComponent(editId)}` : "/projects"}>Cancel</Link>
       </div>
       {tokenHelp && (
         <InfoDialog title="Token permissions" onClose={() => setTokenHelp(false)}>

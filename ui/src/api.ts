@@ -5,7 +5,7 @@ import type {
   AgentPreset, AgentRun, BuiltinAgent,
   GithubCredential,
   LabelFacet, ModelUsage, QueryLogEntry,
-  Recipe, Usecase, UsecaseSummary, UsecaseUpdateReport,
+  McpServer, Template, Project, ProjectObjectKind, ProjectSummary, ProjectUpdateReport,
   Source, SourceEvent, SourceFieldsProfile, Subscription, TestResult, Usage,
   TimelineEventRow, Trigger, View,
 } from "./types";
@@ -219,11 +219,7 @@ export const api = {
       { method: "POST", body: JSON.stringify({ trigger, url }) }),
 
   // ── MCP connections: external tool servers agents can opt into ──
-  mcpServers: () =>
-    request<{ servers: { name: string; url: string; auth_header: string;
-                         auth_value_configured: boolean; auth_credential: string;
-                         headers: Record<string, string>; updated_at: string;
-                         owned_by?: string | null; customized?: boolean }[] }>("/api/mcp-servers"),
+  mcpServers: () => request<{ servers: McpServer[] }>("/api/mcp-servers"),
   createMcpServer: (body: { name: string; url: string; auth_header?: string; auth_value?: string;
                             headers?: Record<string, string> }) =>
     request<{ ok: boolean }>("/api/mcp-servers", { method: "POST", body: JSON.stringify(body) }),
@@ -258,37 +254,40 @@ export const api = {
     request<{ repos: { full_name: string; default_branch: string; private: boolean; pushed_at: string | null }[] }>(
       `/api/integrations/github/${encodeURIComponent(name)}/repos?query=${encodeURIComponent(query)}`),
 
-  // ── Use cases: recipes instantiated with params; each instance owns ordinary objects ──
-  recipes: () => request<{ recipes: Recipe[] }>("/api/usecases/recipes"),
-  usecases: () => request<{ usecases: Usecase[] }>("/api/usecases"),
-  usecase: (id: string) => request<Usecase>(`/api/usecases/${encodeURIComponent(id)}`),
+  // ── Projects: templates instantiated with params; each instance owns ordinary objects ──
+  templates: () => request<{ templates: Template[] }>("/api/projects/templates"),
+  projects: () => request<{ projects: Project[] }>("/api/projects"),
+  project: (id: string) => request<Project>(`/api/projects/${encodeURIComponent(id)}`),
   // Accepted memory: only what a user accepted is ever written (a proposal is just text until then).
   remember: (body: { key: string; content: string; memory_type?: string }) =>
     request<{ ok: boolean; source: string }>("/remember", { method: "POST", body: JSON.stringify(body) }),
-  usecaseSummary: (id: string) =>
-    request<UsecaseSummary>(`/api/usecases/${encodeURIComponent(id)}/summary`),
-  createUsecase: (body: { recipe: string; name?: string; params: Record<string, unknown> }) =>
-    request<Usecase>("/api/usecases", { method: "POST", body: JSON.stringify(body) }),
-  updateUsecase: (id: string, body: { params: Record<string, unknown>; name?: string }) =>
-    request<Usecase & { report?: UsecaseUpdateReport }>(`/api/usecases/${encodeURIComponent(id)}`,
+  projectSummary: (id: string) =>
+    request<ProjectSummary>(`/api/projects/${encodeURIComponent(id)}/summary`),
+  // template "custom" takes `objects` ({kind, name} each) instead of params
+  createProject: (body: { template: string; name?: string; params?: Record<string, unknown>;
+                          objects?: { kind: ProjectObjectKind; name: string }[] }) =>
+    request<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  updateProject: (id: string, body: { params?: Record<string, unknown>; name?: string;
+                                      objects?: { kind: ProjectObjectKind; name: string }[] }) =>
+    request<Project & { report?: ProjectUpdateReport }>(`/api/projects/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(body) }),
-  deleteUsecase: (id: string, purgeEvents = false) =>
-    request<{ ok: boolean; deleted?: string[]; purged_events?: number }>(
-      `/api/usecases/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
+  deleteProject: (id: string, purgeEvents = false) =>
+    request<{ ok: boolean; deleted?: string[]; released?: string[]; purged_events?: number }>(
+      `/api/projects/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
       { method: "DELETE" }),
-  pauseUsecase: (id: string) =>
-    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/pause`, { method: "POST" }),
-  resumeUsecase: (id: string) =>
-    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+  pauseProject: (id: string) =>
+    request<Project>(`/api/projects/${encodeURIComponent(id)}/pause`, { method: "POST" }),
+  resumeProject: (id: string) =>
+    request<Project>(`/api/projects/${encodeURIComponent(id)}/resume`, { method: "POST" }),
   detectRecipe: (key: string) =>
     request<{ params: Record<string, unknown>; found: Record<string, string>; missing: Record<string, string>; notes: string[] }>(
-      `/api/usecases/recipes/${encodeURIComponent(key)}/detect`, { method: "POST" }),
-  usecaseAction: (id: string, name: string, args: Record<string, unknown> = {}) =>
+      `/api/projects/templates/${encodeURIComponent(key)}/detect`, { method: "POST" }),
+  projectAction: (id: string, name: string, args: Record<string, unknown> = {}) =>
     request<{ ok: boolean; action: string; message?: string }>(
-      `/api/usecases/${encodeURIComponent(id)}/actions/${encodeURIComponent(name)}`,
+      `/api/projects/${encodeURIComponent(id)}/actions/${encodeURIComponent(name)}`,
       { method: "POST", body: JSON.stringify(args) }),
-  repairUsecase: (id: string, key: string) =>
-    request<Usecase>(`/api/usecases/${encodeURIComponent(id)}/repair`,
+  repairProject: (id: string, key: string) =>
+    request<Project>(`/api/projects/${encodeURIComponent(id)}/repair`,
       { method: "POST", body: JSON.stringify({ key }) }),
 
   // ── Ask sessions: server-side chat history (state is the console's own JSON blob) ──

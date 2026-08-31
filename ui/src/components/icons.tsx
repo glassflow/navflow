@@ -143,7 +143,7 @@ export const GitHub = (p: P) => (
   </svg>
 );
 
-// Use cases: a ready-made setup, a few questions away from running. A layered stack: the
+// Projects: a ready-made setup, a few questions away from running. A layered stack: the
 // primitives it creates, seen as one thing.
 export const Zap = (p: P) => (
   <S {...p}>
