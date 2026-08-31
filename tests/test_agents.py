@@ -358,6 +358,42 @@ async def main():
             r = await cx.post("/api/agents/builtin/fixer/runs/run_live/rerun")
             ck("rerun of a running run -> 400", r.status_code == 400, r.text[:200])
 
+            # ── budget_usd: a lifetime spend cap enforced before any model call ──
+            os.environ["ANTHROPIC_API_KEY"] = "sk-test-budget"   # so runs get past the key check
+            r = await cx.post("/api/catalog/import", json={"yaml": (
+                "sources:\n  - name: evt2\n    connector: webhook\n    poll: 5s\n"
+                "    config: {event_type: log, text_template: '{msg}', labels: [{name: service, const: checkout, primary: true}]}\n"
+                "views:\n  - name: svc2\n    key_field: service\n    sources: [evt2]\n"
+                "triggers:\n  - name: incident2\n    view: svc2\n"
+                "    condition: {aggregate: count, predicate: '>= 2', window: 1m, group_by: [key_value]}\n"
+                "    cooldown: 1s\n")})
+            ck("budget fixture catalog imported", r.status_code == 200, r.text[:200])
+            r = await cx.post("/api/agents/builtin", json={
+                "name": "thrifty", "trigger": "incident2", "prompt": "x", "budget_usd": -1})
+            ck("negative budget -> 400", r.status_code == 400 and "budget_usd" in r.text, r.text[:200])
+            r = await cx.post("/api/agents/builtin", json={
+                "name": "thrifty", "trigger": "incident2", "prompt": "x", "budget_usd": 2})
+            ck("agent with a budget created", r.status_code == 201, r.text[:200])
+            ag = next(x for x in (await cx.get("/api/agents/builtin")).json()["agents"]
+                      if x["name"] == "thrifty")
+            ck("the budget is reported", ag["budget_usd"] == 2, str(ag.get("budget_usd")))
+            st2.start_agent_run("run_b1", "thrifty", "incident2", "d_b", "checkout", "h")
+            st2.finish_agent_run("run_b1", "failed", error="boom")
+            st2.record_run_usage("run_b1", "claude-sonnet-4-6", 100, 50, 0, 0, 2.50)
+            r = await cx.post("/api/agents/builtin/thrifty/runs/run_b1/rerun")
+            ck("rerun starts (the cap is checked inside the run)", r.status_code == 201, r.text[:200])
+            async def _capped():
+                rs = (await cx.get("/api/agents/builtin/thrifty/runs")).json()
+                return rs and rs[0]["status"] == "capped"
+            ck("over budget: the run is capped before any model call", await _until(_capped))
+            rs = (await cx.get("/api/agents/builtin/thrifty/runs")).json()
+            ck("the capped run says where to raise the budget",
+               "budget of $2.00" in (rs[0].get("error") or "") and "Configuration" in rs[0]["error"],
+               str(rs[0].get("error")))
+            ck("the capped run cost nothing", not rs[0].get("cost_usd"), str(rs[0].get("cost_usd")))
+            y_r = await cx.get("/api/catalog/export")
+            ck("the budget rides in the catalog export", "budget_usd: 2" in y_r.text, y_r.text[-300:])
+
     print(f"\n{P} passed, {F} failed")
 
 asyncio.run(main())

@@ -298,6 +298,7 @@ class AgentIn(BaseModel):
     slack_webhook_clear: bool = False   # blank means keep (it is a secret), so clearing is explicit
     mcp_servers: list[str] = []  # registry names this agent may use
     max_rounds: int | None = None   # model rounds per run; None = default (6, or 12 with MCP servers)
+    budget_usd: float | None = None  # lifetime spend cap in USD; None = no budget
 
 
 class ImportReq(BaseModel):
@@ -1647,6 +1648,7 @@ def make_app() -> FastAPI:
                          "webhook_token_configured": bool(a.get("webhook_token")),
                          "mcp_servers": a.get("mcp_servers") or [],
                          "max_rounds": a.get("max_rounds"),
+                         "budget_usd": a.get("budget_usd"),
                          "effective_max_rounds": effective_max_rounds(a),
                          "enabled": _agent_enabled(a["name"]), "updated_at": a.get("updated_at"),
                          "owned_by": a.get("owned_by"), "customized": bool(a.get("customized")),
@@ -1667,7 +1669,7 @@ def make_app() -> FastAPI:
         store.upsert_catalog_agent(body.name, body.trigger, body.prompt, body.slack_webhook,
                                    body.model, body.slack_channel,
                                    body.webhook_url, body.webhook_token, body.mcp_servers,
-                                   body.max_rounds)
+                                   body.max_rounds, body.budget_usd)
         runtime.reload_catalog()
         return {"ok": True, "enabled": False,
                 "note": "agents start disabled; enable it to run on the next firing"}
@@ -1690,7 +1692,8 @@ def make_app() -> FastAPI:
         # so what the body says is what the user wants — including blank (removed).
         store.upsert_catalog_agent(name, body.trigger, body.prompt, hook,
                                    body.model, body.slack_channel,
-                                   body.webhook_url, wtoken, body.mcp_servers, body.max_rounds)
+                                   body.webhook_url, wtoken, body.mcp_servers, body.max_rounds,
+                                   body.budget_usd)
         store.mark_customized("agent", name)
         # if the trigger changed while enabled, re-point the subscription so the agent fires on the
         # new trigger (the subscription, not the definition, is what the dispatcher reads).

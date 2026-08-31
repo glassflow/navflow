@@ -88,7 +88,9 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
   // "" = default (6 rounds, or 12 once the agent uses external MCP servers).
   const [maxRounds, setMaxRounds] = useState<string>(
     initial?.max_rounds ? String(initial.max_rounds) : "");
-  const [advancedOpen, setAdvancedOpen] = useState(!!initial?.max_rounds);
+  const [budget, setBudget] = useState<string>(
+    initial?.budget_usd ? String(initial.budget_usd) : "");
+  const [advancedOpen, setAdvancedOpen] = useState(!!initial?.max_rounds || !!initial?.budget_usd);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string>();
@@ -134,6 +136,7 @@ export default function AgentForm({ initial, presetTrigger, triggers, presets, m
       webhook_token: writebackOn ? webhookToken.trim() : "",
       mcp_servers: mcpSel,
       max_rounds: maxRounds.trim() ? Number(maxRounds) : null,
+      budget_usd: budget.trim() ? Number(budget) : null,
     };
     try {
       if (isNew) await api.createBuiltinAgent(body);

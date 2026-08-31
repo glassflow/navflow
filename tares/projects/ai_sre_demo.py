@@ -261,6 +261,11 @@ class AiSreDemo(Template):
         agent = {"name": "incident-first-look", "trigger": "incident", "enabled": True, "prompt": PROMPT}
         if params.get("model"):
             agent["model"] = params["model"]
+        if _hosted():
+            # The hosted demo stack is shared and fires around the clock, so an idle cell would
+            # keep running the agent every cooldown until its trial credit was gone. $2 covers a
+            # real look at the demo; the run that hits the cap says where to raise it.
+            agent["budget_usd"] = 2.0
         objs.append(PlannedObject("agent", "agent", agent))
         return objs
 

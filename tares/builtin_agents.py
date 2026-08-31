@@ -335,6 +335,14 @@ class AgentRunner:
             msg = f"cap of {DAILY_RUN_CAP} runs in the last 24h reached for this agent"
             self.store.finish_agent_run(run_id, "capped", error=msg)
             return "capped", msg
+        # The agent's own budget, when set: lifetime spend from the run log. Checked before any
+        # model call, so a capped run costs nothing; the message says where to raise it.
+        budget = agent.get("budget_usd")
+        if budget and self.store.agent_cost_total(agent["name"]) >= float(budget):
+            msg = (f"budget of ${float(budget):.2f} for this agent reached; "
+                   f"raise or clear it under Configuration, Advanced")
+            self.store.finish_agent_run(run_id, "capped", error=msg)
+            return "capped", msg
 
         # Usage accumulates in a mutable dict rather than the loop's return value, so a run that
         # dies mid-loop still records the tokens it already paid for (the finally below).
