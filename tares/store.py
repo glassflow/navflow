@@ -1142,6 +1142,14 @@ class Store:
             "window_days": int(days),
         }
 
+    def get_agent_run(self, run_id: str) -> dict | None:
+        """One run by id, in the list_agent_runs shape."""
+        with self._lock:
+            row = self.con.execute("SELECT agent FROM agent_runs WHERE id = ?", [run_id]).fetchone()
+        if row is None:
+            return None
+        return next((r for r in self.list_agent_runs(row[0], limit=100000) if r["id"] == run_id), None)
+
     def agent_runs_today(self, agent: str, exclude_run_id: str | None = None) -> int:
         """Runs started in the last 24h — the cost ceiling's counter. `exclude_run_id` leaves out the
         run being checked: the row is inserted before the cap is evaluated, so the cap must count the

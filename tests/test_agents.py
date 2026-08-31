@@ -313,6 +313,39 @@ async def main():
        str(st.agent_runs_today("hot-loop")))
     st.con.close()
 
+    # ── rerun: run again with the same inputs as an earlier run ──────────────
+    os.environ["TARES_DB"] = "/tmp/agents_rerun.duckdb"
+    os.environ.pop("TARES_CATALOG", None)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    for pth in ("/tmp/agents_rerun.duckdb", "/tmp/agents_rerun.duckdb.wal"):
+        if os.path.exists(pth):
+            os.remove(pth)
+    from tares.daemon import make_app
+    app = make_app()
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as cx:
+            st2 = app.state.store
+            st2.upsert_catalog_agent("fixer", "incident", "Take a first look.")
+            st2.start_agent_run("run_old", "fixer", "incident", "d_x", "checkout", "h")
+            st2.finish_agent_run("run_old", "failed", error="boom")
+            st2.log_dispatch("d_x", "incident", "checkout", "incident", 1, 1, "the firing payload")
+            r = await cx.post("/api/agents/builtin/fixer/runs/run_old/rerun")
+            ck("rerun -> 201 with a new run id",
+               r.status_code == 201 and r.json()["run_id"] != "run_old", r.text[:200])
+            rid = r.json()["run_id"]
+            rows = {x["id"]: x for x in st2.list_agent_runs("fixer")}
+            ck("the new run has the same trigger and key",
+               rid in rows and rows[rid]["trigger"] == "incident" and rows[rid]["key"] == "checkout",
+               str(rows.get(rid)))
+            ck("rerun of an unknown run -> 404",
+               (await cx.post("/api/agents/builtin/fixer/runs/run_nope/rerun")).status_code == 404)
+            st2.upsert_catalog_agent("other", "incident", "x")
+            ck("rerun under the wrong agent -> 404",
+               (await cx.post("/api/agents/builtin/other/runs/run_old/rerun")).status_code == 404)
+            st2.start_agent_run("run_live", "fixer", "incident", "d_y", "pay", "h")
+            r = await cx.post("/api/agents/builtin/fixer/runs/run_live/rerun")
+            ck("rerun of a running run -> 400", r.status_code == 400, r.text[:200])
+
     print(f"\n{P} passed, {F} failed")
 
 asyncio.run(main())

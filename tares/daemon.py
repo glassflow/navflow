@@ -1732,6 +1732,28 @@ def make_app() -> FastAPI:
         store.remove_subscription_by_url(agent_url(name))
         return {"ok": True, "enabled": False}
 
+    @app.post("/api/agents/builtin/{name}/runs/{run_id}/rerun", status_code=201)
+    async def rerun_builtin_agent(name: str, run_id: str):
+        """Run the agent again with the same inputs as an earlier run: same trigger, same key,
+        and the firing's payload when a firing woke it (a manual or bootstrap run reruns with an
+        empty note; the timeline the agent reads is the real input either way). Same run record,
+        caps and dedupe as any run."""
+        if store.get_catalog_agent(name) is None:
+            _err(KeyError(f"unknown agent {name!r}"), 404)
+        run = store.get_agent_run(run_id)
+        if run is None or run["agent"] != name:
+            _err(KeyError(f"unknown run {run_id!r} for agent {name!r}"), 404)
+        if run["status"] == "running":
+            _err(ValueError("that run is still going; wait for it to finish"))
+        payload = ""
+        if run.get("dispatch_id"):
+            d = store.get_dispatch(run["dispatch_id"])
+            payload = (d or {}).get("payload") or ""
+        rid = dispatcher.agents.run_now(name, run["trigger"], run["key"], payload)
+        if rid is None:
+            _err(ValueError(f"the agent is already running for {run['key']!r}"), 409)
+        return {"ok": True, "run_id": rid, "rerun_of": run_id}
+
     @app.get("/api/agents/builtin/{name}/runs")
     async def builtin_agent_runs(name: str, limit: int = 50):
         """The operational record — status, duration, errors. Distinct from findings, which are
