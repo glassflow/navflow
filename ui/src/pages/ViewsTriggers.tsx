@@ -38,22 +38,6 @@ export function TriggersPage() {
   );
 }
 
-/** Search-box + count toolbar (matches the other crisp tables). */
-function FilterBar({ q, setQ, placeholder, shown, total }: {
-  q: string; setQ: (s: string) => void; placeholder: string; shown: number; total: number;
-}) {
-  return (
-    <div className="toolbar">
-      <div className="search-box">
-        <Search />
-        <input type="text" className="search" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <span className="grow" />
-      <span className="count">{shown} of {total}</span>
-    </div>
-  );
-}
-
 // ── views ────────────────────────────────────────────────────────────────────
 
 function ViewsSection({ views, triggers, loadError, onChange }:
@@ -177,15 +161,18 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
   { triggers: Trigger[]; viewNames: string[]; loadError?: string; onChange: () => void }) {
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
+  const [view, setView] = useState("all");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
+
+  const viewOptions = useMemo(
+    () => Array.from(new Set(triggers.map((t) => t.view))).sort(), [triggers]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return triggers.filter((t) => !needle ||
-      t.name.toLowerCase().includes(needle) ||
-      t.view.toLowerCase().includes(needle) ||
-      `${t.condition.aggregate}${t.condition.field ?? ""}${t.condition.predicate}`.toLowerCase().includes(needle));
-  }, [triggers, q]);
+    return triggers.filter((t) =>
+      (view === "all" || t.view === view) &&
+      (!needle || t.name.toLowerCase().includes(needle)));
+  }, [triggers, q, view]);
 
   const del = async (name: string) => {
     setError(undefined);
@@ -224,7 +211,18 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
       )}
       {!!triggers.length && (
         <>
-          <FilterBar q={q} setQ={setQ} placeholder="Filter by name, view, condition…" shown={shown.length} total={triggers.length} />
+          <div className="toolbar">
+            <div className="search-box">
+              <Search />
+              <input type="text" className="search" placeholder="Filter by name…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Picker value={view} onChange={setView} ariaLabel="filter by view"
+                    style={{ width: 200 }}
+                    options={["all", ...viewOptions]}
+                    labels={{ all: "All views" }} />
+            <span className="grow" />
+            <span className="count">{shown.length} of {triggers.length}</span>
+          </div>
           <table>
             <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th></th></tr></thead>
             <tbody>
