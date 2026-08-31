@@ -58,6 +58,11 @@ export default function ProjectCustom({ s, id, reload }: {
   };
 
   const openInAgents = (dispatchId: string) => { setFocusDispatch(dispatchId); setTab("agents"); };
+  // the trigger card lives on the Setup tab; switch there, then scroll once it is rendered
+  const showTrigger = (name: string) => {
+    setTab("setup");
+    setTimeout(() => document.getElementById(`trigger-${name}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
 
   return (
     <>
@@ -163,7 +168,10 @@ export default function ProjectCustom({ s, id, reload }: {
 
       {tab === "agents" && (
         <>
-          {names("agent").map((n) => <AgentSection key={n} name={n} focusDispatch={focusDispatch} />)}
+          {names("agent").map((n) => (
+            <AgentSection key={n} name={n} focusDispatch={focusDispatch}
+                          triggerInProject={names("trigger")}
+                          onShowTrigger={showTrigger} />))}
           {!names("agent").length && <p className="help">no agents in this project</p>}
         </>
       )}
@@ -242,7 +250,7 @@ function TriggerPanel({ t, viewInProject, lastFired, onSaved }: {
 }) {
   const [editing, setEditing] = useState(false);
   return (
-    <div className="panel" style={{ marginBottom: 12 }}>
+    <div className="panel" id={`trigger-${t.name}`} style={{ marginBottom: 12, scrollMarginTop: 16 }}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{t.name}</span></h3>
@@ -285,7 +293,9 @@ function TriggerPanel({ t, viewInProject, lastFired, onSaved }: {
 // One agent, inline and whole: the overview rows and runs from its own page, the configuration
 // table beneath, and in-place editing with the same form. A firing row on the Firings tab lands
 // here with that firing's run open.
-function AgentSection({ name, focusDispatch }: { name: string; focusDispatch?: string }) {
+function AgentSection({ name, focusDispatch, triggerInProject, onShowTrigger }: {
+  name: string; focusDispatch?: string; triggerInProject: string[]; onShowTrigger: (t: string) => void;
+}) {
   const [openRun, setOpenRun] = useState<string>();
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = usePolling(() => api.builtinAgents(), 10000);
@@ -334,7 +344,11 @@ function AgentSection({ name, focusDispatch }: { name: string; focusDispatch?: s
                   <td>{agent.enabled ? <span className="badge ok">enabled</span> : <span className="badge">disabled</span>}
                       {!data.key_configured && <span className="help"> · no Anthropic key; add one under Settings</span>}</td></tr>
               <tr><td className="help">wakes on</td>
-                  <td><Link to={`/triggers/${encodeURIComponent(agent.trigger)}`} className="mono">{agent.trigger}</Link>
+                  <td>{triggerInProject.includes(agent.trigger)
+                        // the trigger card is on the Setup tab of this page; go there, not away
+                        ? <a href={`#trigger-${agent.trigger}`} className="chip mono" title="the trigger, on the Setup tab"
+                             onClick={(e) => { e.preventDefault(); onShowTrigger(agent.trigger); }}>{agent.trigger}</a>
+                        : <Link to={`/triggers/${encodeURIComponent(agent.trigger)}`} className="chip mono">{agent.trigger}</Link>}
                       <span className="help"> · the trigger that runs this agent</span></td></tr>
               <tr><td className="help">model</td>
                   <td><span className="mono">{agent.model || data.default_model}</span>
@@ -347,12 +361,15 @@ function AgentSection({ name, focusDispatch }: { name: string; focusDispatch?: s
                     : <span className="dim">—</span>}</td></tr>
               <tr><td className="help">last woken</td>
                   <td>{lastRun ? <><TimeAgo ts={lastRun.started_at} /> for <span className="mono">{lastRun.key}</span></> : <span className="dim">never</span>}</td></tr>
-              <tr><td className="help">Slack</td>
-                  <td>{agent.slack_channel
-                    ? <><span className="badge ok">channel</span> <span className="help">posted by the workspace bot</span></>
-                    : agent.slack_configured
-                      ? <><span className="badge ok">webhook</span> <span className="help">legacy per-agent webhook</span></>
-                      : <span className="dim">—</span>}</td></tr>
+              <tr><td className="help">delivers findings to</td>
+                  <td>
+                    <span className="chip">the entity's timeline<span className="help"> · always</span></span>{" "}
+                    {agent.slack_channel && <span className="chip">Slack channel<span className="help"> · workspace bot</span></span>}{" "}
+                    {!agent.slack_channel && agent.slack_configured && <span className="chip">Slack webhook<span className="help"> · legacy</span></span>}{" "}
+                    {agent.webhook_url && <span className="chip mono" title={agent.webhook_url}>write-back webhook</span>}
+                    {!agent.slack_channel && !agent.slack_configured && !agent.webhook_url &&
+                      <span className="help"> · nothing else configured</span>}
+                  </td></tr>
               <tr><td className="help">prompt</td>
                   <td><pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0, maxHeight: 180, overflow: "auto" }}>{agent.prompt}</pre></td></tr>
             </tbody>
