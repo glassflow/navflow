@@ -3,7 +3,7 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.15.1] - 2026-08-31
 
 ### Changed
 - Rerun is offered on every finished agent run, not only ones that failed. An agent that uses
