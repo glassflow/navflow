@@ -167,6 +167,10 @@ export const api = {
   disableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/disable`, { method: "POST" }),
   builtinAgentRuns: (name: string, limit = 20) =>
     request<AgentRun[]>(`/api/agents/builtin/${name}/runs?limit=${limit}`),
+  rerunAgentRun: (name: string, runId: string) =>
+    request<{ ok: boolean; run_id: string }>(
+      `/api/agents/builtin/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}/rerun`,
+      { method: "POST" }),
   // The cell's Anthropic spend meter: totals + per-day, split agent runs vs Ask.
   modelUsage: (days = 30) => request<ModelUsage>(`/api/usage/model?days=${days}`),
 

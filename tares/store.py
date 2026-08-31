@@ -1142,6 +1142,14 @@ class Store:
             "window_days": int(days),
         }
 
+    def get_agent_run(self, run_id: str) -> dict | None:
+        """One run by id, in the list_agent_runs shape."""
+        with self._lock:
+            row = self.con.execute("SELECT agent FROM agent_runs WHERE id = ?", [run_id]).fetchone()
+        if row is None:
+            return None
+        return next((r for r in self.list_agent_runs(row[0], limit=100000) if r["id"] == run_id), None)
+
     def agent_runs_today(self, agent: str, exclude_run_id: str | None = None) -> int:
         """Runs started in the last 24h — the cost ceiling's counter. `exclude_run_id` leaves out the
         run being checked: the row is inserted before the cap is evaluated, so the cap must count the
@@ -1574,6 +1582,22 @@ class Store:
              "event_time": r[4], "ingest_time": r[5]}
             for r in rows
         ]
+
+    def last_finding(self, source: str, agent: str, key: str) -> str | None:
+        """The newest delivered finding this agent wrote for this key, or None. Feeds the next
+        run's opening message so it builds on the earlier conclusion instead of rediscovering."""
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT payload FROM events WHERE source = ? AND key_value = ? "
+                "ORDER BY ingest_time DESC LIMIT 20", [source, key]).fetchall()
+        for (pj,) in rows:
+            try:
+                p = json.loads(pj) if pj else {}
+            except (TypeError, ValueError):
+                continue
+            if p.get("agent") == agent and p.get("finding"):
+                return str(p["finding"])
+        return None
 
     def recent_payloads(self, source: str, limit: int = 500) -> list[dict]:
         """The lossless payloads of a source's most recent events (for field profiling)."""

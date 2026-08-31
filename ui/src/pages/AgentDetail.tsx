@@ -308,6 +308,22 @@ function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, openRun, s
 function RunRow({ r, open, focused, onToggle }: {
   r: AgentRun; open: boolean; focused: boolean; onToggle: () => void;
 }) {
+  const navigate = useNavigate();
+  const [rerunBusy, setRerunBusy] = useState(false);
+  const [rerunErr, setRerunErr] = useState<string>();
+  const rerunnable = ["failed", "exhausted", "capped", "empty"].includes(r.status);
+  const rerun = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRerunBusy(true); setRerunErr(undefined);
+    try {
+      const out = await api.rerunAgentRun(r.agent, r.id);
+      navigate(`/agents/${encodeURIComponent(r.agent)}?run=${encodeURIComponent(out.run_id)}`);
+    } catch (err) {
+      setRerunErr(String((err as Error).message ?? err));
+    } finally {
+      setRerunBusy(false);
+    }
+  };
   // A dash on an old run means unknown, not zero: usage was not recorded before cost tracking.
   const hasTokens = r.input_tokens != null || r.output_tokens != null;
   const cache = (r.cache_creation_input_tokens ?? 0) + (r.cache_read_input_tokens ?? 0);
@@ -364,6 +380,15 @@ function RunRow({ r, open, focused, onToggle }: {
                 </p>
               )}
               {exhaustedNote}
+              {rerunnable && (
+                <div className="btnrow" style={{ margin: "0 0 8px" }}>
+                  <button onClick={rerun} disabled={rerunBusy}
+                          title="run again with the same inputs: same trigger, same entity, and the firing's data if one woke it">
+                    {rerunBusy ? "starting…" : "Rerun"}
+                  </button>
+                  {rerunErr && <span className="help" style={{ color: "var(--err)" }}>{rerunErr}</span>}
+                </div>
+              )}
               {r.finding
                 ? <div className="md">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{r.finding}</ReactMarkdown>
