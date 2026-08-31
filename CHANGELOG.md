@@ -3,6 +3,16 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **A per-agent budget.** `budget_usd` on a Tares agent caps its lifetime spend, counted from
+  its run log; once reached, runs are capped before any model call and the run says where to
+  raise or clear it (Configuration, Advanced). In the catalog YAML and the API alike.
+- On a hosted demo stack, the AI SRE demo's agent is born with a $2 budget: the shared stack
+  fires around the clock, and an idle trial cell would otherwise burn its whole credit over a
+  weekend.
+
 ## [1.14.0] - 2026-08-31
 
 ### Added

@@ -262,6 +262,7 @@ _MIGRATIONS = [
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS mcp_servers JSON",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS external_tools JSON",
     "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
+    "ALTER TABLE catalog_agents ADD COLUMN IF NOT EXISTS budget_usd DOUBLE",
     "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS max_rounds INTEGER",
     # extra, non-secret headers an MCP server wants on every request (toolset selection, read-only
     # mode); the auth header stays its own column because it is the secret
@@ -943,30 +944,32 @@ class Store:
                              slack_channel: str | None = None, webhook_url: str | None = None,
                              webhook_token: str | None = None,
                              mcp_servers: list[str] | None = None,
-                             max_rounds: int | None = None) -> None:
+                             max_rounds: int | None = None,
+                             budget_usd: float | None = None) -> None:
         ts = now_utc()
         with self._lock:
             self.con.execute(
                 "INSERT INTO catalog_agents "
                 "(name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, max_rounds, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "webhook_url, webhook_token, mcp_servers, max_rounds, budget_usd, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (name) DO UPDATE SET trigger = excluded.trigger, "
                 "prompt = excluded.prompt, slack_webhook = excluded.slack_webhook, "
                 "model = excluded.model, slack_channel = excluded.slack_channel, "
                 "webhook_url = excluded.webhook_url, webhook_token = excluded.webhook_token, "
                 "mcp_servers = excluded.mcp_servers, max_rounds = excluded.max_rounds, "
+                "budget_usd = excluded.budget_usd, "
                 "updated_at = excluded.updated_at",
                 [name, trigger, prompt, slack_webhook or "", model or "",
                  slack_channel or "", webhook_url or "", webhook_token or "",
-                 json.dumps(mcp_servers or []), max_rounds, ts, ts],
+                 json.dumps(mcp_servers or []), max_rounds, budget_usd, ts, ts],
             )
 
     def list_catalog_agents(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(
                 "SELECT name, trigger, prompt, slack_webhook, model, slack_channel, "
-                "webhook_url, webhook_token, mcp_servers, updated_at, max_rounds, owned_by, customized "
+                "webhook_url, webhook_token, mcp_servers, updated_at, max_rounds, budget_usd, owned_by, customized "
                 "FROM catalog_agents ORDER BY name"
             ).fetchall()
         return [
@@ -974,7 +977,7 @@ class Store:
              "model": r[4] or "", "slack_channel": r[5] or "",
              "webhook_url": r[6] or "", "webhook_token": r[7] or "",
              "mcp_servers": json.loads(r[8]) if r[8] else [], "updated_at": r[9],
-             "max_rounds": r[10], "owned_by": r[11], "customized": bool(r[12])}
+             "max_rounds": r[10], "budget_usd": r[11], "owned_by": r[12], "customized": bool(r[13])}
             for r in rows
         ]
 
@@ -1149,6 +1152,13 @@ class Store:
         if row is None:
             return None
         return next((r for r in self.list_agent_runs(row[0], limit=100000) if r["id"] == run_id), None)
+
+    def agent_cost_total(self, agent: str) -> float:
+        """Lifetime spend of one agent, from the run log (the budget_usd cap counts against it)."""
+        with self._lock:
+            r = self.con.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM agent_runs "
+                                 "WHERE agent = ?", [agent]).fetchone()
+        return float(r[0] or 0)
 
     def agent_runs_today(self, agent: str, exclude_run_id: str | None = None) -> int:
         """Runs started in the last 24h — the cost ceiling's counter. `exclude_run_id` leaves out the

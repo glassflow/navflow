@@ -245,6 +245,7 @@ export interface BuiltinAgent {
   webhook_token_configured: boolean;   // the token itself is never sent to the client
   mcp_servers: string[];       // registry names this agent may use
   max_rounds: number | null;   // model rounds per run; null = the default for its shape
+  budget_usd?: number | null;  // lifetime spend cap in USD; null = no budget
   effective_max_rounds: number;   // the cap its next run will be held to
   updated_at?: string;
   last_run?: AgentRun | null;
