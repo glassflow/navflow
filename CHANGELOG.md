@@ -3,7 +3,7 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.14.0] - 2026-08-31
 
 ### Added
 - **Projects from existing objects.** On the Projects page, next to the templates, "From existing
