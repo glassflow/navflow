@@ -1828,6 +1828,15 @@ class Store:
                 "WHERE dispatch_id = ? AND subscription_id = ?",
                 [ok, error, now_utc(), dispatch_id, subscription_id])
 
+    def remove_subscriptions_by_trigger(self, trigger: str) -> int:
+        """Drop every subscription to this trigger — called when the trigger is deleted, so no
+        subscriber keeps 'waking on' a trigger that no longer exists."""
+        with self._lock:
+            n = self.con.execute("SELECT COUNT(*) FROM subscriptions WHERE trigger = ?",
+                                 [trigger]).fetchone()[0]
+            self.con.execute("DELETE FROM subscriptions WHERE trigger = ?", [trigger])
+        return int(n)
+
     def all_subscriptions(self) -> list[dict]:
         with self._lock:
             rows = self.con.execute(

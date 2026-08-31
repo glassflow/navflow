@@ -1588,6 +1588,7 @@ def make_app() -> FastAPI:
         if name not in {t.name for t in runtime.catalog.triggers}:
             _err(KeyError(f"unknown trigger {name!r}"), 404)
         store.delete_catalog_trigger(name)
+        store.remove_subscriptions_by_trigger(name)
         runtime.reload_catalog()
         return {"ok": True}
 

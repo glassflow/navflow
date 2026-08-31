@@ -429,6 +429,7 @@ class Engine:
                     s.delete_catalog_agent(o.name)
                 elif kind == "trigger":
                     s.delete_catalog_trigger(o.name)
+                    s.remove_subscriptions_by_trigger(o.name)
                 elif kind == "view":
                     s.delete_catalog_view(o.name)
                 elif kind == "source":

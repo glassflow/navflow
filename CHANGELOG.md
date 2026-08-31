@@ -3,6 +3,13 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Deleting a trigger also removes its subscriptions. They could never fire again, but they
+  showed up on Deliveries as subscribers waking on triggers that no longer exist. Rows left
+  behind by earlier releases: remove them on the Deliveries page.
+
 ## [1.16.0] - 2026-08-31
 
 ### Added
