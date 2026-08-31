@@ -416,10 +416,17 @@ class AgentRunner:
         tools = TOOL_DEFS + toolbox.tool_defs
         max_rounds = effective_max_rounds(agent)
         external_used: list[str] = []
+        # The agent's own last conclusion for this entity, so a run builds on the previous one
+        # instead of rediscovering it (worth real rounds for a context-maintaining agent). Capped:
+        # it is a head start, not a second timeline.
+        prior = self.store.last_finding(FINDINGS_SOURCE, agent["name"], key)
+        prior_block = (f'Your finding from an earlier run on "{key}":\n\n{prior[:4000]}\n\n'
+                       if prior else "")
         messages = [{
             "role": "user",
             "content": (
                 f'The condition "{trigger_name}" tripped for "{key}".\n\n'
+                f"{prior_block}"
                 f"The correlated timeline at that moment:\n\n{payload}\n\n"
                 f"Take a first look, per your instructions. You already hold the evidence above; "
                 f"read again only if you need a wider window or a different entity."),

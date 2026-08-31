@@ -1583,6 +1583,22 @@ class Store:
             for r in rows
         ]
 
+    def last_finding(self, source: str, agent: str, key: str) -> str | None:
+        """The newest delivered finding this agent wrote for this key, or None. Feeds the next
+        run's opening message so it builds on the earlier conclusion instead of rediscovering."""
+        with self._lock:
+            rows = self.con.execute(
+                "SELECT payload FROM events WHERE source = ? AND key_value = ? "
+                "ORDER BY ingest_time DESC LIMIT 20", [source, key]).fetchall()
+        for (pj,) in rows:
+            try:
+                p = json.loads(pj) if pj else {}
+            except (TypeError, ValueError):
+                continue
+            if p.get("agent") == agent and p.get("finding"):
+                return str(p["finding"])
+        return None
+
     def recent_payloads(self, source: str, limit: int = 500) -> list[dict]:
         """The lossless payloads of a source's most recent events (for field profiling)."""
         with self._lock:

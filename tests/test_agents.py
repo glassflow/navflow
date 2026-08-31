@@ -213,6 +213,18 @@ async def main():
             ck("finding is on the entity's timeline", FINDING in rd["payload"], rd["payload"][:200])
             ck("findings source contributes to the read", "findings" in rd["sources"], str(rd["sources"]))
 
+            # ── the next run opens with the previous finding (a head start) ──
+            await asyncio.sleep(1.2)   # past the trigger cooldown
+            for i in range(3):
+                await cx.post(f"{B}/ingest/evt", json={"service": "checkout", "msg": f"500 again #{i}"})
+            async def _ran_again():
+                rs = (await cx.get(f"{B}/api/agents/builtin/first-look/runs")).json()
+                return len(rs) >= 2 and rs[0]["status"] != "running"
+            ck("a second run completed", await _until(_ran_again), "no second run")
+            opening = str(_calls[-1]["messages"][0]["content"])
+            ck("the second run opens with the first run's finding",
+               "earlier run" in opening and FINDING in opening, opening[:300])
+
             srcs = {s["name"]: s for s in (await cx.get(f"{B}/api/sources")).json()}
             ck("findings source auto-provisioned", "findings" in srcs, str(list(srcs)))
 

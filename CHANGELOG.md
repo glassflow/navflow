@@ -15,6 +15,9 @@ the project follows [Semantic Versioning](https://semver.org/).
   catalog YAML takes the same shape.
 
 ### Added
+- An agent run now opens with the agent's previous finding for the same entity, so it builds on
+  its earlier conclusion instead of rediscovering it. Most useful for context-maintaining
+  agents, where the last summary is a head start.
 - A run that did not work (failed, out of rounds, capped, or empty) has a **Rerun** button on the
   agent page: the agent runs again with the same inputs, same trigger, same entity, and the
   firing's data when a firing woke it. `POST /api/agents/builtin/{name}/runs/{run_id}/rerun`.
