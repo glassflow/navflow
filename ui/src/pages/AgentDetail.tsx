@@ -312,7 +312,10 @@ function RunRow({ r, open, focused, onToggle }: {
   const navigate = useNavigate();
   const [rerunBusy, setRerunBusy] = useState(false);
   const [rerunErr, setRerunErr] = useState<string>();
-  const rerunnable = ["failed", "exhausted", "capped", "empty"].includes(r.status);
+  // Any finished run: an agent can use every round and still conclude with a "how far I got"
+  // report, which lands as status ok. Whether a run is worth redoing is the reader's call; since
+  // runs open with the previous finding, a rerun continues from that report instead of starting over.
+  const rerunnable = r.status !== "running";
   const rerun = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setRerunBusy(true); setRerunErr(undefined);

@@ -3,6 +3,13 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Rerun is offered on every finished agent run, not only ones that failed. An agent that uses
+  all its rounds can still conclude with a partial "how far I got" report, which counts as ok;
+  the rerun opens with that report and continues from it.
+
 ## [1.15.0] - 2026-08-31
 
 ### Added
