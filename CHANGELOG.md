@@ -3,6 +3,20 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Hand-assembled projects have a new page.** Four tabs: Setup (the sources with their health,
+  and every view and trigger as a card, editable in place; the watched view and trigger links
+  stay on the page), Events (the newest rows across the project's sources, merged), Firings
+  (every dispatch across the project's triggers, with the agent and Slack subscribers), and
+  Agents (each agent inline with its runs, every delivery target, and its configuration).
+  Template projects keep the existing page.
+
+### Changed
+- Trigger page: the watched view and the project badge moved from the subtitle into the first
+  box, above condition, context window and cooldown.
+
 ## [1.15.1] - 2026-08-31
 
 ### Changed
