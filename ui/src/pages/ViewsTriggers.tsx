@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Search } from "../components/icons";
-import { EmptyState, ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { EmptyState, ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import type { Trigger, View } from "../types";
 
 // Views and Triggers are two acts of "serve to agents": a view is a saved read; a trigger wakes
@@ -12,12 +12,13 @@ import type { Trigger, View } from "../types";
 
 export function ViewsPage() {
   const { data: views, error, reload } = usePolling(() => api.views(), 10000);
+  const { data: triggers } = usePolling(() => api.triggers(), 15000);
 
   return (
     <>
       <h1>Views</h1>
       <p className="subtitle">saved reads; <em>the queries you hand agents</em></p>
-      <ViewsSection views={views ?? []} loadError={error} onChange={reload} />
+      <ViewsSection views={views ?? []} triggers={triggers ?? []} loadError={error} onChange={reload} />
     </>
   );
 }
@@ -55,29 +56,30 @@ function FilterBar({ q, setQ, placeholder, shown, total }: {
 
 // ── views ────────────────────────────────────────────────────────────────────
 
-function AuthorBadge({ createdBy }: { createdBy?: string }) {
-  const isAgent = (createdBy ?? "human").startsWith("agent");
-  return (
-    <span className={`badge ${isAgent ? "agent" : "starting"}`}
-          title={isAgent ? `proposed by an agent via derive() (${createdBy})` : "authored by a human"}>
-      {isAgent ? "agent" : "human"}
-    </span>
-  );
-}
-
-function ViewsSection({ views, loadError, onChange }:
-  { views: View[]; loadError?: string; onChange: () => void }) {
+function ViewsSection({ views, triggers, loadError, onChange }:
+  { views: View[]; triggers: Trigger[]; loadError?: string; onChange: () => void }) {
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
+  const [source, setSource] = useState("all");
+  const [trigger, setTrigger] = useState("all");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
+
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(views.flatMap((v) => v.sources))).sort(), [views]);
+  const triggerOptions = useMemo(
+    () => Array.from(new Set(triggers.map((t) => t.name))).sort(), [triggers]);
+  const watchedBy = useMemo(() => {
+    const t = triggers.find((x) => x.name === trigger);
+    return t?.view;
+  }, [triggers, trigger]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return views.filter((v) => !needle ||
-      v.name.toLowerCase().includes(needle) ||
-      v.key_field.toLowerCase().includes(needle) ||
-      v.sources.join(" ").toLowerCase().includes(needle));
-  }, [views, q]);
+    return views.filter((v) =>
+      (source === "all" || v.sources.includes(source)) &&
+      (trigger === "all" || v.name === watchedBy) &&
+      (!needle || v.name.toLowerCase().includes(needle)));
+  }, [views, q, source, trigger, watchedBy]);
 
   const del = async (name: string) => {
     setError(undefined);
@@ -99,16 +101,36 @@ function ViewsSection({ views, loadError, onChange }:
       )}
       {!!views.length && (
         <>
-          <FilterBar q={q} setQ={setQ} placeholder="Filter by name, key, source…" shown={shown.length} total={views.length} />
+          <div className="toolbar">
+            <div className="search-box">
+              <Search />
+              <input type="text" className="search" placeholder="Filter by name…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Picker value={source} onChange={setSource} ariaLabel="filter by source"
+                    style={{ width: 180 }}
+                    options={["all", ...sourceOptions]}
+                    labels={{ all: "All sources" }} />
+            <Picker value={trigger} onChange={setTrigger} ariaLabel="filter by trigger"
+                    style={{ width: 180 }}
+                    options={["all", ...triggerOptions]}
+                    labels={{ all: "All triggers" }} />
+            <span className="grow" />
+            <span className="count">{shown.length} of {views.length}</span>
+          </div>
           <table>
-            <thead><tr><th>name</th><th>author</th><th>key field</th><th>sources</th><th>filters</th><th>usage</th><th></th></tr></thead>
+            <thead><tr><th>name</th><th>key field</th><th>sources</th><th>filters</th><th>usage</th><th></th></tr></thead>
             <tbody>
               {shown.map((v) => (
                 <tr key={v.name}>
                   <td className="mono"><Link to={`/views/${encodeURIComponent(v.name)}`}>{v.name}</Link></td>
-                  <td><AuthorBadge createdBy={v.created_by} /></td>
                   <td className="mono">{v.key_field}</td>
-                  <td>{v.sources.map((s) => <span className="chip" key={s}>{s}</span>)}</td>
+                  <td>
+                    {v.sources.slice(0, 2).map((s) => <span className="chip" key={s}>{s}</span>)}
+                    {v.sources.length > 2 && (
+                      <span className="chip dim" title={v.sources.slice(2).join(", ")}>
+                        +{v.sources.length - 2} more</span>
+                    )}
+                  </td>
                   <td className="mono">
                     {(v.filters ?? []).map((f, i) => (
                       <span className="chip" key={i}>{f.field} {f.op} {String(f.value)}</span>
@@ -130,7 +152,7 @@ function ViewsSection({ views, loadError, onChange }:
                   </td>
                 </tr>
               ))}
-              {!shown.length && <tr><td colSpan={7} className="dim" style={{ textAlign: "center", padding: 24 }}>no views match “{q}”</td></tr>}
+              {!shown.length && <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 24 }}>no views match the filter</td></tr>}
             </tbody>
           </table>
         </>
