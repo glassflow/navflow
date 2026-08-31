@@ -83,9 +83,7 @@ export default function TriggerDetail() {
         <div>
           <h1><span className="mono">{trigger.name}</span></h1>
           <p className="subtitle">
-            watches <Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
-            {" "}· fires when the condition trips, delivering to every subscriber
-            {trigger.owned_by && <> · <ProjectBadge ownedBy={trigger.owned_by} customized={trigger.customized} /></>}
+            fires when the condition trips, delivering to every subscriber
           </p>
         </div>
         {!editing && (
@@ -108,6 +106,13 @@ export default function TriggerDetail() {
         <div className="panel">
           <table>
             <tbody>
+              <tr><td className="help" style={{ width: 150 }}>watches</td>
+                  <td><Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
+                      <span className="help"> · the view whose events the condition reads</span></td></tr>
+              {trigger.owned_by && (
+                <tr><td className="help">part of</td>
+                    <td><ProjectBadge ownedBy={trigger.owned_by} customized={trigger.customized} compact /></td></tr>
+              )}
               <tr><td className="help" style={{ width: 150 }}>condition</td>
                   <td className="mono">
                     {trigger.condition.aggregate}({trigger.condition.field || "*"}){" "}
