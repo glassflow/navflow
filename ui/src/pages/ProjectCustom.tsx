@@ -118,6 +118,7 @@ export default function ProjectCustom({ s, id, reload }: {
           <h2 style={{ marginTop: 24 }}>Triggers</h2>
           {myTriggers.map((t) => (
             <TriggerPanel key={t.name} t={t}
+                          viewInProject={myViews.some((v) => v.name === t.view)}
                           lastFired={firings.find((d) => d.trigger === t.name)?.fired_at ?? null}
                           onSaved={() => { reloadTriggers(); reload(); }} />
           ))}
@@ -193,7 +194,7 @@ function ViewPanel({ v, sourceNames, onSaved }: {
 }) {
   const [editing, setEditing] = useState(false);
   return (
-    <div className="panel" style={{ marginBottom: 12 }}>
+    <div className="panel" id={`view-${v.name}`} style={{ marginBottom: 12, scrollMarginTop: 16 }}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{v.name}</span></h3>
@@ -236,8 +237,8 @@ function ViewPanel({ v, sourceNames, onSaved }: {
 }
 
 // One trigger, as its own page shows it, with the same in-place editor and its last firing.
-function TriggerPanel({ t, lastFired, onSaved }: {
-  t: import("../types").Trigger; lastFired: string | null; onSaved: () => void;
+function TriggerPanel({ t, viewInProject, lastFired, onSaved }: {
+  t: import("../types").Trigger; viewInProject: boolean; lastFired: string | null; onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   return (
@@ -261,7 +262,11 @@ function TriggerPanel({ t, lastFired, onSaved }: {
         <table>
           <tbody>
             <tr><td className="help" style={{ width: 140 }}>watches</td>
-                <td><Link to={`/views/${encodeURIComponent(t.view)}`} className="chip mono">{t.view}</Link></td></tr>
+                <td>{viewInProject
+                  // the view is right above on this page, editable there; scroll, don't navigate
+                  ? <a href={`#view-${t.view}`} className="chip mono" title="the view, above on this page"
+                       onClick={(e) => { e.preventDefault(); document.getElementById(`view-${t.view}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>{t.view}</a>
+                  : <Link to={`/views/${encodeURIComponent(t.view)}`} className="chip mono">{t.view}</Link>}</td></tr>
             <tr><td className="help">condition</td><td className="mono">{fmtCond(t)}</td></tr>
             <tr><td className="help">context window</td>
                 <td className="mono">{String(t.emit?.context_window ?? "15m")}
