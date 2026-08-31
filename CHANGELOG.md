@@ -14,6 +14,11 @@ the project follows [Semantic Versioning](https://semver.org/).
   `POST /api/projects {"template": "custom", "name": ..., "objects": [{"kind", "name"}, ...]}`;
   catalog YAML takes the same shape.
 
+### Fixed
+- The challenger session thread showed only the first three findings of a review, cut mid-word
+  at 500 characters. The thread now lists every finding in full (from the event payload, so
+  sessions already recorded get it too), and challenge events keep their whole text.
+
 ### Changed
 - **Use cases are now projects; recipes are templates.** A project is a named set of sources,
   views, triggers, agents and MCP servers with one page; the shipped recipes are Tares

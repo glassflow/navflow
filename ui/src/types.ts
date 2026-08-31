@@ -492,6 +492,7 @@ export interface ProjectSummary extends Project {
 }
 export interface ChallengeEvent {
   at: string; event_type: string; text: string; labels: Record<string, string>;
+  findings?: { priority?: string; title?: string; waived?: boolean }[];
 }
 export interface ChallengerSession {
   session: string; repo?: string | null; branch?: string | null;

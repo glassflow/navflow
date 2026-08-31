@@ -140,7 +140,10 @@ class ClaudeCodeConnector(Connector):
         if o.get("type") in self.CHALLENGE_TYPES:
             labels.update(self._challenge_labels(o))
 
-        text = self._render_text(o, msg, include_thinking)[:500]
+        # challenge events carry the whole review; chopping them mid-finding is what the 500-char
+        # cap would do, and the summarizer reads this text
+        cap = 4000 if o.get("type") in self.CHALLENGE_TYPES else 500
+        text = self._render_text(o, msg, include_thinking)[:cap]
         if redact:
             text = _redact(text)
 
@@ -201,9 +204,9 @@ class ClaudeCodeConnector(Connector):
         typ = o.get("type")
         verdict = str(ch.get("verdict") or "?").upper()
         n, b = ch.get("finding_count", 0), ch.get("blocking_count", 0)
-        findings = ", ".join(f"[{f.get('priority')}] {f.get('title')}"
-                             for f in (ch.get("findings") or [])[:3] if isinstance(f, dict))
-        tail = f": {findings}" if findings else ""
+        findings = "\n".join(f"[{f.get('priority')}] {f.get('title')}"
+                              for f in (ch.get("findings") or []) if isinstance(f, dict))
+        tail = f"\n{findings}" if findings else ""
         if typ == "challenge_plan":
             what = f"Challenger reviewed the plan {ch.get('plan') or ''}".rstrip()
         elif typ == "challenge_commit":

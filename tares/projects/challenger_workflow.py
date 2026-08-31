@@ -324,8 +324,15 @@ def recent_sessions(store) -> list[dict]:
                                     "blocking": lbls.get("blocking_count")})
         elif typ == "challenge_waived":
             sess["waived"] += 1
-        sess["thread"].append({"at": _iso(event_time), "event_type": typ, "text": text or "",
-                               "labels": lbls})
+        entry = {"at": _iso(event_time), "event_type": typ, "text": text or "", "labels": lbls}
+        ch = raw.get("challenge") if isinstance(raw.get("challenge"), dict) else {}
+        if ch.get("findings"):
+            # the full findings, from the lossless payload: the event text is capped and older
+            # events carried only the first three findings in it
+            entry["findings"] = [{"priority": f.get("priority"), "title": f.get("title"),
+                                  "waived": bool(f.get("waived"))}
+                                 for f in ch["findings"] if isinstance(f, dict)]
+        sess["thread"].append(entry)
     out = sorted(by_session.values(), key=lambda x: x["last_at"] or "", reverse=True)
     return out[:MAX_SESSIONS]
 

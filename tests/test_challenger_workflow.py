@@ -178,11 +178,16 @@ async def main(app):
                 line("s1", "challenge_commit", ts(10),
                      challenge={"verdict": "PASS", "sha": "abc1234", "finding_count": 0,
                                 "blocking_count": 0, "duration_seconds": 30, "findings": []}),
+                line("s1", "challenge_plan", ts(8),
+                     challenge={"verdict": "FAIL", "plan": "p.md", "finding_count": 5,
+                                "blocking_count": 2, "findings": [
+                                    {"priority": "P1", "title": "finding " + str(i) + " " + "x" * 150,
+                                     "waived": False} for i in range(5)]}),
                 line("s1", "session_end", ts(1)),
             ]) + "\n"
             rr = await cx.post(f"/ingest/{SOURCE}", content=body,
                                headers={"content-type": "application/x-ndjson"})
-            check("session lines ingested", rr.status_code == 202 and rr.json()["ingested"] == 4, rr.text[:200])
+            check("session lines ingested", rr.status_code == 202 and rr.json()["ingested"] == 5, rr.text[:200])
             # an unmarked session that ends must not fire
             rr = await cx.post(f"/ingest/{SOURCE}", content=json.dumps(
                 {"sessionId": "s2", "type": "session_end", "cwd": "/x", "timestamp": ts(1)}) + "\n",
@@ -206,7 +211,7 @@ async def main(app):
             print("== summary and action ==")
             s = (await cx.get(f"/api/projects/{uid}/summary")).json()
             check("summary counts events and names the objects",
-                  s["events"] == 8 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+                  s["events"] == 9 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
             sess = {x["session"]: x for x in s["sessions"]}
             check("summary lists the marked sessions only", set(sess) == {"s0", "s1"}, json.dumps(s["sessions"])[:400])
             s1 = sess.get("s1") or {}
@@ -217,9 +222,15 @@ async def main(app):
             check("events carry a repo label, not project",
                   any(l.get("repo") == "shop" for l in lbls) and not any("project" in l for l in lbls),
                   json.dumps(lbls)[:300])
+            plan_ev = next((t for t in s1.get("thread", []) if t["event_type"] == "challenge_plan"), {})
+            check("a plan review's thread entry carries every finding in full",
+                  len(plan_ev.get("findings") or []) == 5
+                  and all(len(f["title"]) > 150 for f in plan_ev["findings"]), json.dumps(plan_ev)[:300])
+            check("the challenge text is not chopped at 500 characters",
+                  len(plan_ev.get("text") or "") > 500 and "finding 4" in plan_ev["text"], str(len(plan_ev.get("text") or "")))
             check("session carries the commit verdict and thread",
                   s1.get("commits") and s1["commits"][0]["verdict"] == "PASS" and s1.get("ended")
-                  and [t["event_type"] for t in s1["thread"]] == ["session_flow", "challenge_commit", "session_end"],
+                  and [t["event_type"] for t in s1["thread"]] == ["session_flow", "challenge_commit", "challenge_plan", "session_end"],
                   json.dumps(s1)[:400])
             rr = await cx.post(f"/api/projects/{uid}/actions/summarize", json={})
             check("summarize without a session -> 400", rr.status_code == 400, rr.text[:200])

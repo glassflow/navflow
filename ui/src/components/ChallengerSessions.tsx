@@ -150,8 +150,28 @@ function SessionThread({ s, view, onClose }: { s: ChallengerSession; view: strin
                 <tr key={i}>
                   <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={t.at} /></td>
                   <td>
-                    <span className="mono" style={{ whiteSpace: "pre-wrap" }}>{t.text}</span>
-                    {t.labels.verdict && <span className="tl-labels"><Verdict v={t.labels.verdict} findings={t.labels.finding_count} blocking={t.labels.blocking_count} /></span>}
+                    {t.findings?.length ? (
+                      <>
+                        {/* the first line of the text is the header; the findings themselves come
+                            from the payload, complete (the event text is capped) */}
+                        <span className="mono">{t.text.split("\n")[0].split(": [P")[0]}</span>
+                        {t.labels.verdict && <span className="tl-labels"><Verdict v={t.labels.verdict} findings={t.labels.finding_count} blocking={t.labels.blocking_count} /></span>}
+                        <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                          {t.findings.map((f, j) => (
+                            <li key={j} className={f.waived ? "dim" : undefined} style={{ marginBottom: 2 }}>
+                              {f.priority && <span className="badge" style={{ marginRight: 6 }}>{f.priority}</span>}
+                              <span className="mono" style={{ whiteSpace: "pre-wrap" }}>{f.title}</span>
+                              {f.waived && <span className="help"> waived</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <>
+                        <span className="mono" style={{ whiteSpace: "pre-wrap" }}>{t.text}</span>
+                        {t.labels.verdict && <span className="tl-labels"><Verdict v={t.labels.verdict} findings={t.labels.finding_count} blocking={t.labels.blocking_count} /></span>}
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
