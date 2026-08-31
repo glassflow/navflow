@@ -16,7 +16,7 @@ export default function DispatchDetail() {
     return (
       <div className="alert error">
         {/unknown dispatch/i.test(error) ? <>no dispatch <span className="mono">{id}</span></> : error}
-        {" "}· see <Link to="/deliveries">Deliveries</Link>
+        {" "}· see <Link to="/firings">Firings</Link>
       </div>
     );
   }

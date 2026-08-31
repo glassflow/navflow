@@ -185,7 +185,7 @@ function TriggersSection({ triggers, viewNames, dispatches, roster, slackChannel
             ? <Link key={a.name} to={`/agents/${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>
             : a.kind === "slack"
               ? <span key={a.name} className="chip">{channelLabel(a.name)}</span>
-              : <Link key={a.name} to={`/deliveries?agent=${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>)}
+              : <Link key={a.name} to={`/agents?agent=${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>)}
         {subs.length > 2 && (
           <span className="chip dim" title={subs.slice(2).map((a) => a.name).join(", ")}>
             +{subs.length - 2} more</span>

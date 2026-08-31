@@ -56,7 +56,7 @@ export default function AgentDetail() {
     return (
       <div className="alert error">
         no Tares agent named <span className="mono">{name}</span>. Connected (external) agents are
-        listed under <Link to="/deliveries">Deliveries</Link>. See <Link to="/agents">Agents</Link>.
+        listed under External subscribers on <Link to="/agents">Agents</Link>.
       </div>
     );
   }

@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { api, auth } from "../api";
 import { Search } from "../components/icons";
-import { TimeAgo, usePolling } from "../components/bits";
+import { Picker, TimeAgo, usePolling } from "../components/bits";
 import type { DispatchLogEntry } from "../types";
 
 // Two pages share this module: Connect (how an agent hooks up — one tab per integration mode)
@@ -569,43 +569,75 @@ function Queries() {
   );
 }
 
-function deliveryBadge(d: DispatchLogEntry) {
-  if (d.subscribers === 0) return <span className="badge starting">no subscribers</span>;
-  const cls = d.delivered === d.subscribers ? "ok" : "error";
-  return <span className={`badge ${cls}`}>{d.delivered}/{d.subscribers} delivered</span>;
-}
-
 export function Dispatches() {
   const nav = useNavigate();
   const { data, error } = usePolling(() => api.dispatches(150));
+  const { data: roster } = usePolling(() => api.agents(), 15000);
+  const { data: slack } = usePolling(() => api.slackChannels(), 60000);
   const [q, setQ] = useState("");
+  const [trigger, setTrigger] = useState("all");
+
+  const triggerOptions = useMemo(
+    () => Array.from(new Set((data ?? []).map((d) => d.trigger))).sort(), [data]);
+  const channelLabel = (raw: string) => {
+    const cid = raw.replace(/^#/, "");
+    const hit = (slack?.channels ?? []).find((c) => c.id === cid);
+    return hit ? (hit.is_private ? `🔒 ${hit.name}` : `#${hit.name}`) : raw;
+  };
+  const recipients = (t: string) => (roster?.agents ?? []).filter((a) => a.triggers.includes(t));
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (data ?? []).filter((d) =>
-      !needle || d.trigger.toLowerCase().includes(needle) || d.key.toLowerCase().includes(needle) ||
-      d.kind.toLowerCase().includes(needle));
-  }, [data, q]);
+      (trigger === "all" || d.trigger === trigger) &&
+      (!needle || d.trigger.toLowerCase().includes(needle) || d.key.toLowerCase().includes(needle)));
+  }, [data, q, trigger]);
 
   if (error) return <div className="alert error">{error}</div>;
   if (!data?.length) return <div className="empty">no trigger firings yet</div>;
   return (
     <>
-      <Toolbar q={q} setQ={setQ} placeholder="Filter by trigger, key, kind…" shown={shown.length} total={data.length} />
+      <div className="toolbar">
+        <div className="search-box">
+          <Search />
+          <input type="text" className="search" placeholder="Filter by trigger or entity…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <Picker value={trigger} onChange={setTrigger} ariaLabel="filter by trigger"
+                style={{ width: 220 }}
+                options={["all", ...triggerOptions]}
+                labels={{ all: "All triggers" }} />
+        <span className="grow" />
+        <span className="count">{shown.length} of {data.length}</span>
+      </div>
       <table>
-        <thead><tr><th>fired</th><th>trigger</th><th>key</th><th>kind</th><th>delivery</th></tr></thead>
+        <thead><tr><th>fired</th><th>trigger</th><th>entity</th><th>delivered to</th></tr></thead>
         <tbody>
-          {shown.map((d) => (
-            <tr key={d.dispatch_id} className="clickable"
-                onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
-              <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={d.fired_at} /></td>
-              <td className="mono"><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}>{d.trigger}</Link></td>
-              <td className="mono">{d.key}</td>
-              <td className="mono">{d.kind}</td>
-              <td>{deliveryBadge(d)}</td>
-            </tr>
-          ))}
-          {!shown.length && <tr><td colSpan={5} className="dim" style={{ textAlign: "center", padding: 24 }}>no dispatches match “{q}”</td></tr>}
+          {shown.map((d) => {
+            const partial = d.subscribers > 0 && d.delivered < d.subscribers;
+            const names = recipients(d.trigger);
+            return (
+              <tr key={d.dispatch_id} className="clickable"
+                  onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
+                <td style={{ whiteSpace: "nowrap" }}><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}><TimeAgo ts={d.fired_at} /></Link></td>
+                <td className="mono">{d.trigger}</td>
+                <td className="mono">{d.key}</td>
+                <td>
+                  {d.subscribers === 0
+                    ? <span className="badge error">nobody subscribed</span>
+                    : names.length === 0
+                    ? <span className={`badge ${partial ? "error" : "ok"}`}>{d.delivered}/{d.subscribers} delivered</span>
+                    : names.map((a) => (
+                        <span key={a.name} className="chip mono"
+                              title={partial ? (d.error ?? "not every delivery succeeded") : "delivered"}
+                              style={{ marginRight: 4, color: partial ? "var(--err)" : "var(--ok, #2e7d43)" }}>
+                          {a.kind === "slack" ? channelLabel(a.name) : a.name}
+                        </span>
+                      ))}
+                </td>
+              </tr>
+            );
+          })}
+          {!shown.length && <tr><td colSpan={4} className="dim" style={{ textAlign: "center", padding: 24 }}>no firings match the filter</td></tr>}
         </tbody>
       </table>
     </>

@@ -166,7 +166,7 @@ export default function TriggerDetail() {
                     // channel list is already loaded on this page, so resolve it when we can and fall
                     // back to the id when the bot has since been removed from the channel.
                     ? <strong>{channelLabel(a.name)}</strong>
-                    : <Link to={`/deliveries?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}
+                    : <Link to={`/agents?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}
                   <span className="chip" style={{ marginLeft: 8 }}>
                     {a.kind === "tares" ? "Tares agent" : a.kind === "slack" ? "Slack" : "webhook"}</span>
                   {a.kind === "connected" && <span className="mono dim" style={{ marginLeft: 8 }}>{a.endpoint}</span>}
@@ -328,7 +328,7 @@ export default function TriggerDetail() {
           </tbody>
         </table>
         {firings.length > 5 && (
-          <p className="help">the last 5 of {firings.length} recent · every firing is on <Link to="/deliveries">Deliveries</Link></p>
+          <p className="help">the last 5 of {firings.length} recent · every firing is on <Link to="/firings">Firings</Link></p>
         )}
         </>
       )}
