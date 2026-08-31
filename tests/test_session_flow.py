@@ -55,7 +55,7 @@ def main():
        and e.labels.get("duration_seconds") == 41.5, str(e.labels))
     ck("flow label rides along", e.labels.get("flow") == "challenger")
     ck("text summarizes the review",
-       e.text.startswith("Challenger reviewed commit abcdef12, round 2: 2 findings (1 blocking): [P1] Null deref"), e.text)
+       e.text.startswith("Challenger reviewed commit abcdef12, round 2: 2 findings (1 blocking)\n[P1] Null deref"), e.text)
     ck("prose in payload is redacted", "ghp_" not in str(e.payload), str(e.payload)[:200])
 
     plan = {"sessionId": "s1", "type": "challenge_plan", "cwd": "/tmp/proj",
@@ -66,7 +66,7 @@ def main():
     waived = {"sessionId": "s1", "type": "challenge_waived", "cwd": "/tmp/proj",
               "challenge": {"findings": [{"priority": "P2", "title": "Missing test"}]}}
     e = c.map_payload(waived)[0]
-    ck("challenge_waived text", e.text == "Challenger finding waived: [P2] Missing test", e.text)
+    ck("challenge_waived text", e.text == "Challenger finding waived\n[P2] Missing test", e.text)
 
     tools = asyncio.run(mcp_server.mcp.list_tools())
     ck("set_session_flow is an MCP tool", any(t.name == "set_session_flow" for t in tools))
