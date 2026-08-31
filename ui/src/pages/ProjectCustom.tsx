@@ -269,9 +269,6 @@ function ViewPanel({ v, sourceNames, watchers, onSaved }: {
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{v.name}</span></h3>
-          <p className="subtitle" style={{ margin: "2px 0 0" }}>
-            one read returns the correlated timeline of a <span className="mono">{v.key_field}</span>
-          </p>
         </div>
         <span className="btnrow">
           <Link className="btn" to={`/triggers/new?view=${encodeURIComponent(v.name)}`}>+ trigger</Link>

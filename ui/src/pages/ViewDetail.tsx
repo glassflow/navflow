@@ -39,10 +39,6 @@ export default function ViewDetail() {
       <div className="pagehead">
         <div>
           <h1><span className="mono">{view.name}</span></h1>
-          <p className="subtitle">
-            one read returns the correlated timeline of a <span className="mono">{view.key_field}</span>
-            {view.owned_by && <> · <ProjectBadge ownedBy={view.owned_by} customized={view.customized} /></>}
-          </p>
         </div>
         <span className="btnrow">
           <Link className="btn" to={`/triggers/new?view=${encodeURIComponent(view.name)}`}>+ trigger</Link>
@@ -63,6 +59,10 @@ export default function ViewDetail() {
       <div className="panel">
         <table>
           <tbody>
+            {view.owned_by && (
+              <tr><td className="help" style={{ width: 140 }}>part of</td>
+                  <td><ProjectBadge ownedBy={view.owned_by} customized={view.customized} compact /></td></tr>
+            )}
             <tr><td className="help" style={{ width: 140 }}>key field</td>
                 <td className="mono">{view.key_field}</td></tr>
             <tr><td className="help">sources</td>
