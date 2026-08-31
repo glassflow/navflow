@@ -253,7 +253,7 @@ function TriggersSection({ triggers, viewNames, dispatches, loadError, onChange 
                   </td>
                 </tr>
               ))}
-              {!shown.length && <tr><td colSpan={5} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match “{q}”</td></tr>}
+              {!shown.length && <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match the filter</td></tr>}
             </tbody>
           </table>
         </>
