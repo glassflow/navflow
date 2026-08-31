@@ -246,8 +246,7 @@ function TriggerPanel({ t, lastFired, onSaved }: {
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{t.name}</span></h3>
           <p className="subtitle" style={{ margin: "2px 0 0" }}>
-            watches <Link to={`/views/${encodeURIComponent(t.view)}`} className="mono">{t.view}</Link>
-            {" "}· fires when the condition trips, delivering to every subscriber
+            fires when the condition trips, delivering to every subscriber
           </p>
         </div>
         <span className="btnrow">
@@ -261,7 +260,9 @@ function TriggerPanel({ t, lastFired, onSaved }: {
       ) : (
         <table>
           <tbody>
-            <tr><td className="help" style={{ width: 140 }}>condition</td><td className="mono">{fmtCond(t)}</td></tr>
+            <tr><td className="help" style={{ width: 140 }}>watches</td>
+                <td><Link to={`/views/${encodeURIComponent(t.view)}`} className="chip mono">{t.view}</Link></td></tr>
+            <tr><td className="help">condition</td><td className="mono">{fmtCond(t)}</td></tr>
             <tr><td className="help">context window</td>
                 <td className="mono">{String(t.emit?.context_window ?? "15m")}
                     <span className="help"> · timeline the woken agent receives</span></td></tr>
