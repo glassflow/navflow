@@ -267,7 +267,7 @@ export default function AgentDetail() {
   );
 }
 
-function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, openRun, setOpenRun }: {
+export function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, openRun, setOpenRun }: {
   runs: AgentRun[] | undefined;
   runsError: string | undefined;
   agent: BuiltinAgent;

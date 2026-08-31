@@ -7,6 +7,7 @@ import ConfirmDialog from "../components/ConfirmDialog";
 import type { Template, RecipeActionOption, ProjectObject, ProjectSummary } from "../types";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
 import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
+import ProjectCustom from "./ProjectCustom";
 
 // One project instance: what it created, what it has done lately, and the actions on the whole
 // (pause, resume, edit, delete). The objects are ordinary; this page is the combined view of them,
@@ -126,6 +127,10 @@ export default function ProjectDetail() {
 
   if (error && !s) return <ErrorState error={error} what="this project" onRetry={reload} />;
   if (!s) return <div className="dim">loading…</div>;
+
+  // Hand-assembled projects get the reimagined page (Setup / Firings / Agents, everything
+  // inline); template projects keep this page unchanged while the new one is validated.
+  if (s.template === "custom") return <ProjectCustom s={s} id={id} reload={reload} />;
 
   const objects = [...s.objects].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
   const missing = objects.filter((o) => o.missing);
