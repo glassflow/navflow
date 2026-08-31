@@ -23,7 +23,7 @@ export default function ProjectCustom({ s, id, reload }: {
   s: ProjectSummary; id: string; reload: () => void;
 }) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"setup" | "firings" | "agents">("setup");
+  const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents">("setup");
   const [focusDispatch, setFocusDispatch] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
@@ -36,6 +36,12 @@ export default function ProjectCustom({ s, id, reload }: {
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
   const { data: roster } = usePolling(() => api.agents(), 15000);
   const { data: slack } = usePolling(() => api.slackChannels(), 60000);
+  // the cheap read: the newest stored rows per source, merged on the client; no filtering, no
+  // label unpacking, so it stays fast however big the sources get
+  const { data: recent } = usePolling(
+    () => Promise.all(names("source").map((n) => api.sourceEvents(n, 30).catch(() => [])))
+      .then((lists) => lists.flat().sort((a, b) => (b.ingest_time > a.ingest_time ? 1 : -1)).slice(0, 50)),
+    10000);
 
   const mySources = (sources ?? []).filter((x) => names("source").includes(x.name));
   const myViews = (views ?? []).filter((x) => names("view").includes(x.name));
@@ -90,6 +96,7 @@ export default function ProjectCustom({ s, id, reload }: {
 
       <div className="tabs" style={{ marginTop: 6 }}>
         <button className={tab === "setup" ? "active" : ""} onClick={() => setTab("setup")}>Setup</button>
+        <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>Events</button>
         <button className={tab === "firings" ? "active" : ""} onClick={() => setTab("firings")}>Firings</button>
         <button className={tab === "agents" ? "active" : ""} onClick={() => { setFocusDispatch(undefined); setTab("agents"); }}>Agents</button>
       </div>
@@ -129,6 +136,26 @@ export default function ProjectCustom({ s, id, reload }: {
           ))}
           {!myTriggers.length && <p className="help">none in this project</p>}
         </>
+      )}
+
+      {tab === "events" && (
+        recent === undefined ? <div className="dim">loading…</div>
+        : recent.length ? (
+          <table>
+            <thead><tr><th style={{ width: 110 }}>when</th><th>source</th><th>entity</th><th>type</th><th>event</th></tr></thead>
+            <tbody>
+              {recent.map((e, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={e.ingest_time} /></td>
+                  <td><Link to={`/sources/${encodeURIComponent(e.source)}`} className="mono">{e.source}</Link></td>
+                  <td className="mono">{e.key}</td>
+                  <td><span className="chip">{e.event_type}</span></td>
+                  <td className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{e.text.slice(0, 200)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <p className="help">nothing ingested yet across this project's sources</p>
       )}
 
       {tab === "firings" && (
