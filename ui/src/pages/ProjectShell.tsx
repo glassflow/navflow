@@ -58,9 +58,12 @@ export default function ProjectShell({ s, id, reload, template }: {
 }) {
   const navigate = useNavigate();
   const custom = s.template === "custom";
-  // a project with sessions opens on them: that is what a challenger project is about
-  const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents" | "sessions">(
-    () => (s.sessions ? "sessions" : "setup"));
+  // ?tab= deep links win; otherwise a project with sessions opens on them
+  const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents" | "sessions">(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "setup" || t === "events" || t === "firings" || t === "agents" || (t === "sessions" && s.sessions)) return t;
+    return s.sessions ? "sessions" : "setup";
+  });
   const [busyKey, setBusyKey] = useState<string>();
   const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
   const [actionMsg, setActionMsg] = useState<string>();
@@ -77,7 +80,7 @@ export default function ProjectShell({ s, id, reload, template }: {
   const { data: views, reload: reloadViews } = usePolling(() => api.views(), 10000);
   const { data: triggers, reload: reloadTriggers } = usePolling(() => api.triggers(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
-  const { data: roster } = usePolling(() => api.agents(), 15000);
+  const { data: roster, reload: reloadRoster } = usePolling(() => api.agents(), 15000);
   const { data: slack } = usePolling(() => api.slackChannels(), 60000);
   // the cheap read: the newest stored rows per source, merged on the client; no filtering, no
   // label unpacking, so it stays fast however big the sources get
@@ -121,7 +124,6 @@ export default function ProjectShell({ s, id, reload, template }: {
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState<string>();
   const [unsub, setUnsub] = useState<{ id: string; label: string } | null>(null);
-  const { reload: reloadRoster } = usePolling(() => api.agents(), 3600000);
   const channels = slack?.channels ?? [];
   const subRows = (roster?.agents ?? []).flatMap((a) =>
     a.subscriptions.filter((sub) => triggerNames.has(sub.trigger))

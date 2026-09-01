@@ -354,10 +354,4 @@ def _pr_link(text: str | None) -> str | None:
     return m.group(0) if m else None
 
 
-def _iso(v):
-    if v is None:
-        return None
-    return v.isoformat() if hasattr(v, "isoformat") else str(v)
-
-
 register(SharedCodeContext())

@@ -374,10 +374,4 @@ class AiSreDemo(Template):
         return out
 
 
-def _iso(v):
-    if v is None:
-        return None
-    return v.isoformat() if hasattr(v, "isoformat") else str(v)
-
-
 register(AiSreDemo())
