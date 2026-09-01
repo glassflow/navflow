@@ -5,25 +5,70 @@ import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
 import ViewEditor from "../components/ViewEditor";
-import { Picker, ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { Combo, Picker, ErrorState, TimeAgo, usePolling } from "../components/bits";
 import AgentForm from "../components/AgentForm";
+import InfoDialog, { HelpButton } from "../components/InfoDialog";
+import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
 import { RunsTable } from "./AgentDetail";
-import type { ProjectSummary } from "../types";
+import type { ProjectSummary, Template, RecipeActionOption } from "../types";
 
-// The reimagined page for hand-assembled projects (template "custom") ONLY; every other project
-// keeps the existing page. Everything a project really is, on one page, driven entirely by
-// existing APIs: Setup (sources, views and triggers, the latter two editable in place), Firings
-// (every dispatch across the project's triggers, with who it went to), Agents (runs and
-// configuration inline, exactly like the agent's own page).
+// The page for every project: what a project really is, on one page, driven by the live APIs
+// plus the template's summary. Setup (sources, views and triggers, the latter two editable in
+// place, plus whatever the template declares as panels), Events, Firings (every dispatch across
+// the project's triggers, with who it went to), Agents (runs and configuration inline, exactly
+// like the agent's own page), and Sessions when the template reports them. Template-specific
+// content arrives as data (actions, facts, panels, cards), never as template-specific markup.
+
+const HOW_IT_WORKS: Record<string, string[]> = {
+  shared_code_context: [
+    "Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.",
+    "The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.",
+    "The agent reads each diff through the GitHub MCP server, updates the context repo, and writes a finding on the timeline.",
+    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
+  ],
+  ai_sre_demo: [
+    "Three sources keyed by service: Prometheus metrics, the api-server's container logs, and the alerts Prometheus's own rules fire.",
+    "The service_timeline view merges them on one clock; Explore shows exactly what an agent reads.",
+    "The incident trigger fires when an alert event lands (Prometheus keeps owning alerting; nothing is re-thresholded).",
+    "incident-first-look wakes with the correlated timeline and writes an incident note back onto it. Cause an incident above and watch it happen.",
+  ],
+  challenger_workflow: [
+    "In Claude Code, /tares:challenger marks the session; the plugin then runs Codex on the plan when you leave plan mode and on every commit, and blocks on P1/P2 findings until fixed or waived.",
+    "The plugin streams the session, with every Codex review, into the claude_code source, keyed by session.",
+    "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
+    "Accept a proposal on the Sessions tab to store it as memory for the repo; the plugin gives it to Claude at the start of the next session in that repo.",
+  ],
+  custom: [
+    "You assembled this project from objects that already existed; nothing was created for it.",
+    "Runs are the runs of its agents; the trigger cards come from its triggers.",
+    "Edit adds or removes objects. Removing one from the project, or deleting the project, leaves the object in place.",
+    "Pause stops its triggers and agents; sources keep ingesting so the timeline stays complete.",
+  ],
+  default: [
+    "The project created ordinary sources, views, triggers and agents; every object is on this page and on its own page.",
+    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
+  ],
+};
 
 const fmtCond = (t: { condition: { aggregate: string; field?: string | null; predicate: string; window: string } }) =>
   `${t.condition.aggregate}(${t.condition.field || "*"}) ${t.condition.predicate} over ${t.condition.window}`;
 
-export default function ProjectCustom({ s, id, reload }: {
-  s: ProjectSummary; id: string; reload: () => void;
+export default function ProjectShell({ s, id, reload, template }: {
+  s: ProjectSummary; id: string; reload: () => void; template?: Template;
 }) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents">("setup");
+  const custom = s.template === "custom";
+  // ?tab= deep links win; otherwise a project with sessions opens on them
+  const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents" | "sessions">(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "setup" || t === "events" || t === "firings" || t === "agents" || (t === "sessions" && s.sessions)) return t;
+    return s.sessions ? "sessions" : "setup";
+  });
+  const [busyKey, setBusyKey] = useState<string>();
+  const [actionArgs, setActionArgs] = useState<Record<string, string>>({});
+  const [actionMsg, setActionMsg] = useState<string>();
+  const [actionBusy, setActionBusy] = useState<string>();
+  const [actionHelp, setActionHelp] = useState(false);
   const [focusDispatch, setFocusDispatch] = useState<string>();
   const [openEvent, setOpenEvent] = useState<number>();
   const [actionError, setActionError] = useState<string>();
@@ -35,7 +80,7 @@ export default function ProjectCustom({ s, id, reload }: {
   const { data: views, reload: reloadViews } = usePolling(() => api.views(), 10000);
   const { data: triggers, reload: reloadTriggers } = usePolling(() => api.triggers(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
-  const { data: roster } = usePolling(() => api.agents(), 15000);
+  const { data: roster, reload: reloadRoster } = usePolling(() => api.agents(), 15000);
   const { data: slack } = usePolling(() => api.slackChannels(), 60000);
   // the cheap read: the newest stored rows per source, merged on the client; no filtering, no
   // label unpacking, so it stays fast however big the sources get
@@ -79,7 +124,6 @@ export default function ProjectCustom({ s, id, reload }: {
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState<string>();
   const [unsub, setUnsub] = useState<{ id: string; label: string } | null>(null);
-  const { reload: reloadRoster } = usePolling(() => api.agents(), 3600000);
   const channels = slack?.channels ?? [];
   const subRows = (roster?.agents ?? []).flatMap((a) =>
     a.subscriptions.filter((sub) => triggerNames.has(sub.trigger))
@@ -99,6 +143,26 @@ export default function ProjectCustom({ s, id, reload }: {
     setActionError(undefined);
     try { await fn(); reload(); } catch (e) { setActionError(String((e as Error).message ?? e)); }
   };
+  const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
+    (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
+  const runActionWith = async (name: string, args: Record<string, unknown>) => {
+    setActionBusy(name); setActionError(undefined); setActionMsg(undefined);
+    try { const r = await api.projectAction(id, name, args); setActionMsg(r.message); reload(); }
+    catch (e) { setActionError(String((e as Error).message ?? e)); }
+    setActionBusy(undefined);
+  };
+  const runAction = (name: string, params?: Record<string, { options?: (string | RecipeActionOption)[] }>) => {
+    const args: Record<string, unknown> = {};
+    for (const [k, spec] of Object.entries(params ?? {})) args[k] = actionArgs[`${name}.${k}`] ?? opts(spec.options)[0]?.value;
+    return runActionWith(name, args);
+  };
+  const repair = async (key: string) => {
+    setBusyKey(key); setActionError(undefined);
+    try { await api.repairProject(id, key); reload(); }
+    catch (e) { setActionError(String((e as Error).message ?? e)); }
+    setBusyKey(undefined);
+  };
+  const missing = s.objects.filter((o) => o.missing);
 
   const openInAgents = (dispatchId: string) => { setFocusDispatch(dispatchId); setTab("agents"); };
   // a project agent's home is the Agents tab of this page; switch there and scroll to it
@@ -118,7 +182,7 @@ export default function ProjectCustom({ s, id, reload }: {
         <div>
           <h1>{s.name}</h1>
           <p className="subtitle">
-            From existing objects · <span className={`badge ${s.status === "active" ? "ok" : s.status === "paused" ? "paused" : "error"}`}>{s.status}</span>
+            {s.template_title} · <span className={`badge ${s.status === "active" ? "ok" : s.status === "paused" ? "paused" : "error"}`}>{s.status}</span>
             {s.status === "paused" && <span className="help" style={{ marginLeft: 8 }}>sources keep ingesting; the triggers and agents are off</span>}
           </p>
         </div>
@@ -126,7 +190,7 @@ export default function ProjectCustom({ s, id, reload }: {
           {s.status === "paused"
             ? <button onClick={act(() => api.resumeProject(id))}>Resume</button>
             : <button onClick={act(() => api.pauseProject(id))}>Pause</button>}
-          <Link className="btn" to={`/projects/new/custom?edit=${encodeURIComponent(id)}`}>Edit</Link>
+          <Link className="btn" to={`/projects/new/${custom ? "custom" : encodeURIComponent(s.template)}?edit=${encodeURIComponent(id)}`}>Edit</Link>
           <button className="danger" onClick={() => { setPurge(false); setConfirmDel(true); }}>Delete</button>
         </div>
       </div>
@@ -135,16 +199,153 @@ export default function ProjectCustom({ s, id, reload }: {
       {s.last_error && s.status === "error" && (
         <div className="alert error"><strong>Last error</strong> · <span className="mono">{s.last_error}</span></div>
       )}
+      {s.summary_error && <div className="alert warn">summary unavailable: <span className="mono">{s.summary_error}</span></div>}
+      {missing.length > 0 && (
+        <div className="alert warn">
+          {missing.length} object{missing.length === 1 ? " was" : "s were"} deleted by hand.{" "}
+          {custom
+            ? "Edit the project to drop it from the list, or create it again under the same name."
+            : <>Repair re-creates{missing.length === 1 ? " it" : " them"} from the plan; or leave as is if that was the intent.{" "}
+                {missing.map((o) => (
+                  <button key={o.key} onClick={() => repair(o.key)} disabled={busyKey === o.key} style={{ marginLeft: 6 }}>
+                    {busyKey === o.key ? "repairing…" : `Repair ${o.name}`}</button>
+                ))}</>}
+        </div>
+      )}
+
+      <div className="cards">
+        <div className="card"><div className="k">runs</div>
+          <div className="v">{typeof s.runs_total === "number"
+            ? <>{s.runs_total} {typeof s.runs_ok === "number" && s.runs_total > 0 && <small>{s.runs_ok} ok</small>}</>
+            : <span className="dim">—</span>}</div></div>
+        {(s.cards ?? []).map((c) => (
+          <div className="card" key={c.label}><div className="k">{c.label}</div><div className="v">{String(c.value)}</div></div>
+        ))}
+        <div className="card"><div className="k">trigger last fired</div>
+          <div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.trigger_last_fired ?? null} /></div></div>
+        <div className="card"><div className="k">created</div>
+          <div className="v" style={{ fontSize: 15 }}><TimeAgo ts={s.created_at} /></div></div>
+      </div>
+
+      {template?.actions && template.actions.length > 0 && (
+        <div className="panel" style={{ marginBottom: 14 }}>
+          {template.actions.some((a) => a.intro) && (
+            <p className="help" style={{ margin: "0 0 10px" }}>
+              {template.actions.find((a) => a.intro)?.intro}
+              <HelpButton onClick={() => setActionHelp(true)} label="What do these do?" />
+            </p>
+          )}
+          <div className="uc-actions">
+            {template.actions.map((a) => (
+              <span key={a.name} className="uc-actions" title={a.help}>
+                {Object.entries(a.params ?? {}).map(([k, spec]) => {
+                  const o = opts(spec.options);
+                  if (!o.length) {
+                    const suggestions = k === "session" ? (s.sessions ?? []) : [];
+                    return (
+                      <Combo key={k} value={actionArgs[`${a.name}.${k}`] ?? ""} placeholder={spec.label ?? k}
+                             options={suggestions.map((x) => x.session)} style={{ width: 340 }}
+                             hints={Object.fromEntries(suggestions.map((x) => [x.session,
+                               [x.repo, x.branch, x.ended ? "ended" : "live"].filter(Boolean).join(" · ")]))}
+                             onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })} />
+                    );
+                  }
+                  return (
+                    <Picker key={k} value={actionArgs[`${a.name}.${k}`] ?? o[0]?.value ?? ""}
+                            onChange={(v) => setActionArgs({ ...actionArgs, [`${a.name}.${k}`]: v })}
+                            options={o.map((x) => x.value)}
+                            labels={Object.fromEntries(o.map((x) => [x.value, x.label ?? x.value]))}
+                            ariaLabel={spec.label ?? k} style={{ width: 200 }} />
+                  );
+                })}
+                <button className="primary" disabled={!!actionBusy || s.status !== "active"} onClick={() => runAction(a.name, a.params)}>
+                  {actionBusy === a.name ? "working…" : a.label}
+                </button>
+              </span>
+            ))}
+            {actionMsg && <span className="help">{actionMsg}</span>}
+          </div>
+          {(() => {
+            const cur = template.actions.find((a) => a.params?.scenario);
+            const o = cur ? opts(cur.params!.scenario.options) : [];
+            const sel = cur ? (actionArgs[`${cur.name}.scenario`] ?? o[0]?.value) : undefined;
+            const h = o.find((x) => x.value === sel)?.help;
+            return h ? <p className="help" style={{ margin: "8px 0 0" }}>{h}</p> : null;
+          })()}
+        </div>
+      )}
+      {actionHelp && template?.actions && (
+        <InfoDialog title="What the actions do" onClose={() => setActionHelp(false)}>
+          {template.actions.filter((a) => a.intro).map((a) => <p key={a.name} className="help" style={{ margin: 0 }}>{a.intro}</p>)}
+          {template.actions.filter((a) => a.params?.scenario).map((a) => (
+            <table key={a.name} className="perm-table">
+              <thead><tr><th>scenario</th><th>what happens</th></tr></thead>
+              <tbody>
+                {opts(a.params!.scenario.options).map((x) => (
+                  <tr key={x.value}><td className="mono">{x.value}</td><td>{x.help ?? ""}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
+          <ul className="help" style={{ margin: 0, paddingLeft: 18 }}>
+            {template.actions.filter((a) => a.help).map((a) => <li key={a.name}><strong>{a.label}</strong>: {a.help}</li>)}
+          </ul>
+          {template.actions.find((a) => a.docs)?.docs && (
+            <p className="help" style={{ margin: 0 }}>
+              Walkthrough: <a href={template.actions.find((a) => a.docs)!.docs!.url} target="_blank" rel="noreferrer">{template.actions.find((a) => a.docs)!.docs!.label}</a>
+            </p>
+          )}
+        </InfoDialog>
+      )}
+
+      <details className="panel uc-how" style={{ marginBottom: 8 }}>
+        <summary>How it works</summary>
+        <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+          {(HOW_IT_WORKS[s.template] ?? HOW_IT_WORKS.default).map((t) => <li key={t}>{t}</li>)}
+        </ol>
+      </details>
 
       <div className="tabs" style={{ marginTop: 6 }}>
+        {s.sessions && <button className={tab === "sessions" ? "active" : ""} onClick={() => setTab("sessions")}>Sessions</button>}
         <button className={tab === "setup" ? "active" : ""} onClick={() => setTab("setup")}>Setup</button>
         <button className={tab === "events" ? "active" : ""} onClick={() => setTab("events")}>Events</button>
         <button className={tab === "firings" ? "active" : ""} onClick={() => setTab("firings")}>Firings</button>
         <button className={tab === "agents" ? "active" : ""} onClick={() => { setFocusDispatch(undefined); setTab("agents"); }}>Agents</button>
       </div>
 
+      {tab === "sessions" && s.sessions && (
+        <>
+          <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"}
+                         onSummarize={s.status === "active"
+                           ? (sid) => { setActionArgs({ ...actionArgs, "summarize.session": sid }); return runActionWith("summarize", { session: sid }); }
+                           : undefined}
+                         busy={actionBusy === "summarize"} message={actionMsg} />
+          {s.runs && <ProposalsPanel runs={s.runs} />}
+        </>
+      )}
+
       {tab === "setup" && (
         <>
+          {(s.panels ?? []).map((pn) => (
+            <div className="panel" key={pn.title} style={{ marginBottom: 12 }}>
+              <h3 style={{ margin: "0 0 8px" }}>{pn.title}</h3>
+              <table>
+                <tbody>
+                  {pn.rows.map((row) => (
+                    <tr key={row.label}>
+                      <td className="help" style={{ width: 150 }}>{row.label}</td>
+                      <td className={row.mono ? "mono" : undefined}>
+                        {row.url
+                          ? <a href={row.url} target="_blank" rel="noreferrer">{String(row.value)}</a>
+                          : String(row.value)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+
           <h2>Sources</h2>
           {mySources.length ? (
             <table>
@@ -180,6 +381,16 @@ export default function ProjectCustom({ s, id, reload }: {
                           onSaved={() => { reloadTriggers(); reload(); }} />
           ))}
           {!myTriggers.length && <p className="help">none in this project</p>}
+
+          {names("mcp_server").length > 0 && (
+            <>
+              <h2 style={{ marginTop: 24 }}>MCP servers</h2>
+              <p style={{ margin: "4px 0 0" }}>
+                {names("mcp_server").map((n) => (
+                  <Link key={n} to="/mcp-servers" className="chip mono">{n}</Link>))}
+              </p>
+            </>
+          )}
 
           <div className="pagehead" style={{ marginTop: 24 }}>
             <h2 style={{ margin: 0 }}>Subscribers</h2>
@@ -270,6 +481,23 @@ export default function ProjectCustom({ s, id, reload }: {
               </div>
               {subMsg && <p className="help" style={{ margin: "6px 0 0" }}>{subMsg}</p>}
             </div>
+          )}
+
+          {s.log && s.log.length > 0 && (
+            <details className="panel uc-how" style={{ marginTop: 20 }}>
+              <summary>Change history</summary>
+              <table style={{ marginTop: 8 }}>
+                <tbody>
+                  {s.log.map((l, i) => (
+                    <tr key={i}>
+                      <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={l.at} /></td>
+                      <td className="mono">{l.action}</td>
+                      <td className="help">{l.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
           )}
         </>
       )}
@@ -372,7 +600,9 @@ export default function ProjectCustom({ s, id, reload }: {
 
       {confirmDel && (
         <ConfirmDialog title={`Delete project ${s.name}?`}
-          message="Removes the project. Its objects stay in place, no longer part of a project. Events already stored stay unless you purge them."
+          message={custom
+            ? "Removes the project. Its objects stay in place, no longer part of a project. Events already stored stay unless you purge them."
+            : "Deletes the sources, views, triggers and agents this project created. Events already stored stay unless you purge them."}
           confirmLabel="Delete project" danger
           onConfirm={async () => {
             try { await api.deleteProject(id, purge); navigate("/projects", { replace: true }); }

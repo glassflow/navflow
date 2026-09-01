@@ -474,21 +474,19 @@ export interface ProjectLogEntry { at: string; action: string; detail: string }
 export interface ProjectSummary extends Project {
   log: ProjectLogEntry[];
   summary_error?: string;
-  repos?: { repo: string; branch?: string; source?: string; last_commit?: string | null;
-            events?: number }[];
-  context_repo?: string; context_branch?: string; context_path?: string; write_mode?: string;
-  runs_total?: number; runs_ok?: number; prs_opened?: number; last_fired?: string | null;
-  sources?: Record<string, { events: number; last: string | null }>;
-  guide?: string;
-  runs?: { id?: string; started_at?: string; key?: string; repo?: string | null; status?: string; rounds?: number; first_look?: boolean;
-           max_rounds?: number | null; pr_url?: string | null; agent?: string; finding?: string | null;
+  // the generic core every template reports (computed in the Template base class)
+  runs_total?: number; runs_ok?: number;
+  trigger_last_fired?: string | null;
+  triggers?: { name: string; last_fired?: string | null }[];
+  runs?: { id?: string; started_at?: string; key?: string; repo?: string | null; status?: string; rounds?: number;
+           max_rounds?: number | null; agent?: string; finding?: string | null;
            session?: string; proposals?: string[];
            decisions?: Record<string, "accepted" | "rejected"> }[];
+  // template extras, declared as data: label/value tables and counters the shell renders as-is
+  panels?: { title: string; rows: { label: string; value: unknown; url?: string; mono?: boolean }[] }[];
+  cards?: { label: string; value: unknown }[];
   sessions?: ChallengerSession[];
   names?: Record<string, string>;
-  prs?: { open?: number; merged?: number };
-  trigger_last_fired?: string | null;
-  triggers?: { name: string; last_fired?: string | null }[];   // custom projects
   [k: string]: unknown;
 }
 export interface ChallengeEvent {

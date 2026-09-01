@@ -360,33 +360,18 @@ class AiSreDemo(Template):
 
     # ── summary ──────────────────────────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
+        out = super().summary(instance, store)
         params = self.validate(instance["params"])
-        all_stats = {x["source"]: x for x in store.event_stats()}
-        stats = {}
-        for name in ("demo_metrics", "demo_logs", "demo_alerts"):
-            st = all_stats.get(name) or {}
-            stats[name] = {"events": int(st.get("events") or 0), "last": _iso(st.get("last_ingest"))}
-        runs = []
-        try:
-            for r in store.list_agent_runs("incident-first-look", limit=10):
-                runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
-                             "key": r.get("key"), "repo": r.get("key"), "agent": "incident-first-look",
-                             "status": r.get("status"), "rounds": r.get("rounds"),
-                             "max_rounds": r.get("max_rounds"), "finding": r.get("finding"),
-                             "error": r.get("error")})
-        except Exception:
-            pass
-        last_fired = _iso(store.last_fired("incident", "api-server"))
-        return {"prometheus_url": params["prometheus_url"], "api_server_url": params["api_server_url"],
-                "container": params["container"], "sources": stats, "runs": runs,
-                "runs_total": len(runs), "last_fired": last_fired,
-                "guide": "https://docs.glassflow.ai/tares/guides/ai-sre"}
-
-
-def _iso(v):
-    if v is None:
-        return None
-    return v.isoformat() if hasattr(v, "isoformat") else str(v)
+        out["panels"] = [{
+            "title": "Demo stack",
+            "rows": [
+                {"label": "Prometheus", "value": params["prometheus_url"], "mono": True,
+                 "url": params["prometheus_url"]},
+                {"label": "api-server", "value": params["api_server_url"], "mono": True,
+                 "url": params["api_server_url"]},
+                {"label": "log container", "value": params["container"], "mono": True},
+            ]}]
+        return out
 
 
 register(AiSreDemo())

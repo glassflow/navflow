@@ -180,20 +180,17 @@ class ChallengerWorkflow(Template):
 
     # ── summary (the project page) ──────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
+        out = super().summary(instance, store)
         params = self.validate(instance["params"])
-        stats = {x["source"]: x for x in store.event_stats()}
-        st = stats.get(SOURCE) or {}
-        sessions = recent_sessions(store) if SOURCE in {x["source"] for x in stats.values()} else []
+        sessions = recent_sessions(store) if any(
+            x["source"] == SOURCE for x in store.event_stats()) else []
         repos = {x["session"]: x["repo"] for x in sessions}
-        runs = []
-        for r in store.list_agent_runs(AGENT, limit=20):
+        runs = out["runs"]
+        for r in runs:
             finding = r.get("finding") or ""
-            runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
-                         "key": r.get("key"), "session": r.get("key"), "agent": AGENT,
-                         "repo": repos.get(r.get("key")),
-                         "status": r.get("status"), "rounds": r.get("rounds"),
-                         "max_rounds": r.get("max_rounds"), "finding": finding,
-                         "proposals": parse_proposals(finding), "error": r.get("error")})
+            r["session"] = r.get("key")
+            r["repo"] = repos.get(r.get("key"))
+            r["proposals"] = parse_proposals(finding)
         decided = proposal_decisions(store)
         for r in runs:
             r["decisions"] = {str(i): decided.get((r["repo"], text))
@@ -202,13 +199,15 @@ class ChallengerWorkflow(Template):
         summarized = {r["session"]: r["id"] for r in reversed(runs) if r["status"] == "ok"}
         for x in sessions:
             x["run_id"] = summarized.get(x["session"])
-        return {"source": SOURCE, "events": int(st.get("events") or 0),
-                "last_event": _iso(st.get("last_ingest")),
-                "slack_channel": params["slack_channel"], "runs": runs, "runs_total": len(runs),
-                "sessions": sessions,
-                "sessions_summarized": len({r["session"] for r in runs if r["status"] == "ok"}),
-                "names": {"view": VIEW, "ends_view": ENDS_VIEW, "trigger": TRIGGER, "agent": AGENT},
-                "guide": self.guide["url"]}
+        out["sessions"] = sessions
+        out["names"] = {"view": VIEW, "ends_view": ENDS_VIEW, "trigger": TRIGGER, "agent": AGENT}
+        out["panels"] = [{
+            "title": "Where it delivers",
+            "rows": [{"label": "Slack channel", "value": params["slack_channel"], "mono": True}],
+        }] if params.get("slack_channel") else []
+        out["cards"] = [{"label": "sessions summarized",
+                         "value": len({r["session"] for r in runs if r["status"] == "ok"})}]
+        return out
 
 
 _HEADING_RE = re.compile(rf"^\s*#*\s*{PROPOSALS_HEADING}\s*:?\s*$", re.IGNORECASE | re.MULTILINE)

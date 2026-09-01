@@ -210,8 +210,10 @@ async def main(app):
 
             print("== summary and action ==")
             s = (await cx.get(f"/api/projects/{uid}/summary")).json()
-            check("summary counts events and names the objects",
-                  s["events"] == 9 and s["names"]["agent"] == AGENT and "runs" in s, json.dumps(s)[:300])
+            check("summary names the objects and counts summarized sessions",
+                  s["names"]["agent"] == AGENT and "runs" in s
+                  and (s.get("cards") or [{}])[0].get("label") == "sessions summarized",
+                  json.dumps(s)[:300])
             sess = {x["session"]: x for x in s["sessions"]}
             check("summary lists the marked sessions only", set(sess) == {"s0", "s1"}, json.dumps(s["sessions"])[:400])
             s1 = sess.get("s1") or {}

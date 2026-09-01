@@ -273,11 +273,11 @@ async def main():
             print("== summary ==")
             r = await cx.get(f"/api/projects/{uid}/summary")
             s = r.json()
-            check("summary shape", r.status_code == 200 and s["context_repo"] == "acme/context"
-                  and isinstance(s["repos"], list) and len(s["repos"]) == 2 and "runs" in s
-                  and "prs_opened" in s and s["names"]["agent"] == "ctx_acme_context_maintainer", r.text[:400])
-            app_row = next(x for x in s["repos"] if x["repo"] == "acme/app")
-            check("summary counts events per repo", app_row["events"] == 2 and app_row["last_commit"], json.dumps(app_row))
+            panel = (s.get("panels") or [{}])[0]
+            check("summary shape", r.status_code == 200 and panel.get("title") == "Context repo"
+                  and any(row["value"] == "acme/context" for row in panel.get("rows", []))
+                  and "runs" in s and "triggers" in s
+                  and (s.get("cards") or [{}])[0].get("label") == "pull requests", r.text[:400])
 
             print("== update: add and remove a repo ==")
             r = await cx.put(f"/api/projects/{uid}", json={"params": {**base, "source_repos": ["acme/lib", "acme/context2"]}})
