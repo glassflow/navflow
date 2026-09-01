@@ -480,7 +480,6 @@ export interface ProjectSummary extends Project {
   triggers?: { name: string; last_fired?: string | null }[];
   runs?: { id?: string; started_at?: string; key?: string; repo?: string | null; status?: string; rounds?: number;
            max_rounds?: number | null; agent?: string; finding?: string | null;
-           result_url?: string | null; result_label?: string; badges?: string[];
            session?: string; proposals?: string[];
            decisions?: Record<string, "accepted" | "rejected"> }[];
   // template extras, declared as data: label/value tables and counters the shell renders as-is

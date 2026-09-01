@@ -307,13 +307,6 @@ class SharedCodeContext(Template):
         n = self.names(params)
         # decorate the generic runs: the repo it ran for, the PR it opened, the bootstrap marker
         all_runs = store.list_agent_runs(n["agent"], limit=500)
-        for r in out["runs"]:
-            url = _pr_link(r.get("finding"))
-            if url:
-                r["result_url"], r["result_label"] = url, "pull request"
-            hit = next((x for x in all_runs if x.get("id") == r.get("id")), None)
-            if hit is not None and not hit.get("dispatch_id"):
-                r["badges"] = ["first look"]
         prs = {u for u in (_pr_link(r.get("finding")) for r in all_runs) if u}
         out["panels"] = [{
             "title": "Context repo",
