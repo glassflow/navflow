@@ -211,15 +211,21 @@ class AiSreDemo(Template):
         h = _hosted()
         cred = ({"username": h["username"], "password": h["password"]}
                 if h and h["username"] else {})
+        # Routine 2xx access lines are dropped: the traffic generator produces ~3 of them a second
+        # around the clock, they carry nothing the request-rate metrics do not, and on a hosted
+        # stack every demo cell would ingest them forever. Errors, 4xx/5xx and non-access lines
+        # (the incident evidence) all stay.
+        drop_ok = 'HTTP/1.1" 2'
         if params.get("loki_url"):
             logs = PlannedObject("source", "logs", {
-                "name": "demo_logs", "connector": "loki", "poll": "5s",
+                "name": "demo_logs", "connector": "loki", "poll": "10s",
                 "config": {"url": params["loki_url"], "query": '{service="api-server"}', **cred,
+                           "drop": drop_ok,
                            "labels": [{"name": "service", "const": "api-server", "primary": True}]}})
         else:
             logs = PlannedObject("source", "logs", {
                 "name": "demo_logs", "connector": "docker_logs", "poll": "5s",
-                "config": {"container": params["container"],
+                "config": {"container": params["container"], "drop": drop_ok,
                            "labels": [{"name": "service", "const": "api-server", "primary": True}]}})
         objs = [
             PlannedObject("source", "metrics", {
