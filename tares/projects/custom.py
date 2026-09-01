@@ -5,14 +5,8 @@ the objects (ownership badge), edit adds or releases them, delete releases them.
 created or deleted on behalf of a custom project, so Repair and customized do not apply."""
 from __future__ import annotations
 
-from datetime import datetime
-
 from .base import KINDS, PlannedObject, ProjectError, Template
 from .registry import register
-
-
-def _iso(ts) -> str | None:
-    return ts.isoformat() if isinstance(ts, datetime) else (str(ts) if ts else None)
 
 
 class CustomTemplate(Template):
@@ -51,32 +45,5 @@ class CustomTemplate(Template):
     def plan(self, params: dict) -> list[PlannedObject]:
         return [PlannedObject(o["kind"], f"{o['kind']}:{o['name']}", {"name": o["name"]})
                 for o in params["objects"]]
-
-    def summary(self, instance: dict, store) -> dict:
-        """Runs of its agents, when its triggers last fired."""
-        objects = instance.get("objects") or []
-        runs, total, ok = [], 0, 0
-        for o in objects:
-            if o["kind"] != "agent":
-                continue
-            n, n_ok = store.count_agent_runs(o["name"])
-            total += n
-            ok += n_ok
-            for r in store.list_agent_runs(o["name"], limit=20):
-                runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
-                             "key": r.get("key"), "agent": o["name"], "status": r.get("status"),
-                             "rounds": r.get("rounds"), "max_rounds": r.get("max_rounds"),
-                             "finding": r.get("finding"), "error": r.get("error")})
-        runs.sort(key=lambda r: r["started_at"] or "", reverse=True)
-        runs = runs[:20]
-        triggers = []
-        for o in objects:
-            if o["kind"] != "trigger":
-                continue
-            triggers.append({"name": o["name"], "last_fired": _iso(store.last_fired_any(o["name"]))})
-        fired = [t["last_fired"] for t in triggers if t["last_fired"]]
-        return {"runs": runs, "triggers": triggers, "runs_total": total, "runs_ok": ok,
-                "trigger_last_fired": max(fired) if fired else None}
-
 
 register(CustomTemplate())

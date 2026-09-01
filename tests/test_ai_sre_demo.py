@@ -147,9 +147,10 @@ async def main():
 
             print("== summary ==")
             s = (await cx.get(f"/api/projects/{uid}/summary")).json()
-            check("summary has sources, runs, guide",
-                  set(s["sources"]) == {"demo_metrics", "demo_logs", "demo_alerts"} and "runs" in s and s["guide"].endswith("/guides/ai-sre"),
-                  json.dumps({k: s.get(k) for k in ("sources", "guide")})[:300])
+            panel = (s.get("panels") or [{}])[0]
+            check("summary has the demo stack panel and runs",
+                  panel.get("title") == "Demo stack" and "runs" in s and "triggers" in s,
+                  json.dumps({k: s.get(k) for k in ("panels",)})[:300])
 
             print("== unreachable api-server ==")
             rr = await cx.put(f"/api/projects/{uid}", json={"params": {"api_server_url": "http://127.0.0.1:1"}})

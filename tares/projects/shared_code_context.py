@@ -302,37 +302,33 @@ class SharedCodeContext(Template):
 
     # ── summary (the project page) ──────────────────────────────────────────
     def summary(self, instance: dict, store) -> dict:
+        out = super().summary(instance, store)
         params = instance["params"]
         n = self.names(params)
-        stats = {s["source"]: s for s in store.event_stats()}
-        repos = []
-        for item in params["source_repos"]:
-            name = self.source_name(params, item["repo"])
-            st = stats.get(name) or {}
-            last_fired = store.last_fired(n["trigger"], item["repo"])
-            repos.append({"repo": item["repo"], "branch": item.get("branch") or "",
-                          "source": name, "events": int(st.get("events") or 0),
-                          "last_commit": _iso(st.get("last_ingest")),
-                          "last_fired": _iso(last_fired)})
-        runs = []
-        for r in store.list_agent_runs(n["agent"], limit=10):
-            runs.append({"id": r.get("id"), "started_at": _iso(r.get("started_at")),
-                         "repo": r.get("key"), "key": r.get("key"), "agent": n["agent"],
-                         "first_look": not r.get("dispatch_id"),
-                         "status": r.get("status"),
-                         "rounds": r.get("rounds"), "max_rounds": r.get("max_rounds"),
-                         "pr_url": _pr_link(r.get("finding")), "finding": r.get("finding"),
-                         "error": r.get("error")})
+        # decorate the generic runs: the repo it ran for, the PR it opened, the bootstrap marker
         all_runs = store.list_agent_runs(n["agent"], limit=500)
-        prs = [u for u in (_pr_link(r.get("finding")) for r in all_runs) if u]
-        return {"context_repo": params["context_repo"], "context_branch": params["context_branch"],
-                "context_path": params["context_path"], "write_mode": params["write_mode"],
-                "repos": repos, "runs": runs,
-                "runs_total": len(all_runs),
-                "runs_ok": sum(1 for r in all_runs if r.get("status") == "ok"),
-                "prs_opened": len(set(prs)),
-                "last_fired": max((r["last_fired"] for r in repos if r["last_fired"]), default=None),
-                "names": n}
+        for r in out["runs"]:
+            url = _pr_link(r.get("finding"))
+            if url:
+                r["result_url"], r["result_label"] = url, "pull request"
+            hit = next((x for x in all_runs if x.get("id") == r.get("id")), None)
+            if hit is not None and not hit.get("dispatch_id"):
+                r["badges"] = ["first look"]
+        prs = {u for u in (_pr_link(r.get("finding")) for r in all_runs) if u}
+        out["panels"] = [{
+            "title": "Context repo",
+            "rows": [
+                {"label": "repo", "value": params["context_repo"], "mono": True,
+                 "url": f"https://github.com/{params['context_repo']}"},
+                {"label": "branch", "value": params["context_branch"], "mono": True},
+                {"label": "path", "value": params["context_path"] or "/", "mono": True},
+                {"label": "pages", "value": "one page per source repo plus an index"
+                    if params.get("layout") == "per_repo" else "the repo's existing pages, updated in place"},
+                {"label": "writes as", "value": "commits straight to the branch"
+                    if params.get("write_mode") == "commit_to_branch" else "pull requests"},
+            ]}]
+        out["cards"] = [{"label": "pull requests", "value": f"{len(prs)} opened"}]
+        return out
 
     # ── bootstrap: first pages right after Start ─────────────────────────────
     def after_create(self, instance: dict, store, runtime) -> None:
