@@ -574,7 +574,9 @@ export default function ProjectShell({ s, id, reload, template }: {
           onCancel={() => setConfirmDel(false)}>
           <label style={{ display: "block", marginTop: 8 }}>
             <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />{" "}
-            also purge the events its sources ingested
+            {custom
+              ? "also purge the events its sources ingested"
+              : "also purge the events its sources ingested and its triggers' firings"}
           </label>
         </ConfirmDialog>
       )}

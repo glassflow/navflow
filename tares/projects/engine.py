@@ -252,10 +252,13 @@ class Engine:
             return {"ok": True, "deleted": [], "released": [f"{o.kind}:{o.name}" for o in objs],
                     "purged_events": purged}
         purged = self._delete_objects(objs, purge_events=purge_events)
+        # firings go with the events: a purged project leaves no history behind its triggers
+        purged_firings = sum(self.store.purge_dispatches(o.name)
+                             for o in objs if o.kind == "trigger") if purge_events else 0
         self.store.delete_project(uid)
         self._do_reload()
         return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in objs],
-                "purged_events": purged}
+                "purged_events": purged, "purged_firings": purged_firings}
 
     async def detect(self, template_key: str) -> dict:
         template = get_template(template_key)

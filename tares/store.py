@@ -1748,6 +1748,26 @@ class Store:
         ).fetchall()
         return [{"value": r[0], "events": r[1], "last_ingest": r[2]} for r in rows]
 
+    def purge_dispatches(self, trigger: str) -> int:
+        """Delete a trigger's firing history: its dispatch_log rows, their per-recipient
+        deliveries, and its cooldown state. Used when a project is deleted with purge, so a
+        re-created demo does not open on last week's firings."""
+        with self._lock:
+            n = self.con.execute(
+                "SELECT COUNT(*) FROM dispatch_log WHERE trigger = ?", [trigger]).fetchone()[0]
+            self.con.execute("BEGIN TRANSACTION")
+            try:
+                self.con.execute(
+                    "DELETE FROM dispatch_deliveries WHERE dispatch_id IN "
+                    "(SELECT dispatch_id FROM dispatch_log WHERE trigger = ?)", [trigger])
+                self.con.execute("DELETE FROM dispatch_log WHERE trigger = ?", [trigger])
+                self.con.execute("DELETE FROM trigger_state WHERE trigger = ?", [trigger])
+                self.con.execute("COMMIT")
+            except Exception:
+                self.con.execute("ROLLBACK")
+                raise
+        return int(n)
+
     def purge_events(self, source: str) -> int:
         with self._lock:
             n = self.con.execute(
