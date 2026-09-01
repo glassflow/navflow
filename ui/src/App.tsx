@@ -22,28 +22,24 @@ type NavItem = {
   kbd?: string;     // keyboard-shortcut hint, e.g. "⌘K"
 };
 
-// One layer, three named groups (TR-137): the confusion was naming and grouping, not depth.
-// Overview and Ask sit above the groups: where you land, and the global assistant (⌘K).
+// Two named groups. Projects are the product, so they sit at the top with Overview and Ask;
+// everything a project is made of is one flat Catalog group ordered along the pipeline
+// (sources feed views, views wake triggers, triggers run agents, agents leave firings).
+// The old Data / Automate split was mechanism vocabulary and is gone.
 const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
   { section: "", items: [
     { to: "/", end: true, label: "Overview", icon: Grid },
+    { to: "/projects", label: "Projects", icon: Zap },
     { to: "/ask", label: "Ask", icon: Chat, kbd: "⌘K" },
   ] },
-  // Projects sit above the primitives: the opinionated entry point (pick one, answer a few
-  // questions, Start) that creates ordinary sources, views, triggers and agents below it.
-  { section: "Projects", items: [
-    { to: "/projects", label: "Projects", icon: Zap },
-  ] },
-  { section: "Data", items: [
+  { section: "Catalog", items: [
     { to: "/sources", label: "Sources", icon: Database },
-    { to: "/explore", label: "Explore", icon: Activity },
     { to: "/views", label: "Views", icon: Book },
-  ] },
-  { section: "Automate", items: [
     { to: "/triggers", label: "Triggers", icon: Bolt },
     { to: "/agents", label: "Tares agents", icon: Chat },
-    { to: "/mcp-servers", label: "MCP servers", icon: Terminal },
     { to: "/firings", label: "Firings", icon: Filter },
+    { to: "/mcp-servers", label: "MCP servers", icon: Terminal },
+    { to: "/explore", label: "Explore", icon: Activity },
   ] },
   { section: "Agent access", items: [
     { to: "/connect", label: "Connect", icon: Terminal },
