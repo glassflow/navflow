@@ -189,12 +189,11 @@ export default function ProjectCustom({ s, id, reload }: {
           {dispatchesError && <ErrorState error={dispatchesError} what="the firings" />}
           {firings.length ? (
             <table>
-              <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivered</th><th>agent</th><th>Slack</th></tr></thead>
+              <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivered to</th></tr></thead>
               <tbody>
                 {firingRows.map((d) => {
                   const subs = subscribers(d.trigger);
-                  const tares = subs.filter((a) => a.kind === "tares");
-                  const chans = subs.filter((a) => a.kind === "slack");
+                  const partial = d.subscribers > 0 && d.delivered < d.subscribers;
                   return (
                     <tr key={d.dispatch_id}>
                       <td style={{ whiteSpace: "nowrap" }}>
@@ -208,16 +207,17 @@ export default function ProjectCustom({ s, id, reload }: {
                       <td>{d.subscribers === 0
                         ? <><span className="badge error">nobody subscribed</span>
                             {(d.repeats ?? 1) > 1 && <span className="help"> · {d.repeats} firings like this</span>}</>
-                        : <>{d.delivered} of {d.subscribers}
-                            {d.error && <span className="help" title={d.error}> · {d.error.slice(0, 60)}</span>}</>}</td>
-                      <td>{tares.length
-                        ? tares.map((a) => (
-                            <a key={a.name} href="#agents" onClick={(e) => { e.preventDefault(); openInAgents(d.dispatch_id); }}
-                               className="mono" title="open this firing's run below">{a.name}</a>))
-                        : <span className="dim">—</span>}</td>
-                      <td>{chans.length
-                        ? chans.map((a) => <span key={a.name} className="chip">{channelLabel(a.name)}</span>)
-                        : <span className="dim">—</span>}</td>
+                        : subs.length === 0
+                        ? <span className={`badge ${partial ? "error" : "ok"}`}>{d.delivered} of {d.subscribers}</span>
+                        : subs.map((a) => a.kind === "tares"
+                            ? <a key={a.name} href="#agents" className="chip mono"
+                                 onClick={(e) => { e.preventDefault(); openInAgents(d.dispatch_id); }}
+                                 title={partial ? (d.error ?? "not every delivery succeeded") : "delivered · open this firing's run below"}
+                                 style={{ marginRight: 4, color: partial ? "var(--err)" : "var(--ok, #2e7d43)" }}>{a.name}</a>
+                            : <span key={a.name} className="chip"
+                                    title={partial ? (d.error ?? "not every delivery succeeded") : "delivered"}
+                                    style={{ marginRight: 4, color: partial ? "var(--err)" : "var(--ok, #2e7d43)" }}>
+                                {a.kind === "slack" ? channelLabel(a.name) : a.name}</span>)}</td>
                     </tr>
                   );
                 })}
