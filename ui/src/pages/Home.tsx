@@ -48,9 +48,6 @@ export default function Home() {
       <div className="pagehead">
         <div>
           <h1>Overview</h1>
-          <p className="subtitle">
-            what this instance holds; <em>and how much room is left</em>
-          </p>
         </div>
       </div>
 
@@ -77,7 +74,7 @@ export default function Home() {
           <div className="v">{u ? u.agent_runs.toLocaleString() : <span className="dim">—</span>}</div>
         </div>
         <div className="card">
-          <div className="k">dispatch deliveries</div>
+          <div className="k">deliveries</div>
           <div className="v">
             {u ? u.dispatch_deliveries.toLocaleString() : <span className="dim">—</span>}
           </div>
@@ -129,10 +126,6 @@ function ModelSpendPanel({ usage, error, reload }: {
   return (
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Model spend</h2>
-      <p className="help" style={{ marginTop: 0 }}>
-        What this instance has spent on its Anthropic key; Tares agent runs plus Ask. External
-        agents run on their own keys and are not counted here.
-      </p>
 
       {error && <ErrorState error={error} what="model spend" onRetry={reload} />}
       {!m && !error && <div className="muted">loading…</div>}
@@ -191,10 +184,6 @@ function StoragePanel({ usage, error, reload, onDisk, pct }: {
   return (
     <div className="panel">
       <h2 style={{ marginTop: 0 }}>Storage</h2>
-      <p className="help" style={{ marginTop: 0 }}>
-        What this instance is using on disk; the DuckDB file plus its write-ahead log. Nothing is
-        pruned today, so agent runs and dispatch deliveries grow with every firing.
-      </p>
 
       {error && <ErrorState error={error} what="storage usage" onRetry={reload} />}
       {!u && !error && <div className="muted">loading…</div>}

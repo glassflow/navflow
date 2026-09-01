@@ -43,7 +43,7 @@ const NAV_GROUPS: { section: string; items: NavItem[] }[] = [
     { to: "/triggers", label: "Triggers", icon: Bolt },
     { to: "/agents", label: "Tares agents", icon: Chat },
     { to: "/mcp-servers", label: "MCP servers", icon: Terminal },
-    { to: "/deliveries", label: "Deliveries", icon: Filter },
+    { to: "/firings", label: "Firings", icon: Filter },
   ] },
   { section: "Agent access", items: [
     { to: "/connect", label: "Connect", icon: Terminal },
@@ -57,7 +57,7 @@ const SECTION_LABEL: Record<string, string> = {
   views: "Views",
   triggers: "Triggers",
   agents: "Tares agents",
-  deliveries: "Deliveries",
+  firings: "Firings",
   connect: "Connect",
   reads: "Reads",
   catalog: "Catalog",

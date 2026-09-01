@@ -25,6 +25,7 @@ export default function ProjectCustom({ s, id, reload }: {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents">("setup");
   const [focusDispatch, setFocusDispatch] = useState<string>();
+  const [openEvent, setOpenEvent] = useState<number>();
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
@@ -48,6 +49,17 @@ export default function ProjectCustom({ s, id, reload }: {
   const myTriggers = (triggers ?? []).filter((x) => names("trigger").includes(x.name));
   const triggerNames = new Set(myTriggers.map((t) => t.name));
   const firings = (dispatches ?? []).filter((d) => triggerNames.has(d.trigger));
+  // Consecutive firings of the same trigger that reached nobody collapse into one row: dozens of
+  // identical "0 of 0" lines say one thing — nobody is subscribed — so say it once, with a count.
+  const firingRows: (typeof firings[number] & { repeats?: number })[] = [];
+  for (const d of firings) {
+    const prev = firingRows[firingRows.length - 1];
+    if (prev && prev.trigger === d.trigger && prev.subscribers === 0 && d.subscribers === 0) {
+      prev.repeats = (prev.repeats ?? 1) + 1;
+    } else {
+      firingRows.push({ ...d });
+    }
+  }
 
   // Who a trigger delivers to, from the roster (kind + subscribed triggers). The slack id is
   // resolved to a channel name when the bot still sees it, like the trigger page does.
@@ -124,7 +136,10 @@ export default function ProjectCustom({ s, id, reload }: {
           ) : <p className="help">none in this project</p>}
 
           <h2 style={{ marginTop: 24 }}>Views</h2>
-          {myViews.map((v) => <ViewPanel key={v.name} v={v} sourceNames={(sources ?? []).map((x) => x.name)} onSaved={() => { reloadViews(); reload(); }} />)}
+          {myViews.map((v) => (
+            <ViewPanel key={v.name} v={v} sourceNames={(sources ?? []).map((x) => x.name)}
+                       watchers={(triggers ?? []).filter((t) => t.view === v.name).length}
+                       onSaved={() => { reloadViews(); reload(); }} />))}
           {!myViews.length && <p className="help">none in this project</p>}
 
           <h2 style={{ marginTop: 24 }}>Triggers</h2>
@@ -144,15 +159,26 @@ export default function ProjectCustom({ s, id, reload }: {
           <table>
             <thead><tr><th style={{ width: 110 }}>when</th><th>source</th><th>entity</th><th>type</th><th>event</th></tr></thead>
             <tbody>
-              {recent.map((e, i) => (
-                <tr key={i}>
-                  <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={e.ingest_time} /></td>
-                  <td><Link to={`/sources/${encodeURIComponent(e.source)}`} className="mono">{e.source}</Link></td>
-                  <td className="mono">{e.key}</td>
-                  <td><span className="chip">{e.event_type}</span></td>
-                  <td className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{e.text.slice(0, 200)}</td>
-                </tr>
-              ))}
+              {recent.map((e, i) => {
+                const long = e.text.length > 160;
+                const open = openEvent === i;
+                return (
+                  <tr key={i} className={long ? "clickable" : undefined}
+                      onClick={() => long && setOpenEvent(open ? undefined : i)}
+                      title={long && !open ? "click for the whole event" : undefined}>
+                    <td style={{ whiteSpace: "nowrap", verticalAlign: "top" }}><TimeAgo ts={e.ingest_time} /></td>
+                    <td style={{ verticalAlign: "top" }} onClick={(ev) => ev.stopPropagation()}>
+                      <Link to={`/sources/${encodeURIComponent(e.source)}`} className="mono">{e.source}</Link></td>
+                    <td className="mono" style={{ verticalAlign: "top" }}>{e.key}</td>
+                    <td style={{ verticalAlign: "top" }}><span className="chip">{e.event_type}</span></td>
+                    <td className="mono" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                      {open || !long ? e.text : e.text.slice(0, 160)}
+                      {long && !open && <span className="dim"> … ▸</span>}
+                      {open && <span className="dim"> ▾</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ) : <p className="help">nothing ingested yet across this project's sources</p>
@@ -165,24 +191,32 @@ export default function ProjectCustom({ s, id, reload }: {
             <table>
               <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivered</th><th>agent</th><th>Slack</th></tr></thead>
               <tbody>
-                {firings.map((d) => {
+                {firingRows.map((d) => {
                   const subs = subscribers(d.trigger);
                   const tares = subs.filter((a) => a.kind === "tares");
                   const chans = subs.filter((a) => a.kind === "slack");
                   return (
                     <tr key={d.dispatch_id}>
-                      <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={d.fired_at} /></td>
-                      <td className="mono">{d.trigger}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`} title="the firing's detail page">
+                          <TimeAgo ts={d.fired_at} /></Link></td>
+                      <td>{triggerNames.has(d.trigger)
+                        ? <a href={`#trigger-${d.trigger}`} className="mono" title="the trigger, on the Setup tab"
+                             onClick={(e) => { e.preventDefault(); showTrigger(d.trigger); }}>{d.trigger}</a>
+                        : <span className="mono">{d.trigger}</span>}</td>
                       <td className="mono">{d.key}</td>
-                      <td>{d.delivered} of {d.subscribers}
-                        {d.error && <span className="help" title={d.error}> · {d.error.slice(0, 60)}</span>}</td>
+                      <td>{d.subscribers === 0
+                        ? <><span className="badge error">nobody subscribed</span>
+                            {(d.repeats ?? 1) > 1 && <span className="help"> · {d.repeats} firings like this</span>}</>
+                        : <>{d.delivered} of {d.subscribers}
+                            {d.error && <span className="help" title={d.error}> · {d.error.slice(0, 60)}</span>}</>}</td>
                       <td>{tares.length
                         ? tares.map((a) => (
                             <a key={a.name} href="#agents" onClick={(e) => { e.preventDefault(); openInAgents(d.dispatch_id); }}
                                className="mono" title="open this firing's run below">{a.name}</a>))
                         : <span className="dim">—</span>}</td>
                       <td>{chans.length
-                        ? chans.map((a) => <span key={a.name} className="chip">{channelLabel(a.endpoint || a.name)}</span>)
+                        ? chans.map((a) => <span key={a.name} className="chip">{channelLabel(a.name)}</span>)
                         : <span className="dim">—</span>}</td>
                     </tr>
                   );
@@ -224,24 +258,38 @@ export default function ProjectCustom({ s, id, reload }: {
 
 // One view, as its own page shows it (key field, sources, filters, author, usage), with the same
 // in-place editor. "+ trigger" preselects this view on the trigger form.
-function ViewPanel({ v, sourceNames, onSaved }: {
-  v: import("../types").View; sourceNames: string[]; onSaved: () => void;
+function ViewPanel({ v, sourceNames, watchers, onSaved }: {
+  v: import("../types").View; sourceNames: string[]; watchers: number; onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [err, setErr] = useState<string>();
   return (
     <div className="panel" id={`view-${v.name}`} style={{ marginBottom: 12, scrollMarginTop: 16 }}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h3 style={{ margin: 0 }}><span className="mono">{v.name}</span></h3>
-          <p className="subtitle" style={{ margin: "2px 0 0" }}>
-            one read returns the correlated timeline of a <span className="mono">{v.key_field}</span>
-          </p>
         </div>
         <span className="btnrow">
           <Link className="btn" to={`/triggers/new?view=${encodeURIComponent(v.name)}`}>+ trigger</Link>
           {!editing && <button className="primary" onClick={() => setEditing(true)}>Edit</button>}
+          {!editing && <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>}
         </span>
       </div>
+      {err && <div className="alert error">{err}</div>}
+      {confirmDel && (
+        <ConfirmDialog title={`Delete view ${v.name}?`}
+          message={watchers
+            ? `${watchers} trigger(s) watch this view and will stop working. Agents querying it will start failing.`
+            : "Agents querying this view will start failing. This can't be undone."}
+          confirmLabel="Delete" danger
+          onConfirm={async () => {
+            try { await api.deleteView(v.name); onSaved(); }
+            catch (e) { setErr(String((e as Error).message ?? e)); }
+            setConfirmDel(false);
+          }}
+          onCancel={() => setConfirmDel(false)} />
+      )}
       {editing ? (
         <ViewEditor initial={v} sourceNames={sourceNames}
                     onSaved={() => { setEditing(false); onSaved(); }}
@@ -276,6 +324,8 @@ function TriggerPanel({ t, viewInProject, lastFired, onSaved }: {
   t: import("../types").Trigger; viewInProject: boolean; lastFired: string | null; onSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [err, setErr] = useState<string>();
   return (
     <div className="panel" id={`trigger-${t.name}`} style={{ marginBottom: 12, scrollMarginTop: 16 }}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
@@ -287,8 +337,21 @@ function TriggerPanel({ t, viewInProject, lastFired, onSaved }: {
         </div>
         <span className="btnrow">
           {!editing && <button className="primary" onClick={() => setEditing(true)}>Edit</button>}
+          {!editing && <button className="danger" onClick={() => setConfirmDel(true)}>Delete</button>}
         </span>
       </div>
+      {err && <div className="alert error">{err}</div>}
+      {confirmDel && (
+        <ConfirmDialog title={`Delete trigger ${t.name}?`}
+          message="Nothing will fire on this condition any more; its subscribers stop being woken. This can't be undone."
+          confirmLabel="Delete" danger
+          onConfirm={async () => {
+            try { await api.deleteTrigger(t.name); onSaved(); }
+            catch (e) { setErr(String((e as Error).message ?? e)); }
+            setConfirmDel(false);
+          }}
+          onCancel={() => setConfirmDel(false)} />
+      )}
       {editing ? (
         <TriggerEditor initial={t}
                        onSaved={() => { setEditing(false); onSaved(); }}

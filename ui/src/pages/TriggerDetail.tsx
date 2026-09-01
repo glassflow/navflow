@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api, type SlackChannels } from "../api";
-import type { AgentInfo } from "../types";
+import type { AgentInfo, DispatchDetail } from "../types";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ProjectBadge from "../components/ProjectBadge";
 import TriggerEditor from "../components/TriggerEditor";
@@ -25,6 +25,21 @@ export default function TriggerDetail() {
   // stake, and a failed load would otherwise silently read as "nothing depends on this".
   const { data: agents, error: agentsError, reload: reloadAgents } = usePolling(() => api.agents(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
+  const { data: views } = usePolling(() => api.views(), 30000);
+  // Per-firing recipients with outcomes: the list endpoint carries only counts, the detail has
+  // names; five small fetches for the five rows shown.
+  const [details, setDetails] = useState<Record<string, DispatchDetail>>({});
+  useEffect(() => {
+    let live = true;
+    const ids = (dispatches ?? []).filter((d) => d.trigger === name).slice(0, 5).map((d) => d.dispatch_id);
+    Promise.all(ids.map((id) => api.dispatch(id).catch(() => null))).then((rows) => {
+      if (!live) return;
+      const m: Record<string, DispatchDetail> = {};
+      for (const r of rows) if (r) m[r.dispatch_id] = r;
+      setDetails(m);
+    });
+    return () => { live = false; };
+  }, [dispatches, name]);
   // Which "add a subscriber" form is open, if any. The forms are closed by default: this page
   // is first a view of the running system (who receives this trigger, is it healthy, what fired),
   // and setup gets in the way when it is always on screen (TR-138).
@@ -82,9 +97,6 @@ export default function TriggerDetail() {
       <div className="pagehead">
         <div>
           <h1><span className="mono">{trigger.name}</span></h1>
-          <p className="subtitle">
-            fires when the condition trips, delivering to every subscriber
-          </p>
         </div>
         {!editing && (
           <span className="btnrow">
@@ -107,8 +119,7 @@ export default function TriggerDetail() {
           <table>
             <tbody>
               <tr><td className="help" style={{ width: 150 }}>watches</td>
-                  <td><Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link>
-                      <span className="help"> · the view whose events the condition reads</span></td></tr>
+                  <td><Link to={`/views/${encodeURIComponent(trigger.view)}`} className="mono">{trigger.view}</Link></td></tr>
               {trigger.owned_by && (
                 <tr><td className="help">part of</td>
                     <td><ProjectBadge ownedBy={trigger.owned_by} customized={trigger.customized} compact /></td></tr>
@@ -119,11 +130,9 @@ export default function TriggerDetail() {
                     {trigger.condition.predicate} over {trigger.condition.window}
                   </td></tr>
               <tr><td className="help">context window</td>
-                  <td className="mono">{String(trigger.emit?.context_window ?? "15m")}
-                      <span className="help"> · timeline the woken agent receives</span></td></tr>
+                  <td className="mono">{String(trigger.emit?.context_window ?? "15m")}</td></tr>
               <tr><td className="help">cooldown</td>
-                  <td className="mono">{trigger.cooldown}
-                      <span className="help"> · minimum gap between firings per entity</span></td></tr>
+                  <td className="mono">{trigger.cooldown}</td></tr>
             </tbody>
           </table>
         </div>
@@ -145,32 +154,29 @@ export default function TriggerDetail() {
       </div>
       {wired.length > 0 ? (
         <table style={{ marginBottom: 10 }}>
-          <thead><tr><th>subscriber</th><th>kind</th><th>endpoint</th><th className="num">delivered (24h)</th><th className="num">failed (24h)</th><th>status</th><th aria-label="actions" /></tr></thead>
+          <thead><tr><th>subscriber</th><th>delivered</th><th>status</th><th aria-label="actions" /></tr></thead>
           <tbody>
             {wired.map((a) => (
               <tr key={a.name}>
-                <td>{a.kind === "tares"
-                  ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
-                  : a.kind === "slack"
-                  // A raw C0BNV121CRX is the identity Slack uses, not one a human recognises. The
-                  // channel list is already loaded on this page, so resolve it when we can and fall
-                  // back to the id when the bot has since been removed from the channel.
-                  ? <strong>{channelLabel(a.name)}</strong>
-                  : <Link to={`/deliveries?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}</td>
-                <td>{a.kind === "tares"
-                  ? <span className="badge">Tares</span>
-                  : a.kind === "slack"
-                  ? <span className="badge">Slack</span>
-                  : <span className="badge push">connected</span>}</td>
-                <td className="mono">{a.endpoint}</td>
-                <td className="num" title={`${a.delivered_ok_total} delivered all time`}>
-                  {a.delivered_ok_24h}
-                  {a.delivered_ok_total !== a.delivered_ok_24h && <span className="dim"> / {a.delivered_ok_total}</span>}
+                <td>
+                  {a.kind === "tares"
+                    ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
+                    : a.kind === "slack"
+                    // A raw C0BNV121CRX is the identity Slack uses, not one a human recognises. The
+                    // channel list is already loaded on this page, so resolve it when we can and fall
+                    // back to the id when the bot has since been removed from the channel.
+                    ? <strong>{channelLabel(a.name)}</strong>
+                    : <Link to={`/agents?agent=${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>}
+                  <span className="chip" style={{ marginLeft: 8 }}>
+                    {a.kind === "tares" ? "Tares agent" : a.kind === "slack" ? "Slack" : "webhook"}</span>
+                  {a.kind === "connected" && <span className="mono dim" style={{ marginLeft: 8 }}>{a.endpoint}</span>}
                 </td>
-                <td className="num" style={a.delivered_fail_24h ? { color: "var(--err)" } : undefined}
-                    title={`${a.delivered_fail_total} failed all time`}>
-                  {a.delivered_fail_24h}
-                  {a.delivered_fail_total !== a.delivered_fail_24h && <span className="dim"> / {a.delivered_fail_total}</span>}
+                <td style={{ whiteSpace: "nowrap" }}
+                    title={a.delivered_fail_total ? `${a.delivered_fail_total} failed all time` : undefined}>
+                  {a.delivered_ok_total
+                    ? <>{a.delivered_ok_total} · last <TimeAgo ts={a.last_woken} /></>
+                    : <span className="dim">none yet</span>}
+                  {a.delivered_fail_total > 0 && <span style={{ color: "var(--err)" }}> · {a.delivered_fail_total} failed</span>}
                 </td>
                 <td>
                   {a.pending
@@ -289,23 +295,42 @@ export default function TriggerDetail() {
       {dispatchesError && <ErrorState error={dispatchesError} what="recent firings" />}
       {!dispatchesError && firings.length === 0 && <p className="help">none yet</p>}
       {firings.length > 0 && (
+        <>
         <table>
-          <thead><tr><th>fired</th><th>entity</th><th className="num">subscribers</th><th className="num">delivered</th><th>error</th></tr></thead>
+          <thead><tr><th style={{ width: 110 }}>fired</th>
+            <th>{(views ?? []).find((v) => v.name === trigger.view)?.key_field || "entity"}</th>
+            <th>delivered to</th></tr></thead>
           <tbody>
-            {firings.map((d) => {
-              const failed = d.subscribers > d.delivered;
+            {firings.slice(0, 5).map((d) => {
+              const dvs = details[d.dispatch_id]?.deliveries;
               return (
-              <tr key={d.dispatch_id} className="clickable"
-                  onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
-                <td style={{ whiteSpace: "nowrap" }}><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}><TimeAgo ts={d.fired_at} /></Link></td>
-                <td className="mono">{d.key}</td>
-                <td className="num">{d.subscribers}</td>
-                <td className="num" style={failed ? { color: "var(--err)" } : undefined}>{d.delivered}</td>
-                <td className="mono" style={{ color: "var(--err)" }} title={d.error ?? undefined}>{failed ? (d.error ?? "delivery failed") : ""}</td>
-              </tr>
-            ); })}
+                <tr key={d.dispatch_id} className="clickable"
+                    onClick={() => nav(`/dispatches/${encodeURIComponent(d.dispatch_id)}`)}>
+                  <td style={{ whiteSpace: "nowrap" }}><Link to={`/dispatches/${encodeURIComponent(d.dispatch_id)}`}><TimeAgo ts={d.fired_at} /></Link></td>
+                  <td className="mono">{d.key}</td>
+                  <td>
+                    {dvs === undefined
+                      ? (d.subscribers === 0 ? <span className="dim">nobody was subscribed</span> : <span className="dim">…</span>)
+                      : dvs.length === 0
+                      ? <span className="dim">nobody was subscribed</span>
+                      : dvs.map((dv, i) => (
+                          <span key={i} className="chip mono"
+                                title={dv.ok === false ? (dv.error ?? "delivery failed") : dv.ok === null ? "still running" : "delivered"}
+                                style={{ marginRight: 4,
+                                         color: dv.ok === false ? "var(--err)" : dv.ok === null ? undefined : "var(--ok, #2e7d43)" }}>
+                            {dv.kind === "slack" ? channelLabel(dv.agent) : dv.agent}
+                          </span>
+                        ))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        {firings.length > 5 && (
+          <p className="help">the last 5 of {firings.length} recent · every firing is on <Link to="/firings">Firings</Link></p>
+        )}
+        </>
       )}
 
       {unsub && (

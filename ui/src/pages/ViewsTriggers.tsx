@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Search } from "../components/icons";
-import { EmptyState, ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { EmptyState, ErrorState, Picker, TimeAgo, usePolling } from "../components/bits";
 import type { Trigger, View } from "../types";
 
 // Views and Triggers are two acts of "serve to agents": a view is a saved read; a trigger wakes
@@ -12,12 +12,13 @@ import type { Trigger, View } from "../types";
 
 export function ViewsPage() {
   const { data: views, error, reload } = usePolling(() => api.views(), 10000);
+  const { data: triggers } = usePolling(() => api.triggers(), 15000);
 
   return (
     <>
       <h1>Views</h1>
       <p className="subtitle">saved reads; <em>the queries you hand agents</em></p>
-      <ViewsSection views={views ?? []} loadError={error} onChange={reload} />
+      <ViewsSection views={views ?? []} triggers={triggers ?? []} loadError={error} onChange={reload} />
     </>
   );
 }
@@ -25,59 +26,48 @@ export function ViewsPage() {
 export function TriggersPage() {
   const { data: triggers, error, reload } = usePolling(() => api.triggers(), 10000);
   const { data: views, error: viewsError } = usePolling(() => api.views(), 10000);
+  const { data: dispatches } = usePolling(() => api.dispatches(100), 15000);
+  const { data: roster } = usePolling(() => api.agents(), 15000);
+  const { data: slack } = usePolling(() => api.slackChannels(), 60000);
 
   return (
     <>
       <h1>Triggers</h1>
-      <p className="subtitle">conditions that <em>wake an agent</em> with a timeline</p>
       {/* Either fetch failing is enough to make "no triggers" / "no views yet" a lie. */}
       <TriggersSection triggers={triggers ?? []} viewNames={(views ?? []).map((v) => v.name)}
+                       dispatches={dispatches ?? []}
+                       roster={roster?.agents ?? []} slackChannels={slack?.channels ?? []}
                        loadError={error ?? viewsError} onChange={reload} />
     </>
   );
 }
 
-/** Search-box + count toolbar (matches the other crisp tables). */
-function FilterBar({ q, setQ, placeholder, shown, total }: {
-  q: string; setQ: (s: string) => void; placeholder: string; shown: number; total: number;
-}) {
-  return (
-    <div className="toolbar">
-      <div className="search-box">
-        <Search />
-        <input type="text" className="search" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <span className="grow" />
-      <span className="count">{shown} of {total}</span>
-    </div>
-  );
-}
-
 // ── views ────────────────────────────────────────────────────────────────────
 
-function AuthorBadge({ createdBy }: { createdBy?: string }) {
-  const isAgent = (createdBy ?? "human").startsWith("agent");
-  return (
-    <span className={`badge ${isAgent ? "agent" : "starting"}`}
-          title={isAgent ? `proposed by an agent via derive() (${createdBy})` : "authored by a human"}>
-      {isAgent ? "agent" : "human"}
-    </span>
-  );
-}
-
-function ViewsSection({ views, loadError, onChange }:
-  { views: View[]; loadError?: string; onChange: () => void }) {
+function ViewsSection({ views, triggers, loadError, onChange }:
+  { views: View[]; triggers: Trigger[]; loadError?: string; onChange: () => void }) {
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
+  const [source, setSource] = useState("all");
+  const [trigger, setTrigger] = useState("all");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
+
+  const sourceOptions = useMemo(
+    () => Array.from(new Set(views.flatMap((v) => v.sources))).sort(), [views]);
+  const triggerOptions = useMemo(
+    () => Array.from(new Set(triggers.map((t) => t.name))).sort(), [triggers]);
+  const watchedBy = useMemo(() => {
+    const t = triggers.find((x) => x.name === trigger);
+    return t?.view;
+  }, [triggers, trigger]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return views.filter((v) => !needle ||
-      v.name.toLowerCase().includes(needle) ||
-      v.key_field.toLowerCase().includes(needle) ||
-      v.sources.join(" ").toLowerCase().includes(needle));
-  }, [views, q]);
+    return views.filter((v) =>
+      (source === "all" || v.sources.includes(source)) &&
+      (trigger === "all" || v.name === watchedBy) &&
+      (!needle || v.name.toLowerCase().includes(needle)));
+  }, [views, q, source, trigger, watchedBy]);
 
   const del = async (name: string) => {
     setError(undefined);
@@ -99,16 +89,36 @@ function ViewsSection({ views, loadError, onChange }:
       )}
       {!!views.length && (
         <>
-          <FilterBar q={q} setQ={setQ} placeholder="Filter by name, key, source…" shown={shown.length} total={views.length} />
+          <div className="toolbar">
+            <div className="search-box">
+              <Search />
+              <input type="text" className="search" placeholder="Filter by name…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Picker value={source} onChange={setSource} ariaLabel="filter by source"
+                    style={{ width: 180 }}
+                    options={["all", ...sourceOptions]}
+                    labels={{ all: "All sources" }} />
+            <Picker value={trigger} onChange={setTrigger} ariaLabel="filter by trigger"
+                    style={{ width: 180 }}
+                    options={["all", ...triggerOptions]}
+                    labels={{ all: "All triggers" }} />
+            <span className="grow" />
+            <span className="count">{shown.length} of {views.length}</span>
+          </div>
           <table>
-            <thead><tr><th>name</th><th>author</th><th>key field</th><th>sources</th><th>filters</th><th>usage</th><th></th></tr></thead>
+            <thead><tr><th>name</th><th>key field</th><th>sources</th><th>filters</th><th>usage</th><th></th></tr></thead>
             <tbody>
               {shown.map((v) => (
                 <tr key={v.name}>
                   <td className="mono"><Link to={`/views/${encodeURIComponent(v.name)}`}>{v.name}</Link></td>
-                  <td><AuthorBadge createdBy={v.created_by} /></td>
                   <td className="mono">{v.key_field}</td>
-                  <td>{v.sources.map((s) => <span className="chip" key={s}>{s}</span>)}</td>
+                  <td>
+                    {v.sources.slice(0, 2).map((s) => <span className="chip" key={s}>{s}</span>)}
+                    {v.sources.length > 2 && (
+                      <span className="chip dim" title={v.sources.slice(2).join(", ")}>
+                        +{v.sources.length - 2} more</span>
+                    )}
+                  </td>
                   <td className="mono">
                     {(v.filters ?? []).map((f, i) => (
                       <span className="chip" key={i}>{f.field} {f.op} {String(f.value)}</span>
@@ -130,7 +140,7 @@ function ViewsSection({ views, loadError, onChange }:
                   </td>
                 </tr>
               ))}
-              {!shown.length && <tr><td colSpan={7} className="dim" style={{ textAlign: "center", padding: 24 }}>no views match “{q}”</td></tr>}
+              {!shown.length && <tr><td colSpan={6} className="dim" style={{ textAlign: "center", padding: 24 }}>no views match the filter</td></tr>}
             </tbody>
           </table>
         </>
@@ -151,19 +161,55 @@ function ViewsSection({ views, loadError, onChange }:
 
 // ── triggers ─────────────────────────────────────────────────────────────────
 
-function TriggersSection({ triggers, viewNames, loadError, onChange }:
-  { triggers: Trigger[]; viewNames: string[]; loadError?: string; onChange: () => void }) {
+function TriggersSection({ triggers, viewNames, dispatches, roster, slackChannels, loadError, onChange }:
+  { triggers: Trigger[]; viewNames: string[]; dispatches: import("../types").DispatchLogEntry[];
+    roster: import("../types").AgentInfo[];
+    slackChannels: { id: string; name: string; is_private: boolean }[];
+    loadError?: string; onChange: () => void }) {
+  const channelLabel = (raw: string) => {
+    const cid = raw.replace(/^#/, "");
+    const hit = slackChannels.find((c) => c.id === cid);
+    return hit ? (hit.is_private ? `🔒 ${hit.name}` : `#${hit.name}`) : raw;
+  };
+  // Everything subscribed to a trigger, from the same roster the Deliveries page shows. Active
+  // trigger + nobody = the warning; a paused trigger has its subscriptions parked by design.
+  const subscribers = (name: string) => roster.filter((a) => a.triggers.includes(name));
+  const SubscriberCell = ({ t }: { t: Trigger }) => {
+    if (t.paused) return <span className="dim">paused</span>;
+    const subs = subscribers(t.name);
+    if (!subs.length) return <span className="badge error">nobody</span>;
+    return (
+      <>
+        {subs.slice(0, 2).map((a) =>
+          a.kind === "tares"
+            ? <Link key={a.name} to={`/agents/${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>
+            : a.kind === "slack"
+              ? <span key={a.name} className="chip">{channelLabel(a.name)}</span>
+              : <Link key={a.name} to={`/agents?agent=${encodeURIComponent(a.name)}`} className="chip mono">{a.name}</Link>)}
+        {subs.length > 2 && (
+          <span className="chip dim" title={subs.slice(2).map((a) => a.name).join(", ")}>
+            +{subs.length - 2} more</span>
+        )}
+      </>
+    );
+  };
+  // newest first, so the first hit per trigger is its latest firing; older than the fetched
+  // window shows as a dash, which for a trigger list reads correctly as "not lately"
+  const lastFired = (name: string) => dispatches.find((d) => d.trigger === name)?.fired_at ?? null;
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
+  const [view, setView] = useState("all");
   const [confirmDelName, setConfirmDelName] = useState<string | null>(null);
+
+  const viewOptions = useMemo(
+    () => Array.from(new Set(triggers.map((t) => t.view))).sort(), [triggers]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return triggers.filter((t) => !needle ||
-      t.name.toLowerCase().includes(needle) ||
-      t.view.toLowerCase().includes(needle) ||
-      `${t.condition.aggregate}${t.condition.field ?? ""}${t.condition.predicate}`.toLowerCase().includes(needle));
-  }, [triggers, q]);
+    return triggers.filter((t) =>
+      (view === "all" || t.view === view) &&
+      (!needle || t.name.toLowerCase().includes(needle)));
+  }, [triggers, q, view]);
 
   const del = async (name: string) => {
     setError(undefined);
@@ -202,9 +248,20 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
       )}
       {!!triggers.length && (
         <>
-          <FilterBar q={q} setQ={setQ} placeholder="Filter by name, view, condition…" shown={shown.length} total={triggers.length} />
+          <div className="toolbar">
+            <div className="search-box">
+              <Search />
+              <input type="text" className="search" placeholder="Filter by name…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Picker value={view} onChange={setView} ariaLabel="filter by view"
+                    style={{ width: 200 }}
+                    options={["all", ...viewOptions]}
+                    labels={{ all: "All views" }} />
+            <span className="grow" />
+            <span className="count">{shown.length} of {triggers.length}</span>
+          </div>
           <table>
-            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th></th></tr></thead>
+            <thead><tr><th>name</th><th>view</th><th>condition</th><th>cooldown</th><th>last fired</th><th>subscribers</th><th></th></tr></thead>
             <tbody>
               {shown.map((t) => (
                 <tr key={t.name} style={t.paused ? { opacity: 0.55 } : undefined}>
@@ -217,6 +274,8 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
                     {t.condition.aggregate}({t.condition.field ?? "*"}) {t.condition.predicate} over {t.condition.window}
                   </td>
                   <td className="mono">{t.cooldown}</td>
+                  <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={lastFired(t.name)} /></td>
+                  <td><SubscriberCell t={t} /></td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     <span className="btnrow" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       <Link className="btn" to={`/triggers/${encodeURIComponent(t.name)}`}>agents</Link>
@@ -227,7 +286,7 @@ function TriggersSection({ triggers, viewNames, loadError, onChange }:
                   </td>
                 </tr>
               ))}
-              {!shown.length && <tr><td colSpan={5} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match “{q}”</td></tr>}
+              {!shown.length && <tr><td colSpan={7} className="dim" style={{ textAlign: "center", padding: 24 }}>no triggers match the filter</td></tr>}
             </tbody>
           </table>
         </>
