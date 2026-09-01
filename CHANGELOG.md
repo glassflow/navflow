@@ -3,12 +3,22 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.18.0] - 2026-09-01
+
+### Added
+- **The project page shows and manages subscribers.** A Subscribers box on the Setup tab lists
+  everyone subscribed to the project's triggers (Tares agents, Slack channels, webhooks) with
+  what each received, and adds or removes them right there. A project's own agent links to the
+  Agents tab of the page.
+- The project Firings tab replaces delivery counts with a "delivered to" column: the actual
+  recipients, colored by outcome.
+- /projects is now just the list of projects, with Create new; the four ways to start one moved
+  to their own page at /projects/new.
 
 ### Fixed
 - Deleting a trigger also removes its subscriptions. They could never fire again, but they
-  showed up on Deliveries as subscribers waking on triggers that no longer exist. Rows left
-  behind by earlier releases: remove them on the Deliveries page.
+  showed up on Firings as subscribers waking on triggers that no longer exist. Rows left
+  behind by earlier releases: remove them on the Tares agents page.
 
 ## [1.17.0] - 2026-09-01
 
