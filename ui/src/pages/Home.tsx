@@ -74,7 +74,7 @@ export default function Home() {
           <div className="v">{u ? u.agent_runs.toLocaleString() : <span className="dim">—</span>}</div>
         </div>
         <div className="card">
-          <div className="k">dispatch deliveries</div>
+          <div className="k">deliveries</div>
           <div className="v">
             {u ? u.dispatch_deliveries.toLocaleString() : <span className="dim">—</span>}
           </div>
