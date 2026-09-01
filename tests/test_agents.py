@@ -391,6 +391,18 @@ async def main():
                "budget of $2.00" in (rs[0].get("error") or "") and "Configuration" in rs[0]["error"],
                str(rs[0].get("error")))
             ck("the capped run cost nothing", not rs[0].get("cost_usd"), str(rs[0].get("cost_usd")))
+            # deleting a trigger takes its subscriptions with it
+            r = await cx.post("/api/catalog/import", json={"yaml": (
+                "triggers:\n  - name: doomed\n    view: svc2\n"
+                "    condition: {aggregate: count, predicate: '>= 2', window: 1m, group_by: [key_value]}\n"
+                "    cooldown: 1s\n")})
+            r = await cx.post("/subscribe", json={"trigger": "doomed", "url": "https://x.example/hook"})
+            ck("webhook subscribed to the doomed trigger", r.status_code in (200, 201), r.text[:200])
+            r = await cx.delete("/api/triggers/doomed")
+            ck("trigger deleted", r.status_code == 200, r.text[:200])
+            ghosts = {a["name"] for a in (await cx.get("/api/agents")).json()["agents"]
+                      if "doomed" in a.get("triggers", [])}
+            ck("no subscriber wakes on the deleted trigger", ghosts == set(), str(ghosts))
             y_r = await cx.get("/api/catalog/export")
             ck("the budget rides in the catalog export", "budget_usd: 2" in y_r.text, y_r.text[-300:])
 
