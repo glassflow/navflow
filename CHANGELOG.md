@@ -3,6 +3,22 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.20.0] - 2026-09-01
+
+### Changed
+- **The side nav has two groups.** Projects sits at the top with Overview and Ask; everything a
+  project is made of is one Catalog group in pipeline order (sources, views, triggers, agents,
+  firings, MCP servers, Explore). The Data and Automate sections are gone.
+- The project page drops the "How it works" box, and Change history aligns with the other
+  sections.
+- The demo's logs source drops routine 2xx access lines and polls every 10s in hosted mode:
+  errors and incident evidence still land, the always-on traffic noise does not.
+
+### Fixed
+- Deleting a template project with purge also deletes its triggers' firings (the dispatch log,
+  the per-recipient deliveries, the cooldown state). They used to linger on Firings pointing at
+  a trigger that no longer existed.
+
 ## [1.19.0] - 2026-09-01
 
 ### Changed
