@@ -28,6 +28,7 @@ import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import Projects from "./pages/Projects";
+import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
 import ProjectNewCustom from "./pages/ProjectNewCustom";
 import ProjectNewGeneric from "./pages/ProjectNewGeneric";
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
       { path: "projects", element: <Projects /> },
+      { path: "projects/new", element: <ProjectNew /> },
       { path: "projects/new/shared_code_context", element: <ProjectNewSharedContext /> },
       { path: "projects/new/custom", element: <ProjectNewCustom /> },
       { path: "projects/new/:template", element: <ProjectNewGeneric /> },

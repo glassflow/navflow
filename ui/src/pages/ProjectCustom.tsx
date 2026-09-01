@@ -5,7 +5,7 @@ import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import TriggerEditor from "../components/TriggerEditor";
 import ViewEditor from "../components/ViewEditor";
-import { ErrorState, TimeAgo, usePolling } from "../components/bits";
+import { Picker, ErrorState, TimeAgo, usePolling } from "../components/bits";
 import AgentForm from "../components/AgentForm";
 import { RunsTable } from "./AgentDetail";
 import type { ProjectSummary } from "../types";
@@ -70,12 +70,42 @@ export default function ProjectCustom({ s, id, reload }: {
   };
   const subscribers = (trigger: string) => (roster?.agents ?? []).filter((a) => a.triggers.includes(trigger));
 
+  // subscriber management for the project's triggers (Slack, webhooks; Tares agents wire via
+  // their own creation flow). One row per subscription, so remove is exact.
+  const [adding, setAdding] = useState<null | "webhook" | "slack">(null);
+  const [subTrigger, setSubTrigger] = useState("");
+  const [subUrl, setSubUrl] = useState("");
+  const [subChannel, setSubChannel] = useState("");
+  const [subBusy, setSubBusy] = useState(false);
+  const [subMsg, setSubMsg] = useState<string>();
+  const [unsub, setUnsub] = useState<{ id: string; label: string } | null>(null);
+  const { reload: reloadRoster } = usePolling(() => api.agents(), 3600000);
+  const channels = slack?.channels ?? [];
+  const subRows = (roster?.agents ?? []).flatMap((a) =>
+    a.subscriptions.filter((sub) => triggerNames.has(sub.trigger))
+      .map((sub) => ({ a, sub })));
+  const addSubscription = async (url: string) => {
+    const t = subTrigger || myTriggers[0]?.name;
+    if (!t) return;
+    setSubBusy(true); setSubMsg(undefined);
+    try {
+      await api.subscribe(t, url);
+      setSubUrl(""); setSubChannel(""); setAdding(null); reload();
+    } catch (e) { setSubMsg(String((e as Error).message ?? e)); }
+    setSubBusy(false);
+  };
+
   const act = (fn: () => Promise<unknown>) => async () => {
     setActionError(undefined);
     try { await fn(); reload(); } catch (e) { setActionError(String((e as Error).message ?? e)); }
   };
 
   const openInAgents = (dispatchId: string) => { setFocusDispatch(dispatchId); setTab("agents"); };
+  // a project agent's home is the Agents tab of this page; switch there and scroll to it
+  const openAgentTab = (name: string) => {
+    setFocusDispatch(undefined); setTab("agents");
+    setTimeout(() => document.getElementById(`agent-${name}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
   // the trigger card lives on the Setup tab; switch there, then scroll once it is rendered
   const showTrigger = (name: string) => {
     setTab("setup");
@@ -150,6 +180,97 @@ export default function ProjectCustom({ s, id, reload }: {
                           onSaved={() => { reloadTriggers(); reload(); }} />
           ))}
           {!myTriggers.length && <p className="help">none in this project</p>}
+
+          <div className="pagehead" style={{ marginTop: 24 }}>
+            <h2 style={{ margin: 0 }}>Subscribers</h2>
+            <span className="btnrow">
+              <Link className="btn" to={`/agents/new?trigger=${encodeURIComponent(subTrigger || myTriggers[0]?.name || "")}`}>Add a Tares agent</Link>
+              <button type="button" onClick={() => { setAdding(adding === "slack" ? null : "slack"); setSubMsg(undefined); }}>Add Slack channel</button>
+              <button type="button" onClick={() => { setAdding(adding === "webhook" ? null : "webhook"); setSubMsg(undefined); }}>Add webhook</button>
+            </span>
+          </div>
+          {subRows.length ? (
+            <table>
+              <thead><tr><th>subscriber</th><th>wakes on</th><th>delivered</th><th aria-label="actions" /></tr></thead>
+              <tbody>
+                {subRows.map(({ a, sub }) => (
+                  <tr key={sub.subscription_id}>
+                    <td>
+                      {a.kind === "tares"
+                        ? names("agent").includes(a.name)
+                          ? <a href="#agents" onClick={(e) => { e.preventDefault(); openAgentTab(a.name); }}><strong>{a.name}</strong></a>
+                          : <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
+                        : a.kind === "slack"
+                        ? <strong>{channelLabel(a.name)}</strong>
+                        : <strong>{a.name}</strong>}
+                      <span className="chip" style={{ marginLeft: 8 }}>
+                        {a.kind === "tares" ? "Tares agent" : a.kind === "slack" ? "Slack" : "webhook"}</span>
+                      {a.kind === "connected" && <span className="mono dim" style={{ marginLeft: 8 }}>{a.endpoint}</span>}
+                    </td>
+                    <td>
+                      <a href={`#trigger-${sub.trigger}`} className="chip mono"
+                         onClick={(e) => { e.preventDefault(); document.getElementById(`trigger-${sub.trigger}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>{sub.trigger}</a>
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {a.delivered_ok_total
+                        ? <>{a.delivered_ok_total} · last <TimeAgo ts={a.last_woken} /></>
+                        : <span className="dim">none yet</span>}
+                      {a.delivered_fail_total > 0 && <span style={{ color: "var(--err)" }}> · {a.delivered_fail_total} failed</span>}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <button className="danger"
+                              onClick={() => setUnsub({ id: sub.subscription_id, label: a.kind === "slack" ? channelLabel(a.name) : a.name })}>
+                        remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : <p className="help">nobody is subscribed to this project's triggers yet</p>}
+          {adding && (
+            <div className="panel" style={{ marginTop: 10 }}>
+              {myTriggers.length > 1 && (
+                <label className="field">
+                  <span className="lbl">trigger</span>
+                  <Picker value={subTrigger || myTriggers[0]?.name || ""} onChange={setSubTrigger}
+                          ariaLabel="trigger to subscribe to"
+                          options={myTriggers.map((t) => t.name)} />
+                </label>
+              )}
+              {adding === "webhook" ? (
+                <label className="field">
+                  <span className="lbl">webhook URL</span>
+                  <input type="text" className="mono" autoFocus placeholder="https://your-agent.example.com/hook"
+                         value={subUrl} onChange={(e) => setSubUrl(e.target.value)} />
+                  <span className="help">your agent's endpoint; it gets POSTed the timeline on every firing · <Link to="/connect?tab=push">what it receives</Link></span>
+                </label>
+              ) : (
+                <label className="field">
+                  <span className="lbl">channel</span>
+                  {channels.length > 0 ? (
+                    <Picker value={subChannel} onChange={setSubChannel} ariaLabel="Slack channel"
+                            options={["", ...channels.map((c) => c.id)]}
+                            labels={{ "": "choose a channel…",
+                                      ...Object.fromEntries(channels.map((c) => [c.id, c.is_private ? `🔒 ${c.name}` : `#${c.name}`])) }} />
+                  ) : (
+                    <input type="text" className="mono" autoFocus placeholder="C0123456789, or the channel's lowercase name"
+                           value={subChannel} onChange={(e) => setSubChannel(e.target.value)} />
+                  )}
+                  <span className="help">the workspace bot posts every firing there; add the bot to the channel in Slack first</span>
+                </label>
+              )}
+              <div className="btnrow">
+                <button className="primary" disabled={subBusy || (adding === "webhook" ? !subUrl.trim() : !subChannel.trim())}
+                        onClick={() => addSubscription(adding === "webhook"
+                          ? subUrl.trim()
+                          : `slack://channel/${(channels.length ? subChannel : subChannel.trim().replace(/^#/, ""))}`)}>
+                  {subBusy ? "…" : "Subscribe"}
+                </button>
+                <button type="button" onClick={() => setAdding(null)}>Cancel</button>
+              </div>
+              {subMsg && <p className="help" style={{ margin: "6px 0 0" }}>{subMsg}</p>}
+            </div>
+          )}
         </>
       )}
 
@@ -189,12 +310,11 @@ export default function ProjectCustom({ s, id, reload }: {
           {dispatchesError && <ErrorState error={dispatchesError} what="the firings" />}
           {firings.length ? (
             <table>
-              <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivered</th><th>agent</th><th>Slack</th></tr></thead>
+              <thead><tr><th>when</th><th>trigger</th><th>entity</th><th>delivered to</th></tr></thead>
               <tbody>
                 {firingRows.map((d) => {
                   const subs = subscribers(d.trigger);
-                  const tares = subs.filter((a) => a.kind === "tares");
-                  const chans = subs.filter((a) => a.kind === "slack");
+                  const partial = d.subscribers > 0 && d.delivered < d.subscribers;
                   return (
                     <tr key={d.dispatch_id}>
                       <td style={{ whiteSpace: "nowrap" }}>
@@ -208,16 +328,17 @@ export default function ProjectCustom({ s, id, reload }: {
                       <td>{d.subscribers === 0
                         ? <><span className="badge error">nobody subscribed</span>
                             {(d.repeats ?? 1) > 1 && <span className="help"> · {d.repeats} firings like this</span>}</>
-                        : <>{d.delivered} of {d.subscribers}
-                            {d.error && <span className="help" title={d.error}> · {d.error.slice(0, 60)}</span>}</>}</td>
-                      <td>{tares.length
-                        ? tares.map((a) => (
-                            <a key={a.name} href="#agents" onClick={(e) => { e.preventDefault(); openInAgents(d.dispatch_id); }}
-                               className="mono" title="open this firing's run below">{a.name}</a>))
-                        : <span className="dim">—</span>}</td>
-                      <td>{chans.length
-                        ? chans.map((a) => <span key={a.name} className="chip">{channelLabel(a.name)}</span>)
-                        : <span className="dim">—</span>}</td>
+                        : subs.length === 0
+                        ? <span className={`badge ${partial ? "error" : "ok"}`}>{d.delivered} of {d.subscribers}</span>
+                        : subs.map((a) => a.kind === "tares"
+                            ? <a key={a.name} href="#agents" className="chip mono"
+                                 onClick={(e) => { e.preventDefault(); openInAgents(d.dispatch_id); }}
+                                 title={partial ? (d.error ?? "not every delivery succeeded") : "delivered · open this firing's run below"}
+                                 style={{ marginRight: 4, color: partial ? "var(--err)" : "var(--ok, #2e7d43)" }}>{a.name}</a>
+                            : <span key={a.name} className="chip"
+                                    title={partial ? (d.error ?? "not every delivery succeeded") : "delivered"}
+                                    style={{ marginRight: 4, color: partial ? "var(--err)" : "var(--ok, #2e7d43)" }}>
+                                {a.kind === "slack" ? channelLabel(a.name) : a.name}</span>)}</td>
                     </tr>
                   );
                 })}
@@ -235,6 +356,18 @@ export default function ProjectCustom({ s, id, reload }: {
                           onShowTrigger={showTrigger} />))}
           {!names("agent").length && <p className="help">no agents in this project</p>}
         </>
+      )}
+
+      {unsub && (
+        <ConfirmDialog title={`Stop delivering to ${unsub.label}?`}
+          message="This trigger stops delivering to it; anything else it is subscribed to is unaffected, and its delivery history is kept."
+          confirmLabel="Remove" danger
+          onConfirm={async () => {
+            const u = unsub; setUnsub(null);
+            try { await api.unsubscribe(u.id); reloadRoster(); reload(); }
+            catch (e) { setActionError(String((e as Error).message ?? e)); }
+          }}
+          onCancel={() => setUnsub(null)} />
       )}
 
       {confirmDel && (
@@ -404,7 +537,7 @@ function AgentSection({ name, focusDispatch, triggerInProject, onShowTrigger }: 
     } catch (e) { setErr(String((e as Error).message ?? e)); }
   };
   return (
-    <div style={{ marginBottom: 28 }}>
+    <div style={{ marginBottom: 28 }} id={`agent-${name}`}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h2 style={{ margin: 0 }}><span className="mono">{agent.name}</span>{" "}<span className="badge">Tares agent</span></h2>
