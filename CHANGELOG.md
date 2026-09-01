@@ -3,6 +3,27 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.17.0] - 2026-09-01
+
+### Changed
+- **Deliveries is now Firings.** One word per thing across the console: a firing is the event, a
+  delivery is what happens to it per recipient, and "dispatch" no longer appears in copy. The
+  page lives at /firings (/deliveries redirects); external subscribers moved to the agents page.
+- **The entity pages became clean lists with filters.** Sources gains connector and project
+  filters; Views gets source and trigger filters, a capped sources column and no author column;
+  Triggers gets a view filter, last-fired and subscribers columns (an active trigger nobody
+  listens to says nobody); Firings names who each firing was delivered to. Doctrine subtexts
+  removed across pages, and project membership is a table row on detail pages.
+- **The firing page is one facts box** (trigger, project, entity, time, outcome, each recipient
+  with its result and a link to the run), with the payload beneath.
+- The hand-assembled project page grew operations: delete views and triggers in place, firing
+  rows link to the firing page and the trigger card, Slack channels named, firings that reached
+  nobody say so once with a count, events uncollapse to the whole stored line.
+
+### Fixed
+- A delivery whose Tares agent is still running showed as failed on the firing page; running,
+  delivered and failed are now three distinct states.
+
 ## [1.16.0] - 2026-08-31
 
 ### Added
