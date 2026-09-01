@@ -3,6 +3,19 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.19.0] - 2026-09-01
+
+### Changed
+- **Every project renders on one page.** The AI SRE demo, the challenger workflow, shared code
+  context and hand-assembled projects all use the page built for hand-assembled ones: Setup
+  (sources, views and triggers editable in place, subscribers), Events, Firings, Agents, and a
+  Sessions tab where the template reports sessions. Template actions (cause an incident,
+  summarize a session), Repair for hand-deleted objects, how it works and the change history all
+  moved with it.
+- **Templates describe themselves as data.** The generic summary (runs, triggers, totals) is
+  computed for every template; extras arrive as declared panels and cards. A new template needs
+  no console work.
+
 ## [1.18.0] - 2026-09-01
 
 ### Added
