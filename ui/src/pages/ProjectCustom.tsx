@@ -101,6 +101,11 @@ export default function ProjectCustom({ s, id, reload }: {
   };
 
   const openInAgents = (dispatchId: string) => { setFocusDispatch(dispatchId); setTab("agents"); };
+  // a project agent's home is the Agents tab of this page; switch there and scroll to it
+  const openAgentTab = (name: string) => {
+    setFocusDispatch(undefined); setTab("agents");
+    setTimeout(() => document.getElementById(`agent-${name}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+  };
   // the trigger card lives on the Setup tab; switch there, then scroll once it is rendered
   const showTrigger = (name: string) => {
     setTab("setup");
@@ -192,7 +197,9 @@ export default function ProjectCustom({ s, id, reload }: {
                   <tr key={sub.subscription_id}>
                     <td>
                       {a.kind === "tares"
-                        ? <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
+                        ? names("agent").includes(a.name)
+                          ? <a href="#agents" onClick={(e) => { e.preventDefault(); openAgentTab(a.name); }}><strong>{a.name}</strong></a>
+                          : <Link to={`/agents/${encodeURIComponent(a.name)}`}><strong>{a.name}</strong></Link>
                         : a.kind === "slack"
                         ? <strong>{channelLabel(a.name)}</strong>
                         : <strong>{a.name}</strong>}
@@ -530,7 +537,7 @@ function AgentSection({ name, focusDispatch, triggerInProject, onShowTrigger }: 
     } catch (e) { setErr(String((e as Error).message ?? e)); }
   };
   return (
-    <div style={{ marginBottom: 28 }}>
+    <div style={{ marginBottom: 28 }} id={`agent-${name}`}>
       <div className="pagehead" style={{ marginBottom: 8 }}>
         <div>
           <h2 style={{ margin: 0 }}><span className="mono">{agent.name}</span>{" "}<span className="badge">Tares agent</span></h2>
