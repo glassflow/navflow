@@ -19,36 +19,6 @@ import type { ProjectSummary, Template, RecipeActionOption } from "../types";
 // like the agent's own page), and Sessions when the template reports them. Template-specific
 // content arrives as data (actions, facts, panels, cards), never as template-specific markup.
 
-const HOW_IT_WORKS: Record<string, string[]> = {
-  shared_code_context: [
-    "Each source repo is a commits source keyed by repo; the view puts every repo on its own timeline.",
-    "The trigger fires when commits land, once per repo per cooldown, with the recent commits attached.",
-    "The agent reads each diff through the GitHub MCP server, updates the context repo, and writes a finding on the timeline.",
-    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
-  ],
-  ai_sre_demo: [
-    "Three sources keyed by service: Prometheus metrics, the api-server's container logs, and the alerts Prometheus's own rules fire.",
-    "The service_timeline view merges them on one clock; Explore shows exactly what an agent reads.",
-    "The incident trigger fires when an alert event lands (Prometheus keeps owning alerting; nothing is re-thresholded).",
-    "incident-first-look wakes with the correlated timeline and writes an incident note back onto it. Cause an incident above and watch it happen.",
-  ],
-  challenger_workflow: [
-    "In Claude Code, /tares:challenger marks the session; the plugin then runs Codex on the plan when you leave plan mode and on every commit, and blocks on P1/P2 findings until fixed or waived.",
-    "The plugin streams the session, with every Codex review, into the claude_code source, keyed by session.",
-    "When the session ends, the trigger fires and the summarizer reads the whole session and writes a summary with memory proposals.",
-    "Accept a proposal on the Sessions tab to store it as memory for the repo; the plugin gives it to Claude at the start of the next session in that repo.",
-  ],
-  custom: [
-    "You assembled this project from objects that already existed; nothing was created for it.",
-    "Runs are the runs of its agents; the trigger cards come from its triggers.",
-    "Edit adds or removes objects. Removing one from the project, or deleting the project, leaves the object in place.",
-    "Pause stops its triggers and agents; sources keep ingesting so the timeline stays complete.",
-  ],
-  default: [
-    "The project created ordinary sources, views, triggers and agents; every object is on this page and on its own page.",
-    "Pause stops the trigger and agent; sources keep ingesting so the timeline stays complete.",
-  ],
-};
 
 const fmtCond = (t: { condition: { aggregate: string; field?: string | null; predicate: string; window: string } }) =>
   `${t.condition.aggregate}(${t.condition.field || "*"}) ${t.condition.predicate} over ${t.condition.window}`;
@@ -298,13 +268,6 @@ export default function ProjectShell({ s, id, reload, template }: {
         </InfoDialog>
       )}
 
-      <details className="panel uc-how" style={{ marginBottom: 8 }}>
-        <summary>How it works</summary>
-        <ol className="help" style={{ margin: "8px 0 0", paddingLeft: 20 }}>
-          {(HOW_IT_WORKS[s.template] ?? HOW_IT_WORKS.default).map((t) => <li key={t}>{t}</li>)}
-        </ol>
-      </details>
-
       <div className="tabs" style={{ marginTop: 6 }}>
         {s.sessions && <button className={tab === "sessions" ? "active" : ""} onClick={() => setTab("sessions")}>Sessions</button>}
         <button className={tab === "setup" ? "active" : ""} onClick={() => setTab("setup")}>Setup</button>
@@ -484,15 +447,15 @@ export default function ProjectShell({ s, id, reload, template }: {
           )}
 
           {s.log && s.log.length > 0 && (
-            <details className="panel uc-how" style={{ marginTop: 20 }}>
-              <summary>Change history</summary>
-              <table style={{ marginTop: 8 }}>
+            <details style={{ marginTop: 24 }}>
+              <summary style={{ cursor: "pointer" }}><h2 style={{ display: "inline", marginLeft: 6 }}>Change history</h2></summary>
+              <table style={{ marginTop: 10 }}>
                 <tbody>
                   {s.log.map((l, i) => (
                     <tr key={i}>
-                      <td style={{ whiteSpace: "nowrap" }}><TimeAgo ts={l.at} /></td>
-                      <td className="mono">{l.action}</td>
-                      <td className="help">{l.detail}</td>
+                      <td style={{ whiteSpace: "nowrap", width: 90, verticalAlign: "top" }}><TimeAgo ts={l.at} /></td>
+                      <td className="mono" style={{ whiteSpace: "nowrap", width: 90, verticalAlign: "top" }}>{l.action}</td>
+                      <td className="help" style={{ overflowWrap: "anywhere" }}>{l.detail}</td>
                     </tr>
                   ))}
                 </tbody>
