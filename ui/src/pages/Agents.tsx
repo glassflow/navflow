@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import { AgentsRoster } from "./Activity";
 import { TimeAgo, fmtCost, usePolling } from "../components/bits";
 import type { AgentRun } from "../types";
 
@@ -77,6 +78,9 @@ export default function Agents() {
             </tbody>
           </table>
         )}
+
+      <h2 style={{ marginTop: 28 }}>External subscribers</h2>
+      <AgentsRoster only="connected" />
     </>
   );
 }

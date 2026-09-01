@@ -28,6 +28,7 @@ import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import Projects from "./pages/Projects";
+import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
 import ProjectNewCustom from "./pages/ProjectNewCustom";
 import ProjectNewGeneric from "./pages/ProjectNewGeneric";
@@ -40,7 +41,7 @@ function ActivityRedirect() {
   const q = new URLSearchParams(window.location.search);
   if (q.get("tab") === "queries") return <Navigate to="/reads" replace />;
   const agent = q.get("agent");
-  return <Navigate to={agent ? `/deliveries?agent=${encodeURIComponent(agent)}` : "/deliveries"} replace />;
+  return <Navigate to={agent ? `/agents?agent=${encodeURIComponent(agent)}` : "/firings"} replace />;
 }
 
 /** /usecases* was the name of /projects* before 1.14; bookmarks and old links still land. */
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
       { path: "projects", element: <Projects /> },
+      { path: "projects/new", element: <ProjectNew /> },
       { path: "projects/new/shared_code_context", element: <ProjectNewSharedContext /> },
       { path: "projects/new/custom", element: <ProjectNewCustom /> },
       { path: "projects/new/:template", element: <ProjectNewGeneric /> },
@@ -79,7 +81,9 @@ const router = createBrowserRouter([
       { path: "triggers/:name", element: <TriggerDetail /> },
       { path: "connect", element: <ConnectPage /> },
       { path: "reads", element: <AgentActivity /> },
-      { path: "deliveries", element: <Deliveries /> },
+      { path: "firings", element: <Deliveries /> },
+      // /deliveries was this page's name before the firing/delivery/dispatch words settled
+      { path: "deliveries", element: <Navigate to="/firings" replace /> },
       // TR-137 renames: /activity split into /reads + /deliveries (dispatches live with their
       // subscribers now); /security is /settings.
       { path: "activity", element: <ActivityRedirect /> },

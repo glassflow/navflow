@@ -38,13 +38,31 @@ export default function Sources() {
   // Host capabilities gate local-only actions: hide Auto-discover where Docker isn't reachable
   // (a hosted cell, or a local box without Docker). Shown until known false.
   const { data: caps } = usePolling(() => api.capabilities());
+  // for the project filter: id -> name, and which ids own a source at all
+  const { data: projectList } = usePolling(() => api.projects(), 30000);
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
+  const [connector, setConnector] = useState("all");
+  const [project, setProject] = useState("all");
 
   const statuses = useMemo(
     () => Array.from(new Set((sources ?? []).map((s) => s.health?.status ?? "starting"))).sort(),
     [sources],
+  );
+  const connectors = useMemo(
+    () => Array.from(new Set((sources ?? []).map((s) => s.connector))).sort(),
+    [sources],
+  );
+  const projectName = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const p of projectList?.projects ?? []) m[p.id] = p.name;
+    return m;
+  }, [projectList]);
+  const owningProjects = useMemo(
+    () => Array.from(new Set((sources ?? []).map((s) => s.owned_by).filter((x): x is string => !!x))).sort(
+      (a, b) => (projectName[a] ?? a).localeCompare(projectName[b] ?? b)),
+    [sources, projectName],
   );
 
   const shown = useMemo(() => {
@@ -52,9 +70,11 @@ export default function Sources() {
     return (sources ?? []).filter((s) => {
       const st = s.health?.status ?? "starting";
       return (status === "all" || st === status) &&
+        (connector === "all" || s.connector === connector) &&
+        (project === "all" || (project === "none" ? !s.owned_by : s.owned_by === project)) &&
         (!needle || s.name.toLowerCase().includes(needle) || s.connector.toLowerCase().includes(needle));
     });
-  }, [sources, q, status]);
+  }, [sources, q, status, connector, project]);
 
   return (
     <>
@@ -102,6 +122,17 @@ export default function Sources() {
                     style={{ width: 150 }}
                     options={["all", ...statuses]}
                     labels={{ all: "All statuses" }} />
+            <Picker value={connector} onChange={setConnector} ariaLabel="filter by connector"
+                    style={{ width: 160 }}
+                    options={["all", ...connectors]}
+                    labels={{ all: "All connectors" }} />
+            {owningProjects.length > 0 && (
+              <Picker value={project} onChange={setProject} ariaLabel="filter by project"
+                      style={{ width: 180 }}
+                      options={["all", "none", ...owningProjects]}
+                      labels={{ all: "All projects", none: "No project",
+                                ...Object.fromEntries(owningProjects.map((id) => [id, projectName[id] ?? id])) }} />
+            )}
             <span className="grow" />
             <span className="count">{shown.length} of {sources.length}</span>
           </div>
