@@ -13,6 +13,7 @@ from . import shared_code_context as _shared_code_context  # noqa: F401  (regist
 from . import ai_sre_demo as _ai_sre_demo  # noqa: F401  (registers itself)
 from . import challenger_workflow as _challenger_workflow  # noqa: F401  (registers itself)
 from . import custom as _custom  # noqa: F401  (registers itself)
+from . import rius_rca as _rius_rca  # noqa: F401  (registers itself)
 
 __all__ = ["Engine", "PlannedObject", "Template", "ProjectError",
            "get_template", "list_templates", "register"]
