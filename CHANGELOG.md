@@ -3,6 +3,22 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.21.0] - 2026-09-02
+
+### Added
+- **The rius_rca project template.** The Tares half of the Rius RCA integration: one API call
+  plans the alert source (keyed by a primary delivery_id label), the view, the per-delivery
+  trigger, the Rius MCP server and the RCA agent with its callback, budget and prompt from
+  params. Hidden from the console gallery; created by the Rius control plane.
+
+### Fixed
+- Unknown /api and /ingest paths answered with the console's HTML and a 200; they are a JSON
+  404 now.
+- PUT on a view or agent no longer requires the name in the body (the path already names it);
+  a rename attempt is still refused.
+- GET /api/sources/discover explains that discover is POST-only instead of failing as an
+  unknown source.
+
 ## [1.20.0] - 2026-09-01
 
 ### Changed
