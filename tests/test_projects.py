@@ -127,6 +127,24 @@ async def main():
                   r.json().get("apps") == ["ui", "api"] and
                   any(l["action"] == "created" for l in r.json()["log"]), r.text[:300])
 
+            print("== TR-226 API traps ==")
+            r = await cx.get("/api/agents/builtin/t_agent")   # a path that has never existed
+            check("unknown /api path -> JSON 404, not the SPA",
+                  r.status_code == 404 and "unknown API path" in r.text, f"{r.status_code} {r.text[:80]}")
+            r = await cx.get("/api/nope/deeper")
+            check("another unknown /api path -> 404", r.status_code == 404, r.text[:80])
+            r = await cx.get("/api/sources/discover")
+            check("GET discover -> 405 with the hint",
+                  r.status_code == 405 and "POST-only" in r.text, f"{r.status_code} {r.text[:80]}")
+            r = await cx.put("/api/views/t_view", json={
+                "key_field": "app", "sources": ["t_ui", "t_api"]})
+            check("PUT view without body name works", r.status_code == 200, r.text[:120])
+            r = await cx.put("/api/views/t_view", json={
+                "name": "other", "key_field": "app", "sources": ["t_ui"]})
+            check("rename attempt still 400", r.status_code == 400, r.text[:120])
+            r = await cx.post("/api/views", json={"key_field": "app", "sources": ["t_ui"]})
+            check("create view without name -> 400", r.status_code == 400, r.text[:120])
+
             print("== customized protection ==")
             body = {**views["t_view"], "sources": ["t_ui"]}
             r = await cx.put("/api/views/t_view", json={"name": "t_view", "key_field": "app",

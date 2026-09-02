@@ -217,6 +217,11 @@ def _degraded_app(reason: str) -> FastAPI:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def ui(path: str):
+        # An unmatched /api/* or /ingest/* path must never answer with the SPA's HTML and a 200 —
+        # a client checking the status reads that as success and fails to parse (TR-226). The
+        # console never requests these prefixes, so nothing legitimate is lost.
+        if path == "api" or path.startswith(("api/", "ingest/")):
+            _err(KeyError(f"unknown API path /{path}"), 404)
         return _serve_ui(path)
 
     return app
@@ -256,7 +261,7 @@ class SourceIn(BaseModel):
 
 
 class ViewIn(BaseModel):
-    name: str
+    name: str = ""               # required on create; PUT fills it from the path (TR-226)
     key_field: str = ""          # optional: what the primary key means; labels make it non-essential
     sources: list[str]
     filters: list[dict] = []
@@ -287,7 +292,7 @@ class TriggerIn(BaseModel):
 
 
 class AgentIn(BaseModel):
-    name: str
+    name: str = ""               # required on create; PUT fills it from the path (TR-226)
     trigger: str
     prompt: str
     slack_webhook: str = ""      # legacy per-agent notification path (blank-to-keep on update)
@@ -1013,6 +1018,11 @@ def make_app() -> FastAPI:
                 "distinct_before": len({b for b, _ in pairs}),
                 "distinct_after": len({a for _, a in pairs})}
 
+    @app.get("/api/sources/discover", include_in_schema=False)
+    async def discover_source_get():
+        _err(ValueError("discover is POST-only: POST /api/sources/discover "
+                        "{connector, config}"), 405)
+
     @app.post("/api/sources/discover")
     async def discover_source(body: dict = Body(...)):
         from .connectors import REGISTRY
@@ -1513,6 +1523,8 @@ def make_app() -> FastAPI:
 
     @app.post("/api/views", status_code=201)
     async def create_view(body: ViewIn):
+        if not body.name:
+            _err(ValueError("name is required"), 400)
         if body.name in runtime.catalog.views:
             _err(ValueError(f"view {body.name!r} already exists"), 409)
         try:
@@ -1527,10 +1539,12 @@ def make_app() -> FastAPI:
     async def update_view(name: str, body: ViewIn):
         if name not in runtime.catalog.views:
             _err(KeyError(f"unknown view {name!r}"), 404)
-        if body.name != name:
+        # the path names the view; a body name is optional and only checked for a rename attempt
+        if body.name and body.name != name:
             _err(ValueError("renaming a view is not supported; delete and recreate"), 400)
         try:
-            validate_view_dict(body.model_dump(), set(runtime.catalog.sources))
+            validate_view_dict({**body.model_dump(), "name": name},
+                               set(runtime.catalog.sources))
         except CatalogError as e:
             _err(e)
         store.upsert_catalog_view(name, body.key_field, body.sources, body.filters,
@@ -1664,6 +1678,8 @@ def make_app() -> FastAPI:
 
     @app.post("/api/agents/builtin", status_code=201)
     async def create_builtin_agent(body: AgentIn):
+        if not body.name:
+            _err(ValueError("name is required"), 400)
         if store.get_catalog_agent(body.name) is not None:
             _err(ValueError(f"agent {body.name!r} already exists"), 409)
         _agent_payload(body)
@@ -1680,7 +1696,8 @@ def make_app() -> FastAPI:
         existing = store.get_catalog_agent(name)
         if existing is None:
             _err(KeyError(f"unknown agent {name!r}"), 404)
-        if body.name != name:
+        # the path names the agent; a body name is optional and only checked for a rename attempt
+        if body.name and body.name != name:
             _err(ValueError("renaming an agent is not supported; delete and recreate"), 400)
         _agent_payload(body)
         # blank-to-keep for the webhook, matching the connector-secret convention: the UI never
@@ -2304,6 +2321,11 @@ def make_app() -> FastAPI:
     # ── console UI (built SPA; catch-all registered last so API routes win) ──
     @app.get("/{path:path}", include_in_schema=False)
     async def ui(path: str):
+        # An unmatched /api/* or /ingest/* path must never answer with the SPA's HTML and a 200 —
+        # a client checking the status reads that as success and fails to parse (TR-226). The
+        # console never requests these prefixes, so nothing legitimate is lost.
+        if path == "api" or path.startswith(("api/", "ingest/")):
+            _err(KeyError(f"unknown API path /{path}"), 404)
         return _serve_ui(path)
 
     return app
