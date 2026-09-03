@@ -279,8 +279,8 @@ export const api = {
     request<{ ok: boolean; deleted?: string[]; released?: string[]; purged_events?: number }>(
       `/api/projects/${encodeURIComponent(id)}${purgeEvents ? "?purge_events=true" : ""}`,
       { method: "DELETE" }),
-  pauseProject: (id: string) =>
-    request<Project>(`/api/projects/${encodeURIComponent(id)}/pause`, { method: "POST" }),
+  pauseProject: (id: string, sources = false) =>
+    request<Project>(`/api/projects/${encodeURIComponent(id)}/pause`, { method: "POST", body: JSON.stringify({ sources }) }),
   resumeProject: (id: string) =>
     request<Project>(`/api/projects/${encodeURIComponent(id)}/resume`, { method: "POST" }),
   detectRecipe: (key: string) =>

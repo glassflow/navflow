@@ -28,6 +28,8 @@ export default function ProjectShell({ s, id, reload, template }: {
 }) {
   const navigate = useNavigate();
   const custom = s.template === "custom";
+  const sourceCount = (s.objects ?? []).filter((o) => o.kind === "source" && !o.missing).length;
+  const pausedSources = ((s.params as Record<string, unknown> | undefined)?.paused_sources as string[] | undefined) ?? [];
   // ?tab= deep links win; otherwise a project with sessions opens on them
   const [tab, setTab] = useState<"setup" | "events" | "firings" | "agents" | "sessions">(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
@@ -44,9 +46,11 @@ export default function ProjectShell({ s, id, reload, template }: {
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
+  const [confirmPause, setConfirmPause] = useState(false);
+  const [pauseSources, setPauseSources] = useState(false);
 
   const names = (kind: string) => s.objects.filter((o) => o.kind === kind).map((o) => o.name);
-  const { data: sources } = usePolling(() => api.sources(), 10000);
+  const { data: sources, reload: reloadSources } = usePolling(() => api.sources(), 10000);
   const { data: views, reload: reloadViews } = usePolling(() => api.views(), 10000);
   const { data: triggers, reload: reloadTriggers } = usePolling(() => api.triggers(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
@@ -111,7 +115,8 @@ export default function ProjectShell({ s, id, reload, template }: {
 
   const act = (fn: () => Promise<unknown>) => async () => {
     setActionError(undefined);
-    try { await fn(); reload(); } catch (e) { setActionError(String((e as Error).message ?? e)); }
+    // pause/resume flip source and trigger state too; refresh those tables now, not at the next poll
+    try { await fn(); reload(); reloadSources(); reloadTriggers(); } catch (e) { setActionError(String((e as Error).message ?? e)); }
   };
   const opts = (o?: (string | RecipeActionOption)[]): RecipeActionOption[] =>
     (o ?? []).map((x) => (typeof x === "string" ? { value: x } : x));
@@ -150,16 +155,21 @@ export default function ProjectShell({ s, id, reload, template }: {
     <>
       <div className="pagehead">
         <div>
-          <h1>{s.name}</h1>
+          <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {s.name}
+            <span className={`badge ${s.status === "active" ? "ok" : s.status === "paused" ? "paused" : "error"}`}>{s.status}</span>
+          </h1>
           <p className="subtitle">
-            {s.template_title} · <span className={`badge ${s.status === "active" ? "ok" : s.status === "paused" ? "paused" : "error"}`}>{s.status}</span>
-            {s.status === "paused" && <span className="help" style={{ marginLeft: 8 }}>sources keep ingesting; the triggers and agents are off</span>}
+            {s.template_title}
+            {s.status === "paused" && (pausedSources.length
+              ? ` · ${pausedSources.length === sourceCount ? "sources" : `${pausedSources.length} of ${sourceCount} sources`}, triggers and agents are off`
+              : " · triggers and agents are off; sources keep ingesting")}
           </p>
         </div>
         <div className="btnrow">
           {s.status === "paused"
             ? <button onClick={act(() => api.resumeProject(id))}>Resume</button>
-            : <button onClick={act(() => api.pauseProject(id))}>Pause</button>}
+            : <button onClick={() => { setPauseSources(false); setConfirmPause(true); }}>Pause</button>}
           <Link className="btn" to={`/projects/new/${custom ? "custom" : encodeURIComponent(s.template)}?edit=${encodeURIComponent(id)}`}>Edit</Link>
           <button className="danger" onClick={() => { setPurge(false); setConfirmDel(true); }}>Delete</button>
         </div>
@@ -560,6 +570,20 @@ export default function ProjectShell({ s, id, reload, template }: {
           onCancel={() => setUnsub(null)} />
       )}
 
+      {confirmPause && (
+        <ConfirmDialog title={`Pause ${s.name}?`}
+          message="Its triggers stop firing and its agents stop running. Sources keep ingesting unless you pause them too; resume brings back exactly what pause stopped."
+          confirmLabel="Pause project"
+          onConfirm={async () => { setConfirmPause(false); await act(() => api.pauseProject(id, pauseSources))(); }}
+          onCancel={() => setConfirmPause(false)}>
+          {sourceCount > 0 && (
+            <label style={{ display: "block", marginTop: 8 }}>
+              <input type="checkbox" checked={pauseSources} onChange={(e) => setPauseSources(e.target.checked)} />{" "}
+              also pause its {sourceCount === 1 ? "source" : `${sourceCount} sources`}, so no data accumulates while it is paused
+            </label>
+          )}
+        </ConfirmDialog>
+      )}
       {confirmDel && (
         <ConfirmDialog title={`Delete project ${s.name}?`}
           message={custom

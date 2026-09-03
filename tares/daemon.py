@@ -2195,9 +2195,11 @@ def make_app() -> FastAPI:
             _uc_err(e)
 
     @app.post("/api/projects/{uid}/pause")
-    async def pause_project(uid: str):
+    async def pause_project(uid: str, body: dict | None = Body(default=None)):
+        """Body {"sources": true} also pauses the project's sources, so nothing accumulates while
+        it is paused (the AI SRE demo's traffic, for one). Default: sources keep ingesting."""
         try:
-            return projects.pause(uid)
+            return projects.pause(uid, sources=bool((body or {}).get("sources")))
         except Exception as e:
             _uc_err(e)
 
