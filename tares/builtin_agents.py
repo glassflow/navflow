@@ -28,7 +28,7 @@ import uuid
 
 import httpx
 
-from .config import FINDINGS_SOURCE, agent_url
+from .config import FINDINGS_SOURCE, API_BASE, agent_url
 from .envelope import now_utc
 from .pricing import cost_usd
 from .slack import deep_link as _slack_deep_link
@@ -40,8 +40,6 @@ MODEL = os.getenv("TARES_AGENT_MODEL", "claude-sonnet-4-6")
 # instance default moves every agent that never chose one.
 AGENT_MODELS = list(dict.fromkeys(
     [MODEL, "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"]))
-# Overridable so the end-to-end test can point at a stub instead of the real API.
-API_BASE = os.getenv("TARES_ANTHROPIC_BASE", "https://api.anthropic.com").rstrip("/")
 # Model-call rounds per run. The default is sized for read timeline + a query or two + a finding;
 # an agent that also reaches external MCP servers (a diff, a file, a write) needs more, so its
 # default is higher. Either can be overridden per agent (`max_rounds`, 1..24). One extra tools-off
@@ -144,17 +142,29 @@ def prompt_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:12]
 
 
-def resolve_key(store) -> tuple[str, str]:
-    """(key, where-it-came-from). The console-stored key wins over the env `ANTHROPIC_API_KEY`:
+def resolve_anthropic_headers(store) -> tuple[dict[str, str], str]:
+    """(header, where-it-came-from). The console-stored key wins over the env `ANTHROPIC_API_KEY`:
     the user's own key takes over from whatever the deployment shipped the moment they save one.
     That order is load-bearing for hosted trials — an operator-provided key in the env must yield
     to the customer's key instantly, so their spend lands on their key, not the trial's. Deleting
     the stored key falls back to the env key (if the deployment still carries one)."""
     stored = (store.get_setting("anthropic_key") or "").strip()
+    auth_token = os.getenv("ANTHROPIC_AUTH_TOKEN", "").strip()
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    headers = {"anthropic-version": "2023-06-01",}
     if stored:
-        return stored, "console"
-    val = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    return (val, "env:ANTHROPIC_API_KEY") if val else ("", "")
+        headers["x-api-key"] = stored
+        key_origin = "console"
+    elif auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+        key_origin = "env:ANTHROPIC_AUTH_TOKEN"
+    elif api_key:
+        headers["x-api-key"] = api_key
+        key_origin = "env:ANTHROPIC_API_KEY"
+    else:
+        return {}, ""
+
+    return headers, key_origin
 
 
 class AgentRunner:
@@ -324,8 +334,8 @@ class AgentRunner:
                    run_id: str, dispatch_id: str | None = None) -> tuple[str, str | None]:
         started_at = now_utc()
         t0 = time.monotonic()
-        api_key, key_origin = resolve_key(self.store)
-        if not api_key:
+        headers, key_origin = resolve_anthropic_headers(self.store)
+        if not headers:
             msg = "no Anthropic key: set ANTHROPIC_API_KEY before `tares up`, or add a key under Settings"
             self.store.finish_agent_run(run_id, "failed", error=msg)
             return "failed", msg
@@ -351,7 +361,7 @@ class AgentRunner:
                  "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
         try:
             finding, rounds, tool_calls, external_used, exhausted, partial = await self._loop(
-                agent, trigger_name, key, payload, api_key, usage)
+                agent, trigger_name, key, payload, headers, usage)
         finally:
             if usage["calls"]:
                 cost = cost_usd(model, usage["input_tokens"], usage["output_tokens"],
@@ -403,7 +413,7 @@ class AgentRunner:
 
     # ── the bounded model loop ────────────────────────────────────────────────
     async def _loop(self, agent: dict, trigger_name: str, key: str, payload: str,
-                    api_key: str, usage: dict) -> tuple[str, int, int, list[str], bool, str]:
+                    headers: dict, usage: dict) -> tuple[str, int, int, list[str], bool, str]:
         # External tools: the agent's selected MCP servers, connected for the duration of this
         # run. A server that fails to connect is skipped (recorded below) — losing a tool server
         # must not lose the run.
@@ -414,11 +424,11 @@ class AgentRunner:
         async with RemoteToolbox(servers) as toolbox:
             for failure in toolbox.failures:
                 print(f"[agent {agent['name']}] mcp connect failed; {failure}")
-            return await self._loop_with(agent, trigger_name, key, payload, api_key, toolbox,
+            return await self._loop_with(agent, trigger_name, key, payload, headers, toolbox,
                                          usage)
 
     async def _loop_with(self, agent: dict, trigger_name: str, key: str, payload: str,
-                         api_key: str, toolbox,
+                         headers: dict, toolbox,
                          usage: dict) -> tuple[str, int, int, list[str], bool, str]:
         """Returns (finding, rounds, tool_calls, external_tools_used, exhausted, partial_text)."""
         tools = TOOL_DEFS + toolbox.tool_defs
@@ -452,7 +462,7 @@ class AgentRunner:
                     body["tool_choice"] = {"type": "none"}
                 r = await cx.post(
                     f"{API_BASE}/v1/messages",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                    headers=headers,
                     json=body)
                 if r.status_code >= 400:
                     raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
