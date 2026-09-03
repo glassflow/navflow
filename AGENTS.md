@@ -48,6 +48,10 @@ Every knob is a `TARES_*` variable read at start. The ones you will meet most:
 | `TARES_MAX_DB_SIZE` | cap on the DuckDB file; `/api/usage` reports against it |
 | `TARES_SLACK_BOT_TOKEN`, `TARES_SLACK_SIGNING_SECRET` | the Slack surface |
 | `TARES_SEED_PROJECT` | template of the project to seed on first boot (`TARES_SEED_USECASE` still read) |
+| `TARES_TRACING_ENABLED` | agent tracing on/off (a console setting wins over it) |
+| `TARES_TRACING_PROVIDER`, `TARES_TRACING_ENDPOINT` | `rius` (endpoint preset) or `otlp` (any OTLP/HTTP endpoint) |
+| `TARES_TRACING_API_KEY`, `TARES_TRACING_HEADERS` | bearer key, or `k=v,k2=v2` headers for the exporter |
+| `TARES_INSTANCE_NAME` | prefix of the trace `service.name` (`<instance>/<agent>`); default the hostname |
 
 `grep -rhoE "TARES_[A-Z_]+" tares/*.py | sort -u` is the authoritative list.
 

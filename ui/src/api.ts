@@ -185,6 +185,13 @@ export const api = {
     request<{ ok: boolean; configured: boolean }>("/api/settings/anthropic-key",
       { method: "DELETE" }),
 
+  // Agent tracing: where runs are exported and whether. Secrets are write-only; the status says
+  // what resolves and where from (console vs environment).
+  tracingStatus: () => request<TracingStatus>("/api/settings/tracing"),
+  setTracing: (body: { enabled?: boolean; provider?: string; endpoint?: string; api_key?: string; headers?: string }) =>
+    request<TracingStatus & { ok: boolean; note?: string }>("/api/settings/tracing",
+      { method: "PUT", body: JSON.stringify(body) }),
+
   // The Slack bot token behind slack:// subscriptions. Same contract as the Anthropic key: the
   // value never leaves the server, only whether one resolves and where from.
   slackTokenStatus: () =>
@@ -365,4 +372,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ yaml, mode }),
     }),
+};
+
+export type TracingStatus = {
+  enabled: boolean; enabled_source: string; active: boolean;
+  provider: string; provider_source: string;
+  endpoint: string; endpoint_source: string;
+  key_configured: boolean; key_source: string; key_stored: boolean;
+  headers_configured: boolean; headers_source: string;
+  instance: string; providers: string[]; rius_console_url: string;
 };
