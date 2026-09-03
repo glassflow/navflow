@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api";
 import { Combo, Picker, ruleSummary } from "./bits";
-import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, TestResult } from "../types";
+import InfoDialog, { HelpButton } from "./InfoDialog";
+import type { ColumnsProposal, ConnectorField, ConnectorSpec, DiscoverProposal, EnvScan, GithubCredential, TestResult } from "../types";
 
 // Structured push connectors know their entity shape, so a fresh source starts with sensible
 // label axes (the user can still edit/remove them).
@@ -21,7 +22,7 @@ const NAME_PLACEHOLDER: Record<string, string> = {
 // What Discover does, per connector (fallback: the prometheus introspection copy).
 const DISCOVER_HINT: Record<string, string> = {
   docker_logs: "list the containers taresd can see, then pick one to fill this form",
-  github: "enter the repo above, then Discover its default branch + author labels",
+  github: "pick the repo above, then Discover its default branch + author labels",
   postgres: "enter the DSN above, then Discover; it lists the tables it can see; pick one and it proposes the cursor, entity key and labels from the columns",
   prometheus: "enter the URL (+ any auth) above, then Discover; it lists the metrics and labels so you can pick what to ingest (by name or by label). No PromQL to write.",
   prometheus_alerts: "enter the URL (+ any auth) above, then Discover; it lists the alerting rules Prometheus already has, and you ingest them as they fire (optionally filtered by severity).",
@@ -75,7 +76,10 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
       if (f.type === "list") continue;   // list fields use `rows`, below
       if (f.secret) { v[f.name] = ""; continue; }   // never prefill a secret
       const cur = initial?.config?.[f.name];
-      if (cur === undefined || cur === null) v[f.name] = "";
+      // a fresh source starts from the connector's default where it has one (a number or a
+      // string), so the value the daemon would use is the value on screen
+      if (cur === undefined || cur === null)
+        v[f.name] = !initial && f.default != null && (f.type === "number" || f.type === "string") ? String(f.default) : "";
       else if (f.type === "json") v[f.name] = JSON.stringify(cur, null, 2);
       else v[f.name] = String(cur);
     }
@@ -139,6 +143,63 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
   const [containers, setContainers] = useState<EnvScan["containers"]>();
   const [discovering, setDiscovering] = useState(false);
   const [discoverErr, setDiscoverErr] = useState<string>();
+  // github: access comes from a token stored in the cell (a credential) or, as the exception, a
+  // token on this source only. The stored ones are offered first; the repo is picked from what
+  // the chosen token can see. `values.credential` / `values.token` stay the form's truth.
+  const [ghCreds, setGhCreds] = useState<GithubCredential[]>();
+  const [ghNew, setGhNew] = useState(false);                     // the "add a new token" strip is open
+  const [ghSave, setGhSave] = useState(false);                   // save the new token in the cell (off: this source only)
+  const [ghName, setGhName] = useState("");
+  const [ghApi, setGhApi] = useState("");
+  const [ghTest, setGhTest] = useState<{ busy?: boolean; ok?: boolean; login?: string; error?: string }>();
+  const [ghRepos, setGhRepos] = useState<{ full_name: string; default_branch: string; private: boolean }[]>();
+  const [ghReposErr, setGhReposErr] = useState<string>();
+  const [ghHelp, setGhHelp] = useState(false);
+  const ghOwnToken = connector === "github" && !!initial?.config?.token && !cleared.token;   // editing a source that carries its own token
+  useEffect(() => {
+    if (connector !== "github") return;
+    api.githubCredentials().then((r) => {
+      setGhCreds(r.credentials);
+      // a fresh source with stored tokens starts on the first one; nothing is typed by hand
+      if (!initial && r.credentials.length > 0)
+        setValues((v) => (v.credential ? v : { ...v, credential: r.credentials[0].name }));
+      const names = r.credentials.map((c) => c.name);
+      let n = "github", i = 2;
+      while (names.includes(n)) n = `github-${i++}`;
+      setGhName(n);
+    }).catch(() => setGhCreds([]));
+  }, [connector]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (connector !== "github" || !values.credential) { setGhRepos(undefined); setGhReposErr(undefined); return; }
+    let live = true;
+    setGhRepos(undefined); setGhReposErr(undefined);
+    api.githubCredentialRepos(values.credential)
+      .then((r) => { if (live) setGhRepos(r.repos); })
+      .catch((e) => { if (live) setGhReposErr(String((e as Error).message ?? e)); });
+    return () => { live = false; };
+  }, [connector, values.credential]);
+  const ghPick = (name: string) => {
+    setValues((v) => ({ ...v, credential: name, token: "" }));
+    if (ghOwnToken) setCleared((c) => ({ ...c, token: true }));   // the stored token replaces this source's own
+    setGhTest(undefined); setGhNew(false);
+  };
+  const ghTestCred = async () => {
+    if (!values.credential) return;
+    setGhTest({ busy: true });
+    try {
+      const r = await api.testGithubCredential(values.credential);
+      setGhTest({ ok: r.ok, login: r.login, error: r.error });
+    } catch (e) { setGhTest({ ok: false, error: String((e as Error).message ?? e) }); }
+  };
+  const ghSaveToken = () => run(async () => {
+    const token = values.token.trim();
+    if (!token) throw new Error("paste the token first");
+    if (!ghName.trim()) throw new Error("give the token a name");
+    await api.createGithubCredential({ name: ghName.trim(), token, api_url: ghApi.trim() || undefined });
+    const r = await api.githubCredentials();
+    setGhCreds(r.credentials);
+    ghPick(ghName.trim());
+  });
 
   const jsonErrors = useMemo(() => {
     const errs: Record<string, string> = {};
@@ -411,6 +472,120 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
     connector === "postgres" && !!pgColumns?.length && !!values[f.name]?.trim()
     && ["cursor_column", "time_column"].includes(f.name);
 
+  // GitHub: access (a stored token, or a new one) and the repo picked from what it can see, in
+  // place of the generic repo / credential / token rows.
+  const renderGithubFields = () => {
+    const creds = ghCreds ?? [];
+    const credOpts = creds.map((c) => c.name);
+    const credLabels = Object.fromEntries(creds.map((c) => [c.name, c.account ? `${c.name} (${c.account})` : c.name]));
+    const stored = !!values.credential && !ghNew;
+    const addingNew = ghNew || (ghCreds !== undefined && creds.length === 0 && !ghOwnToken);
+    const repoField = spec.fields.find((f) => f.name === "repo")!;
+    return (
+      <>
+        <div className="fld-row">
+          <div className="fld-meta">
+            <span className="lbl">access</span>
+            <span className="help">
+              {stored ? "a token stored in this cell; the source reads it at every poll, so rotating it under Settings rotates this source too"
+                : addingNew ? "a GitHub token; private repos need one, and without one GitHub allows 60 requests an hour"
+                : ghOwnToken ? "this source carries its own token"
+                : "no token: public repos only, 60 requests an hour"}
+            </span>
+          </div>
+          <div className="fld-ctrl">
+            {ghCreds === undefined && <span className="dim">loading…</span>}
+            {ghCreds !== undefined && !addingNew && (
+              <div className="btnrow" style={{ flexWrap: "nowrap" }}>
+                {creds.length > 0 && (
+                  <Picker value={values.credential} onChange={ghPick} ariaLabel="stored token" style={{ flex: 1 }}
+                          options={values.credential && !credOpts.includes(values.credential) ? [values.credential, ...credOpts] : credOpts}
+                          labels={credLabels} />
+                )}
+                {stored && (
+                  <button type="button" onClick={ghTestCred} disabled={ghTest?.busy}>{ghTest?.busy ? "testing…" : "Test"}</button>
+                )}
+                <button type="button" onClick={() => { setGhNew(true); setValues((v) => ({ ...v, token: "" })); }}>Add a new token</button>
+              </div>
+            )}
+            {ghTest && !ghTest.busy && !addingNew && (
+              <div style={{ marginTop: 6 }}>
+                {ghTest.ok ? <span className="badge ok">signed in as {ghTest.login}</span>
+                  : <span className="badge error">{ghTest.error ?? "failed"}</span>}
+              </div>
+            )}
+            {ghOwnToken && !addingNew && !stored && (
+              <div className="help" style={{ marginTop: 6 }}>
+                kept as it is{creds.length > 0 ? "; pick a stored token above to use that instead" : ""}
+              </div>
+            )}
+            {addingNew && (
+              <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input type="password" className="mono" autoComplete="new-password" data-1p-ignore data-lpignore="true"
+                         value={values.token} placeholder="github_pat_…" style={{ flex: 1 }}
+                         onChange={(e) => setValues({ ...values, token: e.target.value, credential: "" })} />
+                  <HelpButton onClick={() => setGhHelp(true)} label="Which permissions does the token need?" />
+                </div>
+                <label style={{ display: "block", marginTop: 8 }}>
+                  <input type="checkbox" checked={ghSave} onChange={(e) => setGhSave(e.target.checked)} />{" "}
+                  save it in this cell, so other sources and agents can use it too
+                </label>
+                {ghSave ? (
+                  <div className="btnrow" style={{ marginTop: 8, flexWrap: "nowrap" }}>
+                    <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" value={ghName} onChange={(e) => setGhName(e.target.value)}
+                           placeholder="name" style={{ width: 160 }} aria-label="token name" />
+                    <input type="text" autoComplete="off" data-1p-ignore data-lpignore="true" className="mono" value={ghApi} onChange={(e) => setGhApi(e.target.value)}
+                           placeholder="GitHub Enterprise API URL, optional" style={{ flex: 1 }} aria-label="GitHub Enterprise API URL" />
+                    <button type="button" className="primary" disabled={busy || !values.token.trim() || !ghName.trim()} onClick={ghSaveToken}>Save token</button>
+                    {creds.length > 0 && <button type="button" onClick={() => { setGhNew(false); setValues((v) => ({ ...v, token: "" })); }}>Cancel</button>}
+                  </div>
+                ) : (
+                  <div className="btnrow" style={{ marginTop: 8 }}>
+                    <span className="help">used by this source only; it is stored with the source, never shown again</span>
+                    {creds.length > 0 && <button type="button" onClick={() => { setGhNew(false); setValues((v) => ({ ...v, token: "" })); }}>Cancel</button>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="fld-row">
+          <div className="fld-meta">
+            <span className="lbl">repo<span className="req"> *</span></span>
+            <span className="help">
+              {stored
+                ? ghRepos ? `pick one of the ${ghRepos.length} repos the token can see, or type owner/name`
+                  : ghReposErr ? `could not list the token's repos (${ghReposErr}); type owner/name`
+                  : "listing the repos the token can see…"
+                : repoField.help}
+            </span>
+          </div>
+          <div className="fld-ctrl">
+            {stored && ghRepos ? (
+              <Combo className="mono" value={values.repo} placeholder="owner/name"
+                     options={ghRepos.map((r) => r.full_name)}
+                     hints={Object.fromEntries(ghRepos.map((r) => [r.full_name, `${r.private ? "private" : "public"} · ${r.default_branch}`]))}
+                     onChange={(v) => setValues({ ...values, repo: v.trim() })} />
+            ) : (
+              <input type="text" className="mono" value={values.repo} placeholder="owner/name" autoComplete="off"
+                     onChange={(e) => setValues({ ...values, repo: e.target.value })} />
+            )}
+          </div>
+        </div>
+        {ghHelp && (
+          <InfoDialog title="Token permissions" onClose={() => setGhHelp(false)}>
+            <p className="help" style={{ margin: 0 }}>
+              Create a fine-grained personal access token on GitHub (Settings, Developer settings, Personal access tokens, Fine-grained tokens).
+              Under Repository access pick the repos this cell should read. Repository permissions: Contents, Read-only, to read commits and diffs; Metadata, Read-only, added by GitHub automatically, to list the repos.
+              A token that agents also write with needs Contents and Pull requests as Read and write.
+            </p>
+          </InfoDialog>
+        )}
+      </>
+    );
+  };
+
   // Two-column row: label + description on the left, control on the right. (list fields keep their
   // own full-width editor.)
   const renderField = (f: ConnectorField) => {
@@ -537,6 +712,8 @@ export default function SourceForm({ connector, spec, initial, lockName, submitL
         </div>
       ) : connector === "reference" ? (
         <ReferenceForm attachments={refAttachments} setAttachments={setRefAttachments} />
+      ) : connector === "github" ? (
+        renderGithubFields()
       ) : (
         (spec.discover ? spec.fields.filter((f) => f.discover_input) : spec.fields).map(renderField)
       )}

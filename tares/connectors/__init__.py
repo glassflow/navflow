@@ -293,7 +293,9 @@ def _fields_from_schema(schema: dict) -> list:
         ftype = {"number": "number", "bool": "bool"}.get(spec["type"], "string")
         return {"name": name, "type": ftype, "required": spec.get("required", False),
                 "help": spec.get("help", ""), "secret": spec.get("secret", False),
-                "discover_input": spec.get("discover_input", False)}
+                "discover_input": spec.get("discover_input", False),
+                # the value the connector uses when the field is left empty; the form shows it
+                **({"default": spec["default"]} if "default" in spec else {})}
 
     fields = []
     for name, spec in schema.items():
