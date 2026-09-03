@@ -46,6 +46,7 @@ from .runtime import Runtime
 from . import slack as slack_mod
 from . import slack_verify
 from .slack import SETTING_KEY as SLACK_TOKEN_SETTING, resolve_token as resolve_slack_token
+from .tracing import PROVIDERS as tracing_providers, status as tracing_status
 from .store import Store, StoreUnavailable
 from .projects import Engine as ProjectEngine, ProjectError
 from .views import resolve_query_full, resolve_read
@@ -357,6 +358,14 @@ class AskSessionIn(BaseModel):
     state: str             # opaque JSON blob owned by the console (messages + decisions)
 
 
+class TracingIn(BaseModel):
+    enabled: bool | None = None
+    provider: str | None = None
+    endpoint: str | None = None
+    api_key: str | None = None
+    headers: str | None = None
+
+
 class AnthropicKeyIn(BaseModel):
     key: str    # blank-to-keep is not offered here: the only edits are "set a new one" or DELETE
 
@@ -422,6 +431,9 @@ def make_app() -> FastAPI:
     # webhook). In-process, so `tares up` closes the loop with nothing to deploy.
     dispatcher.agents = AgentRunner(store, runtime)
     dispatcher.runtime = runtime
+    # Agent tracing (tracing.py): the runner's provider cache, shared with Ask so both surfaces
+    # follow the same switch and land in the same backend.
+    tracing = dispatcher.agents.tracing
 
     _seed_project(store, projects)
 
@@ -468,6 +480,7 @@ def make_app() -> FastAPI:
         if grpc_server is not None:
             await grpc_server.stop(grace=2)
         runtime.shutdown()
+        tracing.shutdown()   # flush the last spans; a lost trace is not a lost run
 
     app = FastAPI(title="taresd", lifespan=lifespan)
     app.state.store = store   # for in-process tests; DuckDB is single-writer, so no second Store
@@ -1281,7 +1294,8 @@ def make_app() -> FastAPI:
         return StreamingResponse(
             run_agent(headers, body.get("messages") or [],
                       model=body.get("model"), self_headers=self_headers,
-                      on_usage=lambda m, u: _record_ask_usage(m, u, key_source=key_origin)),
+                      on_usage=lambda m, u: _record_ask_usage(m, u, key_source=key_origin),
+                      tracer=tracing.tracer_for("ask")),
             media_type="text/event-stream")
 
     # ── MCP connections — external tool servers a Tares agent can opt into ─────
@@ -1813,6 +1827,38 @@ def make_app() -> FastAPI:
         key, origin = resolve_anthropic_headers(store)
         return {"ok": True, "configured": bool(key), "source": origin}
 
+    # ── agent tracing: where runs are exported, and whether ──────────────────
+    # A console-stored value wins over the environment, like the Anthropic key. Secrets (the
+    # key, the headers) are write-only: the API says whether one resolves and where from.
+    @app.get("/api/settings/tracing")
+    async def get_tracing():
+        return tracing_status(store)
+
+    @app.put("/api/settings/tracing")
+    async def set_tracing(body: TracingIn):
+        """Every field is optional; a field left out is untouched, an empty string clears the
+        stored value (the environment value, if any, takes over again)."""
+        if body.provider is not None:
+            p = body.provider.strip().lower()
+            if p and p not in tracing_providers:
+                _err(ValueError(f"provider must be one of {', '.join(tracing_providers)}"))
+            store.set_setting("tracing_provider", p or None)
+        if body.endpoint is not None:
+            ep = body.endpoint.strip()
+            if ep and not (ep.startswith("http://") or ep.startswith("https://")):
+                _err(ValueError("endpoint must be an http(s) URL, e.g. https://collector:4318"))
+            store.set_setting("tracing_endpoint", ep or None)
+        if body.api_key is not None:
+            store.set_setting("tracing_api_key", body.api_key.strip() or None)
+        if body.headers is not None:
+            store.set_setting("tracing_headers", body.headers.strip() or None)
+        if body.enabled is not None:
+            store.set_setting("tracing_enabled", "1" if body.enabled else "0")
+        out = tracing_status(store)
+        if out["enabled"] and not out["active"]:
+            out["note"] = "switched on, but no endpoint resolves; pick a provider or set one"
+        return {"ok": True, **out}
+
     # ── the Slack bot token: same contract as the Anthropic key ──────────────
     # One token per instance, behind every slack:// subscription. It is a credential, so it is
     # write-only over the API exactly like the model key: the console can learn THAT one resolves
@@ -1934,7 +1980,8 @@ def make_app() -> FastAPI:
                 async for chunk in run_agent(headers, [{"role": "user", "content": question}],
                                              self_headers=self_headers,
                                              on_usage=lambda m, u: _record_ask_usage(
-                                                 m, u, key_source=key_origin)):
+                                                 m, u, key_source=key_origin),
+                                             tracer=tracing.tracer_for("ask")):
                     for line in chunk.splitlines():
                         if not line.startswith("data: "):
                             continue
@@ -2197,9 +2244,11 @@ def make_app() -> FastAPI:
             _uc_err(e)
 
     @app.post("/api/projects/{uid}/pause")
-    async def pause_project(uid: str):
+    async def pause_project(uid: str, body: dict | None = Body(default=None)):
+        """Body {"sources": true} also pauses the project's sources, so nothing accumulates while
+        it is paused (the AI SRE demo's traffic, for one). Default: sources keep ingesting."""
         try:
-            return projects.pause(uid)
+            return projects.pause(uid, sources=bool((body or {}).get("sources")))
         except Exception as e:
             _uc_err(e)
 

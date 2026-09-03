@@ -30,6 +30,7 @@ export interface ConnectorField {
   help: string;
   secret?: boolean;          // render as a password input (tokens, DSNs)
   discover_input?: boolean;  // Discover needs this field — shown above the Discover panel
+  default?: unknown;         // what the connector uses when the field is empty; prefilled on a fresh source
   item?: ConnectorField[];   // for type "list": the sub-fields of each row
 }
 

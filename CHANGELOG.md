@@ -3,6 +3,37 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.23.0] - 2026-09-03
+
+### Added
+- **Agent tracing.** Every Tares agent run and every Ask turn can be exported as an
+  OpenTelemetry trace: a root span for the run, one span per model call (model, messages,
+  tokens, stop reason) and one per tool call, in the OpenInference and gen_ai conventions the
+  GenAI observability backends read. Rius is a preset (an API key is enough); any OTLP/HTTP
+  endpoint works with the `otlp` provider (Langfuse, Phoenix, a collector). Each agent is its
+  own service (`<instance>/<agent>`), so a backend groups per agent out of the box. Settings,
+  Observability holds the switch and the provider; `TARES_TRACING_*` sets the same from the
+  environment, and a console value wins. Off unless switched on.
+
+## [1.22.0] - 2026-09-03
+
+### Added
+- **Pause a project with its sources.** Pause asks whether to pause the project's sources too,
+  so nothing accumulates while it is paused (the AI SRE demo's traffic, for one). Resume brings
+  back exactly the sources pause stopped; one paused by hand before stays paused. The API takes
+  `{"sources": true}` on the pause endpoint.
+- **The GitHub source form uses the tokens the cell already holds.** A stored token is picked
+  from a dropdown, the repo from the list that token can see, and a new token can be saved in
+  the cell from the same form. Field defaults are shown on a fresh source (limit starts at 20).
+
+### Changed
+- **The challenger project's sessions open in place.** The open session is marked and its
+  detail sits under its row: the summary, that session's memory proposals with Accept and
+  Reject, then the exchange. Commits are one line per session instead of a chip per commit,
+  and the open session is in the URL. The separate proposals panel is gone; a row whose
+  session still has proposals waiting says so.
+- The project page shows the status badge beside the project name.
+
 ## [1.21.0] - 2026-09-02
 
 ### Added

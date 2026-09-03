@@ -12,6 +12,8 @@ import time
 
 import httpx
 
+from . import tracing as _tracing
+
 from .config import API_BASE
 
 DEFAULT_MODEL = os.getenv("TARES_AGENT_MODEL", "claude-sonnet-4-6")
@@ -295,12 +297,23 @@ def _sse(obj: dict) -> str:
 
 async def run_agent(anthropic_headers: dict, messages: list,
                     model: str | None = None, self_headers: dict | None = None,
-                    on_usage=None):
+                    on_usage=None, tracer=None):
     """Async generator of SSE lines: the agent loop, streaming assistant text and tool activity.
 
     `on_usage(model, usage_dict)` is called once per turn (after the loop, including on an error
     mid-turn) with the summed token usage of every model call the turn made, so the caller can
-    meter Ask's Anthropic spend. Never called when no model call completed."""
+    meter Ask's Anthropic spend. Never called when no model call completed.
+
+    `tracer` (see tracing.py) makes the turn a trace: a root span, one LLM span per model call,
+    one tool span per tool call. None means no tracing."""
+    with _tracing.run_span(tracer, "ask", kind="CHAIN") as obs:
+        async for line in _run_agent(anthropic_headers, messages, model, self_headers, on_usage, tracer,
+                                     obs):
+            yield line
+
+
+async def _run_agent(anthropic_headers: dict, messages: list, model, self_headers, on_usage, tracer,
+                     obs: _tracing.Observation):
     try:
         import anthropic
     except ImportError:
@@ -310,29 +323,40 @@ async def run_agent(anthropic_headers: dict, messages: list,
 
     client = anthropic.AsyncAnthropic(base_url=API_BASE, default_headers=anthropic_headers)
     convo = list(messages)
+    last = convo[-1] if convo else None
+    obs.set_input(last.get("content") if isinstance(last, dict) else last)
     headers = self_headers or {}
     used_model = model or DEFAULT_MODEL
     usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0,
              "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
     try:
         for _ in range(MAX_ROUNDS):
-            async with client.messages.stream(
-                model=model or DEFAULT_MODEL, max_tokens=2048,
-                system=system_prompt(), tools=tools_for(), messages=convo,
-            ) as stream:
-                async for event in stream:
-                    if event.type == "content_block_delta" and event.delta.type == "text_delta":
-                        yield _sse({"type": "text", "text": event.delta.text})
-                final = await stream.get_final_message()
+            with _tracing.generation(tracer, model or DEFAULT_MODEL, convo,
+                                     {"max_tokens": 2048}) as gen:
+                async with client.messages.stream(
+                    model=model or DEFAULT_MODEL, max_tokens=2048,
+                    system=system_prompt(), tools=tools_for(), messages=convo,
+                ) as stream:
+                    async for event in stream:
+                        if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                            gen.record_first_token()
+                            yield _sse({"type": "text", "text": event.delta.text})
+                    final = await stream.get_final_message()
 
-            usage["calls"] += 1
-            for field in ("input_tokens", "output_tokens",
-                          "cache_creation_input_tokens", "cache_read_input_tokens"):
-                usage[field] += int(getattr(final.usage, field, 0) or 0)
-            used_model = final.model or used_model
+                usage["calls"] += 1
+                for field in ("input_tokens", "output_tokens",
+                              "cache_creation_input_tokens", "cache_read_input_tokens"):
+                    usage[field] += int(getattr(final.usage, field, 0) or 0)
+                used_model = final.model or used_model
+                gen.set_output(list(final.content))
+                gen.set_usage(final.usage)
+                gen.set_response_model(final.model)
+                gen.set_finish_reason(getattr(final, "stop_reason", None))
             convo.append({"role": "assistant", "content": final.content})
             tool_uses = [b for b in final.content if b.type == "tool_use"]
             if not tool_uses:
+                text = "\n".join(b.text for b in final.content if b.type == "text")
+                obs.set_output(text)
                 break
             results = []
             for tu in tool_uses:
@@ -360,7 +384,12 @@ async def run_agent(anthropic_headers: dict, messages: list,
                 # "thinking…", and a read that takes four seconds looked identical to a hung one.
                 yield _sse({"type": "tool", "id": tu.id, "name": tu.name, "input": tu.input})
                 t0 = time.perf_counter()
-                ok, out = await _execute_tool(tu.name, tu.input, headers)
+                with _tracing.tool_span(tracer, tu.name, tu.input) as tobs:
+                    ok, out = await _execute_tool(tu.name, tu.input, headers)
+                    if ok:
+                        tobs.set_output(out)
+                    else:
+                        tobs.tool_error(out)
                 yield _sse({"type": "tool_done", "id": tu.id,
                             "ms": int((time.perf_counter() - t0) * 1000),
                             "ok": ok,
@@ -370,6 +399,7 @@ async def run_agent(anthropic_headers: dict, messages: list,
             convo.append({"role": "user", "content": results})
         yield _sse({"type": "done"})
     except Exception as e:  # noqa: BLE001 — surface auth/rate/other errors to the chat
+        obs.error(e)
         yield _sse({"type": "error", "detail": f"{type(e).__name__}: {e}"})
     finally:
         if usage["calls"] and on_usage is not None:
