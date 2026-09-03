@@ -379,7 +379,16 @@ class Observation:
         except Exception:
             pass
 
+    def tool_error(self, detail: str) -> None:
+        """A tool call that returned an error. The model gets the error text back and goes on,
+        so the run is not failed: the span carries the text and a flag, but NOT the ERROR status
+        (a backend rolls span status up to the trace, and a trace with one fumbled tool call
+        would read as a failed run)."""
+        self.set_attribute("tares.tool_error", True)
+        self.set_output(detail)
+
     def error(self, detail: str | BaseException) -> None:
+        """The run itself failed: ERROR status, which the backend rolls up to the trace."""
         if self._span is None:
             return
         try:

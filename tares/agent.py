@@ -384,9 +384,10 @@ async def _run_agent(api_key: str, messages: list, model, self_headers, on_usage
                 t0 = time.perf_counter()
                 with _tracing.tool_span(tracer, tu.name, tu.input) as tobs:
                     ok, out = await _execute_tool(tu.name, tu.input, headers)
-                    tobs.set_output(out)
-                    if not ok:
-                        tobs.error(out[:300])
+                    if ok:
+                        tobs.set_output(out)
+                    else:
+                        tobs.tool_error(out)
                 yield _sse({"type": "tool_done", "id": tu.id,
                             "ms": int((time.perf_counter() - t0) * 1000),
                             "ok": ok,

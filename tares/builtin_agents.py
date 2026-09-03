@@ -528,8 +528,9 @@ class AgentRunner:
                                 out = self._tool(agent["name"], name, u.get("input") or {})
                         except Exception as e:   # a tool error is evidence, not a crash
                             out = f"tool error: {type(e).__name__}: {e}"
-                            tobs.error(e)
-                        tobs.set_output(out)
+                            tobs.tool_error(out)
+                        else:
+                            tobs.set_output(out)
                     results.append({"type": "tool_result", "tool_use_id": u["id"], "content": out})
                 messages.append({"role": "user", "content": results})
 

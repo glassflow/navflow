@@ -135,7 +135,19 @@ def part1():
        and tool.attributes.get("gen_ai.tool.name") == "read", str(tool.attributes))
     ck("tool input serialised", json.loads(tool.attributes["input.value"]) == {"selector": {"service": "checkout"}}, str(tool.attributes))
 
-    # errors mark the span
+    # a failed tool call is flagged on its span, but does not fail the trace
+    with T.run_span(tracer, "first-look", session="k") as obs:
+        with T.tool_span(tracer, "query", {}) as tobs:
+            tobs.tool_error("tool error: query needs a key")
+    tr.flush()
+    got = exporters[0].get_finished_spans()[-2:]
+    tspan = next(s for s in got if s.name == "query"); rspan = next(s for s in got if s.name == "first-look")
+    ck("tool error: flag + text on the tool span", tspan.attributes.get("tares.tool_error") is True
+       and "needs a key" in tspan.attributes.get("output.value", ""), str(tspan.attributes))
+    ck("tool error: no ERROR status on the tool span", tspan.status.status_code.name != "ERROR", str(tspan.status))
+    ck("tool error: run span stays unset", rspan.status.status_code.name == "UNSET", str(rspan.status))
+
+    # a failed run marks the span
     with T.run_span(tracer, "first-look", session="k") as obs:
         obs.error("boom")
     tr.flush()
