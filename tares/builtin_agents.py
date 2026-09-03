@@ -28,6 +28,7 @@ import uuid
 
 import httpx
 
+from . import tracing as _tracing
 from .config import FINDINGS_SOURCE, agent_url
 from .envelope import now_utc
 from .pricing import cost_usd
@@ -171,9 +172,12 @@ class AgentRunner:
     delays an external webhook on the same trigger.
     """
 
-    def __init__(self, store, runtime):
+    def __init__(self, store, runtime, tracing=None):
         self.store = store
         self.runtime = runtime
+        # One trace per run, exported to whatever backend the instance is configured for (see
+        # tracing.py); off unless switched on, and never in the way of a run.
+        self.tracing = tracing or _tracing.Tracing(store)
         self._tasks: set[asyncio.Task] = set()
         # The daemon's loop, so run_now() also works from a worker thread (a project action runs
         # in one); None when constructed outside a loop (tests building a runner by hand).
@@ -322,6 +326,22 @@ class AgentRunner:
 
     async def _run(self, agent: dict, trigger_name: str, key: str, payload: str,
                    run_id: str, dispatch_id: str | None = None) -> tuple[str, str | None]:
+        tracer = self.tracing.tracer_for(agent["name"])
+        with _tracing.run_span(tracer, agent["name"], session=key, attributes={
+                "tares.run_id": run_id, "tares.dispatch_id": dispatch_id or "",
+                "tares.trigger": trigger_name, "tares.key": key}) as obs:
+            status, error = await self._run_traced(agent, trigger_name, key, payload, run_id,
+                                                   dispatch_id, tracer, obs)
+            obs.set_attribute("tares.status", status)
+            if status == "failed" and error:
+                obs.error(error)
+            elif error:
+                obs.set_attribute("tares.note", error)
+            return status, error
+
+    async def _run_traced(self, agent: dict, trigger_name: str, key: str, payload: str,
+                          run_id: str, dispatch_id: str | None, tracer,
+                          obs: _tracing.Observation) -> tuple[str, str | None]:
         started_at = now_utc()
         t0 = time.monotonic()
         api_key, key_origin = resolve_key(self.store)
@@ -351,7 +371,7 @@ class AgentRunner:
                  "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
         try:
             finding, rounds, tool_calls, external_used, exhausted, partial = await self._loop(
-                agent, trigger_name, key, payload, api_key, usage)
+                agent, trigger_name, key, payload, api_key, usage, tracer, obs)
         finally:
             if usage["calls"]:
                 cost = cost_usd(model, usage["input_tokens"], usage["output_tokens"],
@@ -365,11 +385,15 @@ class AgentRunner:
                     usage["input_tokens"], usage["output_tokens"],
                     usage["cache_creation_input_tokens"], usage["cache_read_input_tokens"], cost,
                     key_source=key_origin)
+                obs.set_attribute("tares.cost_usd", cost)
+                obs.set_attribute("tares.model_calls", usage["calls"])
         if exhausted:
             # The round budget ran out before the model concluded. Keep whatever it said last as
             # a partial note (in `finding`, so it is visible) and say plainly what to do.
             cap = effective_max_rounds(agent)
             msg = f"round budget of {cap} exhausted before a conclusion; raise max rounds"
+            if partial:
+                obs.set_output(partial)
             self.store.finish_agent_run(run_id, "exhausted", rounds=rounds,
                                         tool_calls=tool_calls, finding=partial or None,
                                         error=msg, external_tools=external_used)
@@ -380,6 +404,9 @@ class AgentRunner:
                                         error=msg, external_tools=external_used)
             return "empty", msg
 
+        obs.set_output(finding)
+        obs.set_attribute("tares.rounds", rounds)
+        obs.set_attribute("tares.tool_calls", tool_calls)
         await self._record(agent, trigger_name, key, finding)
         self.store.finish_agent_run(run_id, "ok", rounds=rounds, tool_calls=tool_calls,
                                     finding=finding, external_tools=external_used)
@@ -403,7 +430,9 @@ class AgentRunner:
 
     # ── the bounded model loop ────────────────────────────────────────────────
     async def _loop(self, agent: dict, trigger_name: str, key: str, payload: str,
-                    api_key: str, usage: dict) -> tuple[str, int, int, list[str], bool, str]:
+                    api_key: str, usage: dict, tracer=None,
+                    obs: _tracing.Observation | None = None,
+                    ) -> tuple[str, int, int, list[str], bool, str]:
         # External tools: the agent's selected MCP servers, connected for the duration of this
         # run. A server that fails to connect is skipped (recorded below) — losing a tool server
         # must not lose the run.
@@ -415,11 +444,12 @@ class AgentRunner:
             for failure in toolbox.failures:
                 print(f"[agent {agent['name']}] mcp connect failed; {failure}")
             return await self._loop_with(agent, trigger_name, key, payload, api_key, toolbox,
-                                         usage)
+                                         usage, tracer, obs)
 
     async def _loop_with(self, agent: dict, trigger_name: str, key: str, payload: str,
-                         api_key: str, toolbox,
-                         usage: dict) -> tuple[str, int, int, list[str], bool, str]:
+                         api_key: str, toolbox, usage: dict, tracer=None,
+                         obs: _tracing.Observation | None = None,
+                         ) -> tuple[str, int, int, list[str], bool, str]:
         """Returns (finding, rounds, tool_calls, external_tools_used, exhausted, partial_text)."""
         tools = TOOL_DEFS + toolbox.tool_defs
         max_rounds = effective_max_rounds(agent)
@@ -441,6 +471,8 @@ class AgentRunner:
         }]
         rounds = tool_calls = 0
         last_text = ""
+        if obs is not None:
+            obs.set_input(messages[0]["content"])
         async with httpx.AsyncClient(timeout=TOOL_TIMEOUT) as cx:
             async def call(with_tools: bool) -> dict:
                 # The tools stay declared on the final call (a conversation holding tool_use
@@ -450,19 +482,25 @@ class AgentRunner:
                         "tools": tools, "messages": messages}
                 if not with_tools:
                     body["tool_choice"] = {"type": "none"}
-                r = await cx.post(
-                    f"{API_BASE}/v1/messages",
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                    json=body)
-                if r.status_code >= 400:
-                    raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
-                msg = r.json()
-                # Defensive get: stubs (tests) may answer without a usage block.
-                u = msg.get("usage") or {}
-                usage["calls"] += 1
-                for field in ("input_tokens", "output_tokens",
-                              "cache_creation_input_tokens", "cache_read_input_tokens"):
-                    usage[field] += int(u.get(field) or 0)
+                with _tracing.generation(tracer, body["model"], messages,
+                                         {"max_tokens": MAX_TOKENS}) as gen:
+                    r = await cx.post(
+                        f"{API_BASE}/v1/messages",
+                        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                        json=body)
+                    if r.status_code >= 400:
+                        raise RuntimeError(f"anthropic {r.status_code}: {r.text[:300]}")
+                    msg = r.json()
+                    # Defensive get: stubs (tests) may answer without a usage block.
+                    u = msg.get("usage") or {}
+                    usage["calls"] += 1
+                    for field in ("input_tokens", "output_tokens",
+                                  "cache_creation_input_tokens", "cache_read_input_tokens"):
+                        usage[field] += int(u.get(field) or 0)
+                    gen.set_output(msg.get("content") or [])
+                    gen.set_usage(u)
+                    gen.set_response_model(msg.get("model"))
+                    gen.set_finish_reason(msg.get("stop_reason"))
                 return msg
 
             for rounds in range(1, max_rounds + 1):
@@ -481,14 +519,18 @@ class AgentRunner:
                 for u in uses:
                     tool_calls += 1
                     name = str(u["name"])
-                    try:
-                        if toolbox.owns(name):
-                            external_used.append(name)
-                            out = await toolbox.call(name, u.get("input") or {})
+                    with _tracing.tool_span(tracer, name, u.get("input") or {}) as tobs:
+                        try:
+                            if toolbox.owns(name):
+                                external_used.append(name)
+                                out = await toolbox.call(name, u.get("input") or {})
+                            else:
+                                out = self._tool(agent["name"], name, u.get("input") or {})
+                        except Exception as e:   # a tool error is evidence, not a crash
+                            out = f"tool error: {type(e).__name__}: {e}"
+                            tobs.tool_error(out)
                         else:
-                            out = self._tool(agent["name"], name, u.get("input") or {})
-                    except Exception as e:   # a tool error is evidence, not a crash
-                        out = f"tool error: {type(e).__name__}: {e}"
+                            tobs.set_output(out)
                     results.append({"type": "tool_result", "tool_use_id": u["id"], "content": out})
                 messages.append({"role": "user", "content": results})
 

@@ -25,6 +25,10 @@ dependencies = [
     "pytz>=2024.1",   # DuckDB needs it to bind tz-aware datetimes to TIMESTAMPTZ
     "asyncpg>=0.29",  # Postgres connector driver — base so the connector works on `tares up`
     "anthropic>=0.40",  # console Ask/Organize agent — base so it works on `tares up`
+    # Agent tracing (tracing.py): OTLP/HTTP export of agent runs to Rius, Langfuse, a collector.
+    # Base so the console switch works on `tares up`; the http exporter is pure Python.
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-exporter-otlp-proto-http>=1.24",
 ]
 
 [project.urls]

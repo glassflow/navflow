@@ -3,6 +3,18 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Agent tracing.** Every Tares agent run and every Ask turn can be exported as an
+  OpenTelemetry trace: a root span for the run, one span per model call (model, messages,
+  tokens, stop reason) and one per tool call, in the OpenInference and gen_ai conventions the
+  GenAI observability backends read. Rius is a preset (an API key is enough); any OTLP/HTTP
+  endpoint works with the `otlp` provider (Langfuse, Phoenix, a collector). Each agent is its
+  own service (`<instance>/<agent>`), so a backend groups per agent out of the box. Settings,
+  Observability holds the switch and the provider; `TARES_TRACING_*` sets the same from the
+  environment, and a console value wins. Off unless switched on.
+
 ## [1.22.0] - 2026-09-03
 
 ### Added

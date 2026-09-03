@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../api";
+import { api, type TracingStatus } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { Close } from "../components/icons";
 import { TimeAgo } from "../components/bits";
@@ -13,12 +13,13 @@ import type { ApiKey, GithubCredential } from "../types";
 //   · Slack      — the bot token behind slack:// trigger subscriptions (outbound), and the
 //                  signing secret that authenticates the /tares slash command (inbound)
 // The per-source ingest URL is an address, not a secret — it lives on the source page, not here.
-type SettingsTab = "access" | "anthropic" | "github" | "slack";
+type SettingsTab = "access" | "anthropic" | "github" | "slack" | "observability";
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "access", label: "Access and API keys" },
   { key: "anthropic", label: "Anthropic" },
   { key: "github", label: "GitHub" },
   { key: "slack", label: "Slack" },
+  { key: "observability", label: "Observability" },
 ];
 
 export default function Security() {
@@ -40,7 +41,7 @@ export default function Security() {
   return (
     <>
       <h1>Settings</h1>
-      <p className="subtitle">access mode, API keys, and the instance credentials: Anthropic, GitHub and Slack</p>
+      <p className="subtitle">access mode, API keys, the instance credentials (Anthropic, GitHub, Slack) and agent tracing</p>
       {workspaceUrl && (
         <div className="alert" style={{ marginBottom: 14 }}>
           <strong>Users, the Slack app, plan and storage</strong> are managed in your workspace, not
@@ -58,6 +59,7 @@ export default function Security() {
       {tab === "anthropic" && <AnthropicKeyPanel />}
       {tab === "github" && <GithubPanel />}
       {tab === "slack" && <><SlackTokenPanel /><SlackSigningSecretPanel /></>}
+      {tab === "observability" && <TracingPanel />}
     </>
   );
 }
@@ -350,6 +352,139 @@ function AnthropicKeyPanel() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Agent tracing: every agent run and Ask turn exported as an OpenTelemetry trace. Rius is a
+// preset (a key is enough); any OTLP/HTTP endpoint works. Same precedence as the Anthropic key:
+// a value saved here wins over the environment, so a cloud cell shows "from env" everywhere and
+// the switch is the one live control. The key and headers are write-only.
+function TracingPanel() {
+  const [st, setSt] = useState<TracingStatus>();
+  const [provider, setProvider] = useState<string>();
+  const [endpoint, setEndpoint] = useState<string>();
+  const [apiKey, setApiKey] = useState("");
+  const [headers, setHeaders] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string>();
+  const [msg, setMsg] = useState<string>();
+
+  const load = () =>
+    api.tracingStatus().then((s) => { setSt(s); setProvider(undefined); setEndpoint(undefined); })
+      .catch((e) => setErr(String((e as Error).message ?? e)));
+  useEffect(() => { load(); }, []);
+
+  const apply = async (body: Parameters<typeof api.setTracing>[0], done?: string) => {
+    setBusy(true); setErr(undefined); setMsg(undefined);
+    try {
+      const r = await api.setTracing(body);
+      setMsg(r.note ?? done ?? "✓ saved");
+      setApiKey(""); setHeaders("");
+      await load();
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+
+  const from = (source: string) =>
+    source === "console" ? "saved here" : source.startsWith("env:") ? `from ${source}` :
+    source === "preset" ? "the provider's default" : source === "default" ? "default" : "";
+
+  if (!st) return <div className="panel"><h2 style={{ marginTop: 0 }}>Agent tracing</h2>
+    {err ? <div className="alert error">{err}</div> : <div className="muted">loading…</div>}</div>;
+
+  const prov = provider ?? st.provider;
+  const ep = endpoint ?? (st.endpoint_source === "preset" ? "" : st.endpoint);
+  const envOnly = st.provider_source.startsWith("env:") || st.key_source.startsWith("env:");
+
+  return (
+    <div className="panel">
+      <h2 style={{ marginTop: 0 }}>Agent tracing</h2>
+      <p className="help" style={{ marginTop: 0 }}>
+        Every agent run and every Ask turn becomes an OpenTelemetry trace: the run, each model
+        call with its prompt, answer, tokens and cost, and each tool call. Traces go to the
+        backend below; each agent is its own service, named <code>{st.instance}/&lt;agent&gt;</code>.
+        The key and headers are never returned by the API.
+      </p>
+
+      {err && <div className="alert error">{err}</div>}
+      {msg && <p className="help">{msg}</p>}
+
+      <p style={{ margin: "0 0 12px" }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <input type="checkbox" checked={st.enabled} disabled={busy}
+                 onChange={(e) => apply({ enabled: e.target.checked },
+                                        e.target.checked ? "✓ tracing on" : "✓ tracing off")} />
+          <strong>Send agent traces</strong>
+        </label>{" "}
+        {st.enabled
+          ? (st.active
+              ? <span className="badge ok">on</span>
+              : <span className="badge error">on, but no endpoint resolves</span>)
+          : <span className="badge">off</span>}
+        {st.enabled_source && <span className="help"> {from(st.enabled_source)}</span>}
+      </p>
+
+      {envOnly && (
+        <p className="help" style={{ margin: "0 0 10px" }}>
+          The provider and key come from the deployment's environment. Saving a value here
+          replaces it for this instance; clearing it falls back to the environment.
+        </p>
+      )}
+
+      <div style={{ display: "grid", gap: 10, maxWidth: 720 }}>
+        <label className="help">Provider{" "}
+          <select value={prov} disabled={busy} onChange={(e) => setProvider(e.target.value)}>
+            <option value="rius">Rius (GlassFlow)</option>
+            <option value="otlp">Any OpenTelemetry endpoint (OTLP/HTTP)</option>
+          </select>{" "}
+          <span className="muted">{from(st.provider_source)}</span>
+        </label>
+
+        {prov === "rius" ? (
+          <>
+            <p className="help" style={{ margin: 0 }}>
+              Create an API key in the Rius console under Settings, API keys and paste it here.{" "}
+              <a href={st.rius_console_url} target="_blank" rel="noreferrer">Open Rius ↗</a>
+              {" "}{st.key_configured
+                ? <><span className="badge ok">key configured</span> <span className="muted">{from(st.key_source)}</span></>
+                : <span className="badge error">no key</span>}
+            </p>
+            <div className="btnrow" style={{ alignItems: "center" }}>
+              <input type="password" className="mono" style={{ flex: 1 }} placeholder="gf_…"
+                     value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+              <button className="primary" disabled={busy || !apiKey.trim()}
+                      onClick={() => apply({ provider: "rius", api_key: apiKey.trim() })}>Save</button>
+              {st.key_stored && (
+                <button className="danger" disabled={busy}
+                        onClick={() => apply({ api_key: "" }, "✓ stored key cleared")}>Clear stored key</button>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="help">Endpoint <span className="muted">{from(st.endpoint_source)}</span>
+              <input className="mono" style={{ width: "100%" }} placeholder="https://collector:4318"
+                     value={ep} onChange={(e) => setEndpoint(e.target.value)} />
+            </label>
+            <label className="help">Headers, <code>name=value</code> separated by commas{" "}
+              {st.headers_configured && <><span className="badge ok">configured</span> <span className="muted">{from(st.headers_source)}</span></>}
+              <input type="password" className="mono" style={{ width: "100%" }}
+                     placeholder="authorization=Bearer …, x-other=…"
+                     value={headers} onChange={(e) => setHeaders(e.target.value)} />
+            </label>
+            <div className="btnrow" style={{ alignItems: "center" }}>
+              <button className="primary" disabled={busy || !ep.trim()}
+                      onClick={() => apply({ provider: "otlp", endpoint: ep.trim(),
+                                             ...(headers.trim() ? { headers: headers.trim() } : {}) })}>Save</button>
+              {st.headers_configured && st.headers_source === "console" && (
+                <button className="danger" disabled={busy}
+                        onClick={() => apply({ headers: "" }, "✓ stored headers cleared")}>Clear stored headers</button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
