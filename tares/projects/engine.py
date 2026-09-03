@@ -179,7 +179,11 @@ class Engine:
             f"{k}: {', '.join(v)}" for k, v in report.items() if v) or "no changes")
         return {**self.get(uid), "report": report}
 
-    def pause(self, uid: str) -> dict:
+    def pause(self, uid: str, sources: bool = False) -> dict:
+        """Triggers off, agents unsubscribed; sources keep ingesting unless `sources` is set, in
+        which case the project's sources that are running are paused too (polling stops, pushes
+        are refused) and remembered, so resume brings back exactly those: a source paused by hand
+        before stays paused."""
         inst = self._require(uid)
         objects = self._live_objects(uid)
         if _is_custom(inst["template"]) and inst["status"] != "paused":
@@ -196,8 +200,18 @@ class Engine:
                 self.store.set_trigger_paused(o["name"], True)
             elif o["kind"] == "agent":
                 self.store.remove_subscription_by_url(agent_url(o["name"]))
+        paused_sources: list[str] = []
+        if sources:
+            running = {s["name"] for s in self.store.list_catalog_sources() if not s["paused"]}
+            paused_sources = [o["name"] for o in objects if o["kind"] == "source" and o["name"] in running]
+            for name in paused_sources:
+                self.store.set_source_paused(name, True)
+            inst = self._require(uid)   # params may have just been rewritten above
+            self.store.update_project(uid, params={**inst["params"], "paused_sources": paused_sources})
         self.store.update_project(uid, status="paused")
-        self.store.log_project(uid, "paused", "triggers paused, agents unsubscribed; sources keep ingesting")
+        n = len(paused_sources)
+        self.store.log_project(uid, "paused", "triggers paused, agents unsubscribed; "
+                               + (f"{n} source{'s' if n != 1 else ''} paused" if sources else "sources keep ingesting"))
         self._do_reload()
         return self.get(uid)
 
@@ -223,11 +237,22 @@ class Engine:
                     if not self.store.subscription_by_url(url):
                         self.store.add_subscription("sub_" + uuid.uuid4().hex[:8],
                                                     agent["trigger"], url, created_by="tares")
-        if custom:
+        # the sources this pause stopped come back; one paused by hand before is left alone
+        paused_sources = list(inst["params"].get("paused_sources") or [])
+        live_sources = {o["name"] for o in self._live_objects(uid) if o["kind"] == "source"}
+        for name in paused_sources:
+            if name in live_sources:
+                self.store.set_source_paused(name, False)
+        if custom or paused_sources:
+            drop = ("resume_agents", "resume_triggers") if custom else ()
             self.store.update_project(uid, params={k: v for k, v in inst["params"].items()
-                                                   if k not in ("resume_agents", "resume_triggers")})
+                                                   if k not in drop and k != "paused_sources"})
         self.store.update_project(uid, status="active")
-        self.store.log_project(uid, "resumed")
+        if paused_sources:
+            n = len(paused_sources)
+            self.store.log_project(uid, "resumed", f"{n} source{'s' if n != 1 else ''} resumed")
+        else:
+            self.store.log_project(uid, "resumed")
         self._do_reload()
         return self.get(uid)
 

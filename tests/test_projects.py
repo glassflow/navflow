@@ -189,6 +189,20 @@ async def main():
             t = {t["name"]: t for t in (await cx.get("/api/triggers")).json()}["t_trigger"]
             check("resume -> active, trigger running",
                   r.json()["status"] == "active" and t["paused"] is False)
+            check("plain pause leaves sources running", not any(x["paused"] for x in (await cx.get("/api/sources")).json()))
+            # a source paused by hand before stays paused across pause+sources / resume
+            await cx.post("/api/sources/t_web/pause")
+            r = await cx.post(f"/api/projects/{uid}/pause", json={"sources": True})
+            src = {x["name"]: x for x in (await cx.get("/api/sources")).json()}
+            check("pause with sources pauses the project's running sources",
+                  r.json()["status"] == "paused" and src["t_ui"]["paused"] is True and src["t_web"]["paused"] is True
+                  and r.json()["params"].get("paused_sources") == ["t_ui"], r.text[:300])
+            r = await cx.post(f"/api/projects/{uid}/resume")
+            src = {x["name"]: x for x in (await cx.get("/api/sources")).json()}
+            check("resume brings back only what pause stopped",
+                  r.json()["status"] == "active" and src["t_ui"]["paused"] is False and src["t_web"]["paused"] is True
+                  and "paused_sources" not in r.json()["params"], r.text[:300])
+            await cx.post("/api/sources/t_web/resume")
 
             print("== all-or-nothing create ==")
             before = {s["name"] for s in (await cx.get("/api/sources")).json()}
