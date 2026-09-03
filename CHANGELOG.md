@@ -3,7 +3,7 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.23.0] - 2026-09-03
 
 ### Added
 - **Agent tracing.** Every Tares agent run and every Ask turn can be exported as an
