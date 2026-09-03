@@ -8,7 +8,7 @@ import ViewEditor from "../components/ViewEditor";
 import { Combo, Picker, ErrorState, TimeAgo, usePolling } from "../components/bits";
 import AgentForm from "../components/AgentForm";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
-import { ProposalsPanel, SessionsPanel } from "../components/ChallengerSessions";
+import { SessionsPanel } from "../components/ChallengerSessions";
 import { RunsTable } from "./AgentDetail";
 import type { ProjectSummary, Template, RecipeActionOption } from "../types";
 
@@ -278,12 +278,11 @@ export default function ProjectShell({ s, id, reload, template }: {
 
       {tab === "sessions" && s.sessions && (
         <>
-          <SessionsPanel sessions={s.sessions} view={s.names?.view ?? "challenger_session"}
+          <SessionsPanel sessions={s.sessions} runs={s.runs} view={s.names?.view ?? "challenger_session"}
                          onSummarize={s.status === "active"
                            ? (sid) => { setActionArgs({ ...actionArgs, "summarize.session": sid }); return runActionWith("summarize", { session: sid }); }
                            : undefined}
                          busy={actionBusy === "summarize"} message={actionMsg} />
-          {s.runs && <ProposalsPanel runs={s.runs} />}
         </>
       )}
 
