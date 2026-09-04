@@ -2287,9 +2287,12 @@ def make_app() -> FastAPI:
 
     @app.delete("/api/projects/{uid}")
     async def delete_project(uid: str, purge_events: bool = False, delete: str = ""):
-        """`delete` names the objects of a custom project to delete along with it, as
-        `kind:name,kind:name`; the rest are released."""
-        chosen = []
+        """`delete` names the objects to delete along with the project, as `kind:name,...`;
+        the rest are released and stay. `none` keeps them all. Absent: a template project takes
+        everything it created, a custom project keeps everything (the pre-pick behaviours)."""
+        chosen = None if delete == "" else []
+        if delete == "none":
+            delete = ""
         for item in filter(None, (x.strip() for x in delete.split(","))):
             kind, _, name = item.partition(":")
             if not name:

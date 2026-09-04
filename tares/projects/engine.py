@@ -298,13 +298,36 @@ class Engine:
             return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in going],
                     "released": [f"{o.kind}:{o.name}" for o in objs if o not in going],
                     "purged_events": purged}
-        purged = self._delete_objects(objs, purge_events=purge_events)
+        # a template project takes everything it created unless the user unpicked some of it:
+        # those are released and stay behind, unowned (no repair for them any more)
+        if delete_objects is None:
+            going, kept = objs, []
+        else:
+            chosen = {(k, n) for k, n in delete_objects}
+            unknown = chosen - {(o.kind, o.name) for o in objs}
+            if unknown:
+                raise ProjectError("not this project's objects: "
+                                   + ", ".join(f"{k}:{n}" for k, n in sorted(unknown)))
+            for k, n in sorted(chosen):
+                missing = [d for d in dependents(self.store, k, n)
+                           if (d["kind"], d["name"]) not in chosen]
+                if missing:
+                    raise ProjectError(f"{k} {n!r} is still used by "
+                                       + ", ".join(f"{d['kind']} {d['name']}" for d in missing)
+                                       + "; delete those too or keep it")
+            going = [o for o in objs if (o.kind, o.name) in chosen]
+            kept = [o for o in objs if (o.kind, o.name) not in chosen]
+        if inst["status"] == "paused" and kept:
+            self.resume(uid)
+        self._release(uid, kept)
+        purged = self._delete_objects(going, purge_events=purge_events)
         # firings go with the events: a purged project leaves no history behind its triggers
         purged_firings = sum(self.store.purge_dispatches(o.name)
-                             for o in objs if o.kind == "trigger") if purge_events else 0
+                             for o in going if o.kind == "trigger") if purge_events else 0
         self.store.delete_project(uid)
         self._do_reload()
-        return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in objs],
+        return {"ok": True, "deleted": [f"{o.kind}:{o.name}" for o in going],
+                "released": [f"{o.kind}:{o.name}" for o in kept],
                 "purged_events": purged, "purged_firings": purged_firings}
 
     async def detect(self, template_key: str) -> dict:

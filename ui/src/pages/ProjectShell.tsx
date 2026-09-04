@@ -52,8 +52,9 @@ export default function ProjectShell({ s, id, reload, template }: {
   const [delSel, setDelSel] = useState<Set<string>>(new Set());
   const [delDeps, setDelDeps] = useState<Record<string, string[]>>();
   useEffect(() => {
-    if (!confirmDel || !custom) return;
+    if (!confirmDel) return;
     let live = true;
+    setDelSel(new Set(s.objects.filter((o) => o.kind !== "mcp_server").map((o) => `${o.kind}:${o.name}`)));
     const objs = s.objects.filter((o) => o.kind !== "mcp_server");
     Promise.all(objs.map(async (o) => {
       if (o.kind === "agent") return [`${o.kind}:${o.name}`, [] as string[]] as const;
@@ -612,17 +613,15 @@ export default function ProjectShell({ s, id, reload, template }: {
       )}
       {confirmDel && (
         <ConfirmDialog title={`Delete project ${s.name}?`}
-          message={custom
-            ? "Removes the project. Pick which of its objects go with it; the rest stay in place, no longer part of a project. Events already stored stay unless you purge them."
-            : "Deletes the sources, views, triggers and agents this project created. Events already stored stay unless you purge them."}
-          confirmLabel={custom && delSel.size ? `Delete project and ${delSel.size} object${delSel.size === 1 ? "" : "s"}` : "Delete project"} danger
+          message="Removes the project. The objects picked below go with it; anything unpicked stays in place, no longer part of a project. Events already stored stay unless you purge them."
+          confirmLabel={delSel.size ? `Delete project and ${delSel.size} object${delSel.size === 1 ? "" : "s"}` : "Delete project only"} danger
           onConfirm={async () => {
             const chosen = s.objects.filter((o) => delSel.has(`${o.kind}:${o.name}`)).map((o) => ({ kind: o.kind, name: o.name }));
-            try { await api.deleteProject(id, purge, custom ? chosen : []); navigate("/projects", { replace: true }); }
+            try { await api.deleteProject(id, purge, chosen); navigate("/projects", { replace: true }); }
             catch (e) { setActionError(String((e as Error).message ?? e)); setConfirmDel(false); }
           }}
           onCancel={() => setConfirmDel(false)}>
-          {custom && delKeys.length > 0 && (
+          {delKeys.length > 0 && (
             <div style={{ margin: "10px 0 4px" }}>
               <div className="btnrow" style={{ marginBottom: 6 }}>
                 <span className="lbl">its objects</span>
@@ -641,7 +640,7 @@ export default function ProjectShell({ s, id, reload, template }: {
                 );
               })}
               <p className="help" style={{ margin: "6px 0 0", whiteSpace: "normal" }}>
-                Picking a source also picks the views, triggers and agents that need it. Unpicked objects stay.
+                Picking a source also picks the views, triggers and agents that need it. Unpicked objects stay{custom ? "" : ", and the project no longer repairs them"}.
               </p>
             </div>
           )}

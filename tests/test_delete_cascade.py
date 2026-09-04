@@ -19,7 +19,30 @@ for _p in (DB, DB + ".wal", os.environ["TARES_CATALOG"]):
 
 import httpx
 
+from tares.projects import PlannedObject, Template, register
+
 P = F = 0
+
+
+class CascadeTemplate(Template):
+    """Tests only: source -> view -> trigger -> agent under one prefix."""
+    key = "test_cascade"
+    title = "Test cascade"
+    PARAMS = {"prefix": {"type": "string", "default": "t"}}
+
+    def plan(self, params):
+        p = params["prefix"]
+        return [
+            PlannedObject("source", "src", {**src(f"{p}_src")}),
+            PlannedObject("view", "view", {"name": f"{p}_view", "key_field": "service", "sources": [f"{p}_src"]}),
+            PlannedObject("trigger", "trig", {"name": f"{p}_trig", "view": f"{p}_view",
+                                              "condition": {"aggregate": "count", "predicate": "> 0", "window": "1m"},
+                                              "emit": {"kind": "x"}, "cooldown": "1m"}),
+            PlannedObject("agent", "agent", {"name": f"{p}_agent", "trigger": f"{p}_trig", "prompt": "look", "enabled": False}),
+        ]
+
+
+register(CascadeTemplate())
 
 
 def ck(label, cond, detail=""):
@@ -133,6 +156,31 @@ async def main():
         ck("nothing named q_ remains", not any(x.startswith("q_") for k in n.values() for x in k), str(n))
         r = await cx.delete(f"/api/projects/{uid}?delete=source:nope")
         ck("deleted project -> 404", r.status_code == 404)
+
+        print("== custom project delete: none keeps everything ==")
+        await build(cx, "k")
+        r = await cx.post("/api/projects", json={"template": "custom", "name": "K", "objects": [{"kind": "source", "name": "k_src"}]})
+        uid = r.json()["id"]
+        r = await cx.delete(f"/api/projects/{uid}?delete=none")
+        ck("delete=none releases, deletes nothing", r.status_code == 200 and r.json()["deleted"] == [] and r.json()["released"] == ["source:k_src"], r.text)
+
+        print("== template project delete: unpicked objects stay ==")
+        r = await cx.post("/api/projects", json={"template": "test_cascade", "name": "T", "params": {}})
+        ck("test template project created", r.status_code == 201, r.text[:200])
+        uid = r.json()["id"]
+        # keep the source (and so its view and trigger, which need it): pick only the agent
+        r = await cx.delete(f"/api/projects/{uid}?delete=agent:t_agent")
+        ck("template project: picked agent goes, the rest is released",
+           r.status_code == 200 and r.json()["deleted"] == ["agent:t_agent"]
+           and set(r.json()["released"]) == {"source:t_src", "view:t_view", "trigger:t_trig"}, r.text[:300])
+        n = await names(cx)
+        ck("kept source exists and is unowned", "t_src" in n["source"]
+           and not next(x for x in (await cx.get("/api/sources")).json() if x["name"] == "t_src").get("owned_by"))
+        r = await cx.post("/api/projects", json={"template": "test_cascade", "name": "T2", "params": {"prefix": "u"}})
+        uid = r.json()["id"]
+        r = await cx.delete(f"/api/projects/{uid}")
+        ck("template project without picks still takes everything",
+           r.status_code == 200 and len(r.json()["deleted"]) == 4 and r.json()["released"] == [], r.text[:300])
 
         await cx.aclose()
     print(f"\n{P} passed, {F} failed")

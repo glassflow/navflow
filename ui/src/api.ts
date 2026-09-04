@@ -291,11 +291,12 @@ export const api = {
                                       objects?: { kind: ProjectObjectKind; name: string }[] }) =>
     request<Project & { report?: ProjectUpdateReport }>(`/api/projects/${encodeURIComponent(id)}`,
       { method: "PUT", body: JSON.stringify(body) }),
-  // `deleteObjects`: a custom project's objects to delete along with it; the rest are released
-  deleteProject: (id: string, purgeEvents = false, deleteObjects: { kind: ProjectObjectKind; name: string }[] = []) =>
+  // `deleteObjects`: the project's objects to delete along with it; the rest are released and
+  // stay. Omit for the default (a template project takes everything, a custom one keeps everything).
+  deleteProject: (id: string, purgeEvents = false, deleteObjects?: { kind: ProjectObjectKind; name: string }[]) =>
     request<{ ok: boolean; deleted?: string[]; released?: string[]; purged_events?: number }>(
       `/api/projects/${encodeURIComponent(id)}?purge_events=${purgeEvents}`
-      + (deleteObjects.length ? `&delete=${encodeURIComponent(deleteObjects.map((o) => `${o.kind}:${o.name}`).join(","))}` : ""),
+      + (deleteObjects === undefined ? "" : `&delete=${encodeURIComponent(deleteObjects.length ? deleteObjects.map((o) => `${o.kind}:${o.name}`).join(",") : "none")}`),
       { method: "DELETE" }),
   pauseProject: (id: string, sources = false) =>
     request<Project>(`/api/projects/${encodeURIComponent(id)}/pause`, { method: "POST", body: JSON.stringify({ sources }) }),
