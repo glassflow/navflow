@@ -200,6 +200,17 @@ export default function ProjectNewAssist() {
     collected = [];
   };
 
+  /** What this build has already made, for the framing: after a Change the assistant must build
+   *  on it, not propose it again. Sources are the ones the user took pains over. */
+  const existingLine = () => {
+    const have = (["source", "view", "trigger", "agent"] as ProjectObjectKind[])
+      .map((k) => [k, created(k)] as const).filter(([, n]) => n.length);
+    return have.length
+      ? `\n\nAlready created and part of this project, keep and build on them, do not propose them again: `
+        + have.map(([k, n]) => `${k}s ${n.join(", ")}`).join("; ") + "."
+      : "";
+  };
+
   const start = async () => {
     setStep("sources");
     const framing = handoff.incident
@@ -207,7 +218,26 @@ export default function ProjectNewAssist() {
       : handoff.template
       ? `Project: ${projectName.trim()}.\nI picked the template "${handoff.template}": ${goal.trim()}\n\nSet it up for me: read its parameters with list_templates, run detect_template, ask me only for what neither says, then propose the project.`
       : `Project: ${projectName.trim()}.\nGoal: ${goal.trim()}`;
-    await turn("sources", framing);
+    await turn("sources", framing + existingLine());
+  };
+
+  // Change: back to the goal. Stops a turn in flight and drops what was only proposed; what was
+  // created stays, stays in the project, and is named to the assistant on the next start.
+  const [changing, setChanging] = useState(false);
+  const lastStep = useRef<StepKey | "done">("sources");
+  const change = () => {
+    stop();
+    if (step !== "describe") lastStep.current = step;
+    setChanging(true);
+    setStep("describe");
+  };
+  const restart = async () => {
+    setStates({ sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] } });
+    setDecisions({});
+    setHistory([]);
+    setRefine("");
+    setChanging(false);
+    await start();
   };
 
   // A template's project exists at most once (its objects have fixed names), so a picked template
@@ -301,7 +331,7 @@ export default function ProjectNewAssist() {
       <PageHead />
       <div className="builder-steps">
         {STEPS.map((s, i) => (
-          <span key={s.key} className={"step" + (i === stepIndex ? " active" : i < stepIndex ? " done" : "")}>
+          <span key={s.key} className={"step" + (i === stepIndex ? " active" : i < stepIndex ? " done" : "") + (i === stepIndex && streaming ? " busy" : "")}>
             <span className="n">{i + 1}</span>{s.label}
             {i < stepIndex && s.kinds.some((k) => created(k).length > 0) && (
               <span className="badge ok">{s.kinds.reduce((n, k) => n + created(k).length, 0)}</span>
@@ -310,35 +340,61 @@ export default function ProjectNewAssist() {
         ))}
       </div>
 
-      {/* Describe */}
-      <div className="panel">
-        <h2 style={{ marginTop: 0 }}>Describe</h2>
-        <label className="field">
-          <span className="lbl">project name<span className="req"> *</span></span>
-          <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                 disabled={!!project} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
-          {handoff.goal && !project && <span className="help">proposed from what you typed; change it any time before the first object is created</span>}
-        </label>
-        <label className="field">
-          <span className="lbl">what you need<span className="req"> *</span></span>
-          <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} disabled={step !== "describe"}
-                    placeholder="e.g. watch my payment service logs and wake an agent in Slack when checkouts fail"
-                    style={{ width: "100%", boxSizing: "border-box" }} />
-          <span className="help">
-            Name the systems you run and where they are. Tares proposes sources from the connectors
-            installed here, then views, triggers and an agent, one step at a time. Everything you
-            create is a real object you can edit on its own page.
-          </span>
-        </label>
-        {step === "describe" && (
+      {/* Describe: the form until the flow starts (and again on Change); a header afterwards */}
+      {step === "describe" ? (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Describe</h2>
+          <label className="field">
+            <span className="lbl">project name<span className="req"> *</span></span>
+            <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                   disabled={!!project} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
+            {handoff.goal && !project && <span className="help">proposed from what you typed; change it any time before the first object is created</span>}
+          </label>
+          <label className="field">
+            <span className="lbl">what you need<span className="req"> *</span></span>
+            <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus={changing}
+                      placeholder="e.g. watch my payment service logs and wake an agent in Slack when checkouts fail"
+                      style={{ width: "100%", boxSizing: "border-box" }} />
+            <span className="help">
+              Name the systems you run and where they are. Tares proposes sources from the connectors
+              installed here, then views, triggers and an agent, one step at a time. Everything you
+              create is a real object you can edit on its own page.
+            </span>
+          </label>
+          {changing && objects.length > 0 && (
+            <div className="alert">
+              Starting again from the goal. What you already created stays and stays in the project:{" "}
+              {objects.map((o) => <span key={`${o.kind}:${o.name}`} className="chip mono" style={{ marginRight: 4 }}>{o.name}</span>)}
+              Proposals you had not applied are dropped.
+            </div>
+          )}
           <div className="btnrow">
-            <button className="primary" disabled={!goal.trim() || !projectName.trim() || streaming} onClick={start}>
-              Propose sources
+            <button className="primary" disabled={!goal.trim() || !projectName.trim() || streaming}
+                    onClick={changing ? restart : start}>
+              {changing ? "Propose again" : "Propose sources"}
             </button>
-            <Link className="btn" to="/projects/new">Cancel</Link>
+            {changing
+              ? <button onClick={() => { setChanging(false); setStep(lastStep.current); }}>Keep going instead</button>
+              : <Link className="btn" to="/projects/new">Cancel</Link>}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="panel builder-brief">
+          <div className="builder-brief-goal">
+            <span className="help">building</span>
+            <blockquote>{goal.trim()}</blockquote>
+          </div>
+          <div className="builder-brief-side">
+            <label className="field" style={{ margin: 0 }}>
+              <span className="lbl">project name</span>
+              {project
+                ? <span className="mono">{project.name}</span>
+                : <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ maxWidth: 260 }} />}
+            </label>
+            {step !== "done" && <button onClick={change}>Change what you need</button>}
+          </div>
+        </div>
+      )}
 
       {projectErr && <div className="alert error">{projectErr}</div>}
 
@@ -348,6 +404,12 @@ export default function ProjectNewAssist() {
           <div className="pagehead" style={{ marginBottom: 8 }}>
             <h2 style={{ margin: 0 }}>{s.label}</h2>
             {i < stepIndex && <span className="badge ok">done</span>}
+            {s.key === step && streaming && (
+              <span className="builder-running">
+                <span className="spinner" /> proposing {s.label.toLowerCase()}…
+                <button type="button" className="dim" onClick={stop}>Stop</button>
+              </span>
+            )}
           </div>
           {states[s.key].turns.map((t, j) => (
             <TurnView key={j} turn={t} decisions={decisions} decide={decide} own={own}
