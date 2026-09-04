@@ -420,6 +420,7 @@ async def run_agent(api_key: str, messages: list,
     `mode` is "ask" or "build"; `step` names the build step (see BUILD_STEPS) and picks which
     proposal cards the turn may emit."""
     with _tracing.run_span(tracer, "ask", kind="CHAIN") as obs:
+        obs.set_attribute("tares.instance", _tracing.instance_name())
         async for line in _run_agent(api_key, messages, model, self_headers, on_usage, tracer,
                                      obs, mode, step):
             yield line

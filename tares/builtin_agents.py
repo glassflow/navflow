@@ -330,6 +330,10 @@ class AgentRunner:
         with _tracing.run_span(tracer, agent["name"], session=key, attributes={
                 "tares.run_id": run_id, "tares.dispatch_id": dispatch_id or "",
                 "tares.trigger": trigger_name, "tares.key": key}) as obs:
+            # The instance is on the resource (service.name) too, but a backend's span view
+            # may not show resource attributes; on the root span it is always in reach.
+            obs.set_attribute("tares.instance", _tracing.instance_name())
+            obs.set_attribute("tares.agent", agent["name"])
             status, error = await self._run_traced(agent, trigger_name, key, payload, run_id,
                                                    dispatch_id, tracer, obs)
             obs.set_attribute("tares.status", status)

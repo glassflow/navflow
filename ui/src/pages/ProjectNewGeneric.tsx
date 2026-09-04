@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { api } from "../api";
 import { Picker } from "../components/bits";
-import type { Template, RecipeParam } from "../types";
+import type { Project, Template, RecipeParam } from "../types";
 
 // The fallback wizard: a form rendered straight from a template's PARAMS, for templates without a
 // dedicated flow. Strings, numbers, booleans and choices get inputs; lists and objects are JSON.
+// With ?edit=<project id> it is the same form over an existing project: prefilled from its
+// params, Save updates it in place. Secret params are never shown back; blank means keep.
 
 function initial(p: RecipeParam): string {
   if (p.default == null) return p.type === "bool" ? "false" : "";
   return typeof p.default === "string" ? p.default : JSON.stringify(p.default);
+}
+
+/** A stored param value as the form shows it. */
+function fromStored(p: RecipeParam, v: unknown): string {
+  if (p.secret || v === undefined || v === null) return p.secret ? "" : initial(p);
+  if (p.type === "bool") return v ? "true" : "false";
+  if (p.type === "list" || p.type === "json") return JSON.stringify(v, null, 2);
+  return String(v);
 }
 
 function CopyBtn({ text }: { text: string }) {
@@ -25,6 +35,9 @@ function CopyBtn({ text }: { text: string }) {
 export default function ProjectNewGeneric() {
   const { template: key = "" } = useParams();
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const editId = search.get("edit");
+  const [existing, setExisting] = useState<Project>();
   const [template, setRecipe] = useState<Template>();
   const [err, setErr] = useState<string>();
   const [name, setName] = useState("");
@@ -62,16 +75,23 @@ export default function ProjectNewGeneric() {
   useEffect(() => {
     loadKey();
     api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
-    api.templates().then((r) => {
-      const found = r.templates.find((x) => x.key === key);
-      if (!found) { setErr(`this instance has no project named ${key}`); return; }
+    // by key, so a hidden template (one a control plane creates over the API) still renders
+    // its form when a person edits the project built on it
+    api.template(key).then(async (found) => {
       setRecipe(found);
+      if (editId) {
+        const proj = await api.project(editId);
+        setExisting(proj);
+        setName(proj.name);
+        setVals(Object.fromEntries(Object.entries(found.params).map(([k, p]) => [k, fromStored(p, proj.params[k])])));
+        return;   // no detect on edit: the stored values are the truth, Rescan is one click away
+      }
       setName(found.title);
       const init = Object.fromEntries(Object.entries(found.params).map(([k, p]) => [k, initial(p)]));
       setVals(init);
       detect(found.key, init);
     }).catch((e) => setErr(String((e as Error).message ?? e)));
-  }, [key]);
+  }, [key, editId]);
 
   const submit = async () => {
     if (!template) return;
@@ -80,11 +100,18 @@ export default function ProjectNewGeneric() {
     try {
       for (const [k, p] of Object.entries(template.params)) {
         const v = vals[k] ?? "";
+        // a secret left blank on edit keeps the stored value (never shown back to the form)
+        if (existing && p.secret && v === "" && existing.params[k] !== undefined) { params[k] = existing.params[k]; continue; }
         if (v === "" && !p.required) continue;
         if (p.type === "number") params[k] = Number(v);
         else if (p.type === "bool") params[k] = v === "true";
         else if (p.type === "list" || p.type === "json") params[k] = v ? JSON.parse(v) : undefined;
         else params[k] = v;
+      }
+      if (existing) {
+        await api.updateProject(existing.id, { params, name: name.trim() || undefined });
+        navigate(`/projects/${encodeURIComponent(existing.id)}`, { replace: true });
+        return;
       }
       const u = await api.createProject({ template: template.key, name: name.trim() || undefined, params });
       navigate(`/projects/${encodeURIComponent(u.id)}`, { replace: true });
@@ -96,7 +123,7 @@ export default function ProjectNewGeneric() {
     <>
       <div className="pagehead">
         <div>
-          <h1>{template?.title ?? key}</h1>
+          <h1>{existing ? `Edit ${existing.name}` : (template?.title ?? key)}</h1>
           <p className="subtitle">
             {template?.description}
             {template?.guide && <> Follows the <a href={template.guide.url} target="_blank" rel="noreferrer">{template.guide.label}</a>.</>}
@@ -104,7 +131,7 @@ export default function ProjectNewGeneric() {
         </div>
       </div>
       {err && <div className="alert error">{err}</div>}
-      {template && template.setup && template.setup.length > 0 && (
+      {template && !existing && template.setup && template.setup.length > 0 && (
         <div className="panel">
           <h2 style={{ marginTop: 0 }}>Before you start</h2>
           <ol className="uc-setup">
@@ -174,7 +201,9 @@ export default function ProjectNewGeneric() {
                 <textarea className="mono" rows={4} value={vals[k] ?? ""}
                           onChange={(e) => setVals({ ...vals, [k]: e.target.value })} placeholder="JSON" />
               ) : (
-                <input type={p.type === "number" ? "number" : "text"} className="mono" value={vals[k] ?? ""}
+                <input type={p.secret ? "password" : p.type === "number" ? "number" : "text"} className="mono" value={vals[k] ?? ""}
+                       placeholder={p.secret && existing && existing.params[k] !== undefined ? "configured, leave blank to keep" : undefined}
+                       autoComplete={p.secret ? "new-password" : undefined}
                        onChange={(e) => setVals({ ...vals, [k]: e.target.value })} />
               )}
               {p.help && <span className="help">{p.help}</span>}
@@ -189,8 +218,10 @@ export default function ProjectNewGeneric() {
             </div>
           )}
           <div className="btnrow">
-            <button className="primary" disabled={busy} onClick={submit}>{busy ? "starting…" : "Start"}</button>
-            <Link className="btn" to="/projects">Cancel</Link>
+            <button className="primary" disabled={busy} onClick={submit}>
+              {busy ? (existing ? "saving…" : "starting…") : existing ? "Save" : "Start"}
+            </button>
+            <Link className="btn" to={existing ? `/projects/${encodeURIComponent(existing.id)}` : "/projects"}>Cancel</Link>
           </div>
         </div>
       )}

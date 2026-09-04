@@ -14,6 +14,33 @@ the project follows [Semantic Versioning](https://semver.org/).
   what was created. `POST /api/agent/chat` takes `mode: "build"` and `step` for this; each step
   gets only its own proposal tool.
 
+### Changed
+- Deleting a source or a view no longer refuses with "remove it from those views first". The
+  dialog lists what depends on it (views, triggers, agents) and, on yes, deletes them too, in
+  order. `DELETE /api/sources/{name}` and `/api/views/{name}` take `cascade=true`;
+  `GET /api/catalog/dependents?kind=&name=` lists what would go.
+- Deleting a hand-assembled project (including one the builder made) lists its objects with
+  Select all or individual picks; the chosen ones are deleted with the project, the rest stay.
+  Picking a source pulls in what depends on it. `DELETE /api/projects/{uid}` takes
+  `delete=kind:name,...`.
+
+## [1.24.0] - 2026-09-04
+
+### Added
+- Runs on an agent's page and on a project's Agents tab can be filtered to successful or failed
+  runs only, and "Show more" pages past the first fifty. `GET /api/agents/builtin/{name}/runs`
+  takes `status` and `offset`.
+
+### Fixed
+- Edit on a project built from a template without its own wizard (Rius RCA among them) opened the
+  create form and said "this instance has no project named rius_rca". The form now loads the
+  template by key, hidden templates included, prefills the project's params (secrets blank,
+  blank keeps the stored value) and saves in place.
+
+### Changed
+- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
+  not only on the resource, so a backend's span view shows which instance sent it.
+
 ## [1.23.0] - 2026-09-03
 
 ### Added

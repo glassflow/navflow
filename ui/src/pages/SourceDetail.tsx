@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Dependents from "../components/Dependents";
 import ProjectBadge from "../components/ProjectBadge";
 import IngestEndpoint from "../components/IngestEndpoint";
 import SourceForm from "../components/SourceForm";
@@ -17,6 +18,7 @@ export default function SourceDetail() {
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
   const [purge, setPurge] = useState(false);
+  const [cascade, setCascade] = useState(true);
   const tabsRef = useRef<HTMLDivElement>(null);
 
   // Editing labels opens the Configuration tab, which renders below the fold — scroll to it so it's
@@ -136,13 +138,14 @@ export default function SourceDetail() {
           onConfirm={async () => {
             setConfirmDel(false);
             setActionError(undefined);
-            try { await api.deleteSource(name, purge); nav("/sources"); }
+            try { await api.deleteSource(name, purge, cascade); nav("/sources"); }
             catch (e) { setActionError(String((e as Error).message ?? e)); }
           }}
         >
           <p className="help" style={{ whiteSpace: "normal", margin: 0 }}>
             Its configuration is removed. Stored events are kept unless you purge them.
           </p>
+          <Dependents kind="source" name={name} cascade={cascade} onChange={(c) => setCascade(c)} />
           <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />
             <span>also purge its stored events{h?.events_total ? ` (${h.events_total.toLocaleString()})` : ""}</span>

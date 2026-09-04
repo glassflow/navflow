@@ -7,7 +7,7 @@ import { api } from "../api";
 import AgentForm from "../components/AgentForm";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ProjectBadge from "../components/ProjectBadge";
-import { ErrorState, TimeAgo, fmtCost, fmtTokens, usePolling } from "../components/bits";
+import { ErrorState, Picker, TimeAgo, fmtCost, fmtTokens, usePolling } from "../components/bits";
 import type { AgentRun, BuiltinAgent } from "../types";
 
 // Everything about one Tares agent, run like an operational surface rather than a config sheet:
@@ -192,7 +192,7 @@ export default function AgentDetail() {
       )}
 
       {tab === "runs" && (
-        <RunsTable runs={runs} runsError={runsError} agent={agent}
+        <RunsPanel name={name} agent={agent}
                    focusDispatch={focusDispatch} focusRun={focusRun}
                    openRun={openRun} setOpenRun={setOpenRun} />
       )}
@@ -267,10 +267,72 @@ export default function AgentDetail() {
   );
 }
 
-export function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, openRun, setOpenRun }: {
+const RUNS_PAGE = 50;
+type RunFilter = "" | "ok" | "failed";
+const RUN_FILTERS: RunFilter[] = ["", "ok", "failed"];
+const RUN_FILTER_LABELS: Record<string, string> = { "": "all runs", ok: "successful only", failed: "failed only" };
+
+/** The runs list with its controls: a status filter and Show more. A capped agent's list is
+ *  mostly capped rows and the ok runs are what a reader looks for (TR-267), so the filter is
+ *  server-side and paging continues past the first page rather than stopping at a cap.
+ *
+ *  The newest page is polled; older pages are fetched once with an offset and kept until the
+ *  filter changes. A run that lands while paging shifts the offsets by one, so the two are
+ *  merged by id. */
+export function RunsPanel({ name, agent, focusDispatch, focusRun, openRun, setOpenRun }: {
+  name: string;
+  agent: BuiltinAgent;
+  focusDispatch?: string;
+  focusRun?: string;
+  openRun: string | undefined;
+  setOpenRun: (id: string | undefined) => void;
+}) {
+  const [filter, setFilter] = useState<RunFilter>("");
+  const [older, setOlder] = useState<AgentRun[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const { data: head, error, reload } = usePolling(() => api.builtinAgentRuns(name, RUNS_PAGE, 0, filter), 10000);
+  useEffect(() => { setOlder([]); setHasMore(true); reload(); }, [filter]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const seen = new Set<string>();
+  const runs = head === undefined ? undefined
+    : [...head, ...older].filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  const more = async () => {
+    if (!runs) return;
+    setLoadingMore(true);
+    try {
+      const page = await api.builtinAgentRuns(name, RUNS_PAGE, runs.length, filter);
+      setOlder((o) => [...o, ...page]);
+      setHasMore(page.length >= RUNS_PAGE);
+    } catch { setHasMore(false); }
+    setLoadingMore(false);
+  };
+  const empty = filter === "ok" ? "no successful runs yet"
+    : filter === "failed" ? "no failed runs"
+    : <>no runs yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</>;
+  return (
+    <>
+      <div className="btnrow" style={{ marginBottom: 8 }}>
+        <Picker value={filter} onChange={(v) => setFilter(v as RunFilter)} options={RUN_FILTERS}
+                labels={RUN_FILTER_LABELS} ariaLabel="filter runs" />
+      </div>
+      <RunsTable runs={runs} runsError={error} agent={agent} emptyText={empty}
+                 focusDispatch={focusDispatch} focusRun={focusRun}
+                 openRun={openRun} setOpenRun={setOpenRun} />
+      {runs && runs.length >= RUNS_PAGE && hasMore && (
+        <div className="btnrow" style={{ marginTop: 8 }}>
+          <button onClick={more} disabled={loadingMore}>{loadingMore ? "loading…" : "Show more"}</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function RunsTable({ runs, runsError, agent, emptyText, focusDispatch, focusRun, openRun, setOpenRun }: {
   runs: AgentRun[] | undefined;
   runsError: string | undefined;
   agent: BuiltinAgent;
+  emptyText?: React.ReactNode;
   focusDispatch?: string;
   focusRun?: string;
   openRun: string | undefined;
@@ -278,7 +340,7 @@ export function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, ope
 }) {
   if (runsError) return <ErrorState error={runsError} what="this agent’s runs" />;
   if (!runs?.length) {
-    return <div className="empty">no runs yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</div>;
+    return <div className="empty">{emptyText ?? <>no runs yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</>}</div>;
   }
   const isFocused = (r: AgentRun) =>
     (!!focusDispatch && r.dispatch_id === focusDispatch) || (!!focusRun && r.id === focusRun);
