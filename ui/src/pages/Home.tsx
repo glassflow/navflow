@@ -110,10 +110,19 @@ export default function Home() {
         pct={pct}
       />
 
+      {/* An empty cell's next step is a project, not a source: the builder brings the sources
+          with it. Add a source stays as the secondary link for someone who only wants data in. */}
       {sources && sources.length === 0 && !sourcesError && (
         <div className="empty">
-          Nothing is being ingested yet; <Link to="/sources/new">add a source</Link> to start
-          filling the timeline.
+          Nothing to watch yet.{" "}
+          <Link to="/projects/new">Create a project</Link>: describe what you need and Tares sets
+          up the sources, views, triggers and agent with you. Or <Link to="/sources/new">add a source</Link> on its own.
+        </div>
+      )}
+      {sources && sources.length > 0 && own.length === 0 && (
+        <div className="empty">
+          Data is coming in, but nothing watches it yet.{" "}
+          <Link to="/projects/new">Create a project</Link> to add views, triggers and an agent on top.
         </div>
       )}
     </>

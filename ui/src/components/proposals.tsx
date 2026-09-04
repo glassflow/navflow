@@ -23,6 +23,8 @@ export type Proposal =
       emit?: { kind?: string; context_window?: string }; cooldown?: string; reasoning: string }
   | { id: string; kind: "source"; name: string; connector: string; poll?: string;
       config?: Record<string, unknown>; needs: string[]; reasoning: string }
+  | { id: string; kind: "project"; template: string; name: string; params?: Record<string, unknown>;
+      needs: string[]; reasoning: string }
   | { id: string; kind: "agent"; name: string; trigger: string; prompt: string; model?: string;
       max_rounds?: number; budget_usd?: number;
       delivery: { kind: "slack" | "webhook" | "none"; url?: string };   // url only when the user typed it
@@ -52,7 +54,7 @@ export type DecisionMap = Record<string, { status: Decision; detail?: string }>;
 /** Apply one proposal via the normal management APIs. Throws with a readable message. Source
  *  and agent cards are not applied here: they become forms on the builder page. */
 export async function applyProposal(p: Proposal): Promise<void> {
-  if (p.kind === "source" || p.kind === "agent") {
+  if (p.kind === "source" || p.kind === "agent" || p.kind === "project") {
     throw new Error(`a ${p.kind} proposal is completed as a form, not applied as is`);
   }
   if (p.kind === "labels") {
@@ -126,7 +128,7 @@ function NormPreview({ source, label }: { source: string; label: LabelSpec }) {
 /** What a proposal is called on its card: "View timeline", "Labels for logs", ... */
 export function proposalTitle(p: Proposal) {
   if (p.kind === "labels") return <>Labels for <span className="mono">{p.source}</span></>;
-  const noun = { view: "View", trigger: "Trigger", source: "Source", agent: "Agent" }[p.kind];
+  const noun = { view: "View", trigger: "Trigger", source: "Source", agent: "Agent", project: "Project" }[p.kind];
   return <>{noun} <span className="mono">{p.name}</span></>;
 }
 
@@ -250,6 +252,24 @@ export function ProposalBody({ proposal }: { proposal: Proposal }) {
             <> · prefilled{" "}
               {Object.entries(proposal.config ?? {}).map(([k, v]) => (
                 <span key={k} className="chip mono" title={String(v)}>{k}</span>
+              ))}
+            </>
+          )}
+          {proposal.needs.length > 0 && (
+            <span className="help" style={{ display: "block" }}>
+              you fill in: {proposal.needs.map((n) => <span key={n} className="chip mono">{n}</span>)}
+            </span>
+          )}
+        </p>
+      )}
+
+      {proposal.kind === "project" && (
+        <p style={{ margin: "0 0 8px" }}>
+          from the template <span className="chip mono">{proposal.template}</span>
+          {Object.entries(proposal.params ?? {}).filter(([, v]) => v !== "" && v !== null && v !== undefined).length > 0 && (
+            <> · prefilled{" "}
+              {Object.entries(proposal.params ?? {}).filter(([, v]) => v !== "" && v !== null && v !== undefined).map(([k, v]) => (
+                <span key={k} className="chip mono" title={typeof v === "string" ? v : JSON.stringify(v)}>{k}</span>
               ))}
             </>
           )}

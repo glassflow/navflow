@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import { usePolling } from "../components/bits";
 import type { ConnectorSpec, Project, Template } from "../types";
 
 // The screen a new cell lands on (TR-257): one question, answered by typing. Shown by Home while
@@ -55,9 +56,18 @@ function overlap(typed: Set<string>, sentence: string) {
   return n;
 }
 
+/** Create new (/projects/new): the landing screen loading its own data. */
+export function ProjectNewPage() {
+  const { data: rec } = usePolling(() => api.templates(), 60000);
+  const { data: uc } = usePolling(() => api.projects(), 30000);
+  if (!rec || !uc) return <div className="dim">loading…</div>;
+  return <Landing templates={rec.templates} projects={uc.projects} />;
+}
+
 export default function Landing({ templates, projects }: { templates: Template[]; projects: Project[] }) {
   const navigate = useNavigate();
   const [goal, setGoal] = useState("");
+  const [picked, setPicked] = useState("");   // the template behind the sentence in the box, if any
   const [paste, setPaste] = useState("");
   const [pasting, setPasting] = useState(false);
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>({});
@@ -84,10 +94,32 @@ export default function Landing({ templates, projects }: { templates: Template[]
 
   const demo = projects.find((p) => p.template === "ai_sre_demo");
   const demoTemplate = templates.find((t) => t.key === "ai_sre_demo");
+  // The demo is an offer, never seeded: one click creates it here, in the background, from
+  // what detection finds, and lands on its page. When the demo stack is not reachable the
+  // wizard takes over with the steps to start it.
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoErr, setDemoErr] = useState<string>();
+  const startDemo = async () => {
+    if (!demoTemplate) return;
+    setDemoBusy(true); setDemoErr(undefined);
+    try {
+      const d = await api.detectRecipe(demoTemplate.key);
+      const required = Object.entries(demoTemplate.params).filter(([, p]) => p.required).map(([k]) => k);
+      const missing = required.filter((k) => d.params[k] === undefined || d.params[k] === "");
+      if (missing.length) { navigate(`/projects/new/${demoTemplate.key}`); return; }
+      const made = await api.createProject({ template: demoTemplate.key, params: d.params });
+      navigate(`/projects/${encodeURIComponent(made.id)}`);
+    } catch (e) {
+      setDemoErr(String((e as Error).message ?? e));
+      setDemoBusy(false);
+    }
+  };
 
   const go = () => {
     if (!goal.trim()) return;
-    navigate("/projects/new/assist", { state: { goal: goal.trim() } });
+    // a sentence picked and left as it was names its template; an edited one is free text
+    const tpl = sentences.find((x) => x.template && x.text === goal.trim())?.template ?? picked;
+    navigate("/projects/new/assist", { state: { goal: goal.trim(), template: tpl || undefined } });
   };
   const goIncident = () => {
     if (!paste.trim()) return;
@@ -96,14 +128,20 @@ export default function Landing({ templates, projects }: { templates: Template[]
 
   return (
     <div className="landing">
-      <h1 className="landing-title">Always-on agents for your systems.</h1>
-      <p className="landing-sub">Give it your data, tell it what to watch for, see it act.</p>
+      <div className="landing-head">
+        <div>
+          <h1 className="landing-title">Always-on agents for your systems.</h1>
+          <p className="landing-sub">Give it your data, tell it what to watch for, see it act.</p>
+        </div>
+        {/* the deterministic path: the template gallery, one button, top right */}
+        <Link className="btn" to="/projects/new/templates">Use a guided template</Link>
+      </div>
 
       <form className="landing-ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
         <label className="landing-q" htmlFor="landing-goal">What do you want to build?</label>
         <textarea id="landing-goal" ref={box} rows={3} value={goal}
                   placeholder="watch my checkout service logs and wake an agent in Slack when payments fail"
-                  onChange={(e) => setGoal(e.target.value)}
+                  onChange={(e) => { setGoal(e.target.value); setPicked(""); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(); } }} />
         {/* what the screen heard, before anything is pressed */}
         <div className="landing-heard">
@@ -139,7 +177,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
         <div className="help">Or start from one of these</div>
         {sentences.map((s) => (
           <button key={s.text} type="button" className="starter"
-                  onClick={() => { setGoal(s.text); box.current?.focus(); }}>
+                  onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
             {s.text}
           </button>
         ))}
@@ -155,13 +193,18 @@ export default function Landing({ templates, projects }: { templates: Template[]
           </div>
           {demo
             ? <Link className="btn" to={`/projects/${encodeURIComponent(demo.id)}`}>Open the demo</Link>
-            : <button onClick={() => navigate("/projects/new/ai_sre_demo")}>Start the demo</button>}
+            : <button onClick={startDemo} disabled={demoBusy}>{demoBusy ? "starting…" : "Start the demo"}</button>}
+        </div>
+      )}
+      {demoErr && (
+        <div className="alert error">
+          could not start the demo: {demoErr}. <Link to="/projects/new/ai_sre_demo">Set it up step by step</Link> instead.
         </div>
       )}
 
       <p className="help landing-foot">
-        Know exactly what you want? <Link to="/projects/new">Pick a template</Link> or{" "}
-        <Link to="/sources/new">add a source</Link>.
+        Or <Link to="/projects/new/custom">assemble a project from existing objects</Link>, or{" "}
+        <Link to="/sources/new">add a source</Link> on its own.
       </p>
     </div>
   );

@@ -12,11 +12,13 @@ import { Picker } from "../components/bits";
 import { applyProposal, ProposalBody, ProposalShell, proposalTitle } from "../components/proposals";
 import type { DecisionMap, Proposal } from "../components/proposals";
 import SourceForm from "../components/SourceForm";
+import TemplateParams, { paramText, paramsBody } from "../components/TemplateParams";
+import type { Detected } from "../components/TemplateParams";
 import TriggerEditor from "../components/TriggerEditor";
 import { useAgentStream } from "../components/useAgentStream";
 import type { StreamEvent, WireMessage } from "../components/useAgentStream";
 import ViewEditor from "../components/ViewEditor";
-import type { AgentPreset, BuiltinAgent, ConnectorSpec, Project, ProjectObjectKind, Source, Trigger, View, ViewFilter } from "../types";
+import type { AgentPreset, BuiltinAgent, ConnectorSpec, Project, ProjectObjectKind, Source, Template, Trigger, View, ViewFilter } from "../types";
 
 // The AI-guided project builder (TR-243 to TR-246): describe what you need in your own words,
 // the assistant proposes the pieces one step at a time, and you complete each proposal in the
@@ -55,13 +57,25 @@ const wireText = (t: Turn, decisions: DecisionMap) => t.parts.map((p) => {
 }).join("").trim() || "[no answer]";
 
 const kindOf = (p: Proposal): ProjectObjectKind | null =>
-  p.kind === "labels" ? null : p.kind;
+  p.kind === "labels" || p.kind === "project" ? null : p.kind;
 
-/** A project name from the first content words of the goal, editable until the project exists. */
-const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "its", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please", "show", "then", "also"]);
+/** A project name from the goal, editable until the project exists: the nouns of the user's
+ *  world (a service, a container, a repo), never the verbs of ours. Three words at most, so
+ *  "watch the docker container checkout-api and its prometheus metrics" becomes
+ *  "checkout-api metrics". */
+const NAME_STOP = new Set([
+  "the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of",
+  "on", "in", "it", "its", "is", "me", "for", "want", "please", "then", "also", "some", "any", "all", "one",
+  "watch", "tell", "wake", "show", "build", "need", "keep", "make", "get", "let", "run", "runs", "running",
+  "agent", "agents", "service", "services", "project", "tares", "data", "something", "wrong", "happens",
+  "up", "date", "every", "each", "top", "over", "via", "using", "use", "like",
+]);
 function nameFromGoal(goal: string, incident: boolean): string {
-  const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w)).slice(0, 4);
-  const base = ws.join(" ") || "my project";
+  const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w));
+  // prefer words that look like names of things: hyphenated, or ending in a system-ish noun
+  const named = ws.filter((w) => w.includes("-") || /(api|logs?|metrics|db|repo|repos|server|checkout|payments?|orders?|weather|deploys?)$/.test(w));
+  const pick = [...new Set([...named, ...ws])].slice(0, 3);
+  const base = pick.join(" ") || "my project";
   return incident ? `catch ${base}` : base;
 }
 
@@ -74,9 +88,14 @@ export default function ProjectNewAssist() {
   // Handed over from the landing screen (Landing.tsx): the goal already typed, so the builder
   // starts its first turn on arrival and the user never sees an empty box. `incident` means the
   // text is a pasted alert or thread, framed for the model as something to have caught.
-  const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean };
+  const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean; template?: string };
   const [goal, setGoal] = useState(handoff.goal ?? "");
-  const [projectName, setProjectName] = useState(handoff.goal ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
+  const [projectName, setProjectName] = useState(handoff.goal && !handoff.template ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
+  // a picked template is named after itself, not after words chopped out of its sentence
+  useEffect(() => {
+    if (!handoff.template) return;
+    api.template(handoff.template).then((t) => setProjectName((cur) => cur || t.title)).catch(() => {});
+  }, [handoff.template]);
   const [step, setStep] = useState<StepKey | "describe" | "done">("describe");
   const [states, setStates] = useState<Record<StepKey, StepState>>({
     sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] },
@@ -139,6 +158,16 @@ export default function ProjectNewAssist() {
     return p;
   };
 
+  /** A template project is the whole build in one card: record it and finish. */
+  const finishWith = (p: Project) => {
+    api.template(p.template).then(setFinishedTemplate).catch(() => {});
+    projectRef.current = p;
+    setProject(p);
+    objectsRef.current = p.objects.map((o) => ({ kind: o.kind, name: o.name }));
+    setObjects(objectsRef.current);
+    setStep("done");
+  };
+
   /** One build turn: push the user framing, stream the assistant's answer into this step. */
   const turn = async (stepKey: StepKey, userText: string) => {
     const messages: WireMessage[] = [...history, { role: "user", content: userText }];
@@ -171,22 +200,66 @@ export default function ProjectNewAssist() {
     collected = [];
   };
 
+  /** What this build has already made, for the framing: after a Change the assistant must build
+   *  on it, not propose it again. Sources are the ones the user took pains over. */
+  const existingLine = () => {
+    const have = (["source", "view", "trigger", "agent"] as ProjectObjectKind[])
+      .map((k) => [k, created(k)] as const).filter(([, n]) => n.length);
+    return have.length
+      ? `\n\nAlready created and part of this project, keep and build on them, do not propose them again: `
+        + have.map(([k, n]) => `${k}s ${n.join(", ")}`).join("; ") + "."
+      : "";
+  };
+
   const start = async () => {
     setStep("sources");
     const framing = handoff.incident
       ? `Project: ${projectName.trim()}.\nThis is an incident I had, pasted as it was written:\n\n${goal.trim()}\n\nPropose the project that would have caught it: the sources that carry the signal it shows, named the way the paste names things. Say in one sentence when it would have fired. Ask me only what the paste does not say.`
+      : handoff.template
+      ? `Project: ${projectName.trim()}.\nI picked the template "${handoff.template}": ${goal.trim()}\n\nSet it up for me: read its parameters with list_templates, run detect_template, ask me only for what neither says, then propose the project.`
       : `Project: ${projectName.trim()}.\nGoal: ${goal.trim()}`;
-    await turn("sources", framing);
+    await turn("sources", framing + existingLine());
   };
+
+  // Change: back to the goal. Stops a turn in flight and drops what was only proposed; what was
+  // created stays, stays in the project, and is named to the assistant on the next start.
+  const [changing, setChanging] = useState(false);
+  const lastStep = useRef<StepKey | "done">("sources");
+  const change = () => {
+    stop();
+    if (step !== "describe") lastStep.current = step;
+    setChanging(true);
+    setStep("describe");
+  };
+  const restart = async () => {
+    setStates({ sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] } });
+    setDecisions({});
+    setHistory([]);
+    setRefine("");
+    setChanging(false);
+    await start();
+  };
+
+  // A template's project exists at most once (its objects have fixed names), so a picked template
+  // that already has one is answered here, without a model turn: open it.
+  const [already, setAlready] = useState<Project | null | undefined>(handoff.template ? undefined : null);
+  useEffect(() => {
+    if (!handoff.template) return;
+    api.projects().then((r) => setAlready(r.projects.find((p) => p.template === handoff.template) ?? null))
+      .catch(() => setAlready(null));
+  }, [handoff.template]);
 
   // arriving from the landing screen: start at once, once, when the key is known to be there
   const autoStarted = useRef(false);
   useEffect(() => {
-    if (ready && handoff.goal && step === "describe" && !autoStarted.current) {
+    if (ready && handoff.goal && step === "describe" && already === null && !autoStarted.current) {
       autoStarted.current = true;
       start();
     }
-  }, [ready]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, already]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the template behind a finished template project, for its setup steps on Done
+  const [finishedTemplate, setFinishedTemplate] = useState<Template>();
 
   /** Move on: tell the model what got created (with the decisions now known) and ask for the
    *  next step's proposals. */
@@ -212,7 +285,25 @@ export default function ProjectNewAssist() {
     await turn(step, text);
   };
 
-  if (ready === undefined) return <div className="dim">loading…</div>;
+  if (ready === undefined || already === undefined) return <div className="dim">loading…</div>;
+  if (already) {
+    return (
+      <>
+        <PageHead />
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>You already have this</h2>
+          <p>
+            <strong>{already.name}</strong> was set up from this template. A cell holds one of these,
+            because its objects have fixed names.
+          </p>
+          <div className="btnrow">
+            <Link className="btn primary" to={`/projects/${encodeURIComponent(already.id)}`}>Open it</Link>
+            <Link className="btn" to="/">Describe something else</Link>
+          </div>
+        </div>
+      </>
+    );
+  }
   if (!ready) {
     return (
       <>
@@ -240,7 +331,7 @@ export default function ProjectNewAssist() {
       <PageHead />
       <div className="builder-steps">
         {STEPS.map((s, i) => (
-          <span key={s.key} className={"step" + (i === stepIndex ? " active" : i < stepIndex ? " done" : "")}>
+          <span key={s.key} className={"step" + (i === stepIndex ? " active" : i < stepIndex ? " done" : "") + (i === stepIndex && streaming ? " busy" : "")}>
             <span className="n">{i + 1}</span>{s.label}
             {i < stepIndex && s.kinds.some((k) => created(k).length > 0) && (
               <span className="badge ok">{s.kinds.reduce((n, k) => n + created(k).length, 0)}</span>
@@ -249,35 +340,59 @@ export default function ProjectNewAssist() {
         ))}
       </div>
 
-      {/* Describe */}
-      <div className="panel">
-        <h2 style={{ marginTop: 0 }}>Describe</h2>
-        <label className="field">
-          <span className="lbl">project name<span className="req"> *</span></span>
-          <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                 disabled={!!project} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
-          {handoff.goal && !project && <span className="help">proposed from what you typed; change it any time before the first object is created</span>}
-        </label>
-        <label className="field">
-          <span className="lbl">what you need<span className="req"> *</span></span>
-          <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} disabled={step !== "describe"}
-                    placeholder="e.g. watch my payment service logs and wake an agent in Slack when checkouts fail"
-                    style={{ width: "100%", boxSizing: "border-box" }} />
-          <span className="help">
-            Name the systems you run and where they are. Tares proposes sources from the connectors
-            installed here, then views, triggers and an agent, one step at a time. Everything you
-            create is a real object you can edit on its own page.
-          </span>
-        </label>
-        {step === "describe" && (
+      {/* Describe: the form until the flow starts (and again on Change); a header afterwards */}
+      {step === "describe" ? (
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>Describe</h2>
+          <label className="field">
+            <span className="lbl">project name<span className="req"> *</span></span>
+            <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                   disabled={!!project} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
+            {handoff.goal && !project && <span className="help">proposed from what you typed; change it any time before the first object is created</span>}
+          </label>
+          <label className="field">
+            <span className="lbl">what you need<span className="req"> *</span></span>
+            <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3} autoFocus={changing}
+                      placeholder="e.g. watch my payment service logs and wake an agent in Slack when checkouts fail"
+                      style={{ width: "100%", boxSizing: "border-box" }} />
+            <span className="help">
+              Name the systems you run and where they are. Tares proposes sources from the connectors
+              installed here, then views, triggers and an agent, one step at a time. Everything you
+              create is a real object you can edit on its own page.
+            </span>
+          </label>
+          {changing && objects.length > 0 && (
+            <div className="alert">
+              Starting again from the goal. What you already created stays and stays in the project:{" "}
+              {objects.map((o) => <span key={`${o.kind}:${o.name}`} className="chip mono" style={{ marginRight: 4 }}>{o.name}</span>)}
+              Proposals you had not applied are dropped.
+            </div>
+          )}
           <div className="btnrow">
-            <button className="primary" disabled={!goal.trim() || !projectName.trim() || streaming} onClick={start}>
-              Propose sources
+            <button className="primary" disabled={!goal.trim() || !projectName.trim() || streaming}
+                    onClick={changing ? restart : start}>
+              {changing ? "Propose again" : "Propose sources"}
             </button>
-            <Link className="btn" to="/projects/new">Cancel</Link>
+            {changing
+              ? <button onClick={() => { setChanging(false); setStep(lastStep.current); }}>Keep going instead</button>
+              : <Link className="btn" to="/projects/new">Cancel</Link>}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="panel builder-brief">
+          <label className="field" style={{ marginBottom: 10 }}>
+            <span className="lbl">project name</span>
+            {project
+              ? <span className="mono">{project.name}</span>
+              : <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ maxWidth: 360 }} />}
+          </label>
+          <div className="field" style={{ marginBottom: 10 }}>
+            <span className="lbl">building</span>
+            <blockquote>{goal.trim()}</blockquote>
+          </div>
+          {step !== "done" && <button onClick={change}>Change what you need</button>}
+        </div>
+      )}
 
       {projectErr && <div className="alert error">{projectErr}</div>}
 
@@ -287,6 +402,12 @@ export default function ProjectNewAssist() {
           <div className="pagehead" style={{ marginBottom: 8 }}>
             <h2 style={{ margin: 0 }}>{s.label}</h2>
             {i < stepIndex && <span className="badge ok">done</span>}
+            {s.key === step && streaming && (
+              <span className="builder-running">
+                <span className="spinner" /> proposing {s.label.toLowerCase()}…
+                <button type="button" className="dim" onClick={stop}>Stop</button>
+              </span>
+            )}
           </div>
           {states[s.key].turns.map((t, j) => (
             <TurnView key={j} turn={t} decisions={decisions} decide={decide} own={own}
@@ -294,6 +415,7 @@ export default function ProjectNewAssist() {
                       specs={specs ?? {}} existing={existing} refreshSources={refreshSources}
                       sourceNames={[...new Set([...created("source"), ...existing.map((x) => x.name)])]}
                       createdTriggers={created("trigger")}
+                      finishWith={finishWith}
                       active={s.key === step} />
           ))}
           {s.key === step && !streaming && states[s.key].turns.length > 0 && proposalsInStep === 0 && !asking && (
@@ -310,9 +432,7 @@ export default function ProjectNewAssist() {
                           placeholder={asking ? "answer here, then Send" : "ask for a change, e.g. use the staging URL, or add the alerts too"}
                           onChange={(e) => setRefine(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendRefine(); } }} />
-                {streaming
-                  ? <button type="button" className="danger" onClick={stop}>Stop</button>
-                  : <button type="button" disabled={!refine.trim()} onClick={sendRefine}>Send</button>}
+                <button type="button" disabled={streaming || !refine.trim()} onClick={sendRefine}>Send</button>
               </div>
               <div className="btnrow" style={{ marginTop: 12 }}>
                 <button className="primary" disabled={streaming || (s.key === "sources" && created("source").length === 0)}
@@ -340,12 +460,32 @@ export default function ProjectNewAssist() {
                   .map((x, i, arr) => <span key={x.k}>{i > 0 ? (i === arr.length - 1 ? " and " : ", ") : ""}{x.n} {x.k}{x.n === 1 ? "" : "s"}</span>)}.
                 The project page shows its objects, firings and agent runs.
               </p>
+              {finishedTemplate?.setup && finishedTemplate.setup.length > 0 && (
+                <>
+                  <h3 style={{ margin: "14px 0 6px" }}>What happens next</h3>
+                  <ol className="uc-setup">
+                    {finishedTemplate.setup.map((st, i) => (
+                      <li key={i}>
+                        <div className="uc-setup-title">{st.title}</div>
+                        {st.text && <p className="help" style={{ margin: "2px 0 6px", whiteSpace: "normal" }}>{st.text}</p>}
+                        {st.check === "anthropic_key" && <p className="help" style={{ margin: "2px 0 6px" }}>Under <Link to="/settings">Settings</Link>, if none is set yet.</p>}
+                        {st.command && (
+                          <div className="uc-setup-cmd">
+                            <pre className="mono">{st.command}</pre>
+                            <button type="button" onClick={() => navigator.clipboard?.writeText(st.command!)}>copy</button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
               <div className="btnrow">
                 <Link className="btn primary" to={`/projects/${encodeURIComponent(project.id)}`}>Open the project</Link>
               </div>
             </>
           ) : (
-            <p className="help">Nothing was created. Start again with a fuller description, or <Link to="/projects/new">pick a template</Link>.</p>
+            <p className="help">Nothing was created. Start again with a fuller description, or <Link to="/projects/new/templates">pick a template</Link>.</p>
           )}
         </div>
       )}
@@ -371,10 +511,11 @@ function PageHead() {
 /** One assistant turn inside a step: text, the tool rail, and each proposal as a card the user
  *  completes. Mirrors AskChat's Turn, with forms in place of Apply for sources and agents. */
 function TurnView({ turn, decisions, decide, own, thinking, specs, existing, refreshSources, sourceNames,
-                    createdTriggers, active }: {
+                    createdTriggers, finishWith, active }: {
   turn: Turn; decisions: DecisionMap; thinking: boolean; active: boolean;
   decide: (id: string, status: "applied" | "skipped" | "error", detail?: string) => void;
   own: (kind: ProjectObjectKind, name: string) => Promise<void>;
+  finishWith: (p: Project) => void;
   specs: Record<string, ConnectorSpec>; existing: Source[]; refreshSources: () => void;
   sourceNames: string[]; createdTriggers: string[];
 }) {
@@ -398,6 +539,8 @@ function TurnView({ turn, decisions, decide, own, thinking, specs, existing, ref
           return <SourceCard key={j} proposal={p} specs={specs} existing={existing} refreshSources={refreshSources} {...common} />;
         if (p.kind === "agent")
           return <AgentCard key={j} proposal={p} triggers={createdTriggers} {...common} />;
+        if (p.kind === "project")
+          return <ProjectCard key={j} proposal={p} finishWith={finishWith} {...common} />;
         return <CatalogCard key={j} proposal={p} sourceNames={sourceNames} {...common} />;
       })}
       {thinking && <div className="dim">thinking…</div>}
@@ -529,6 +672,69 @@ function CreatedSource({ made, name, specs }: {
         </>
       )}
     </div>
+  );
+}
+
+/** A whole project from a template, as the template's own form prefilled with what the assistant
+ *  knew and the `needs` params marked. Start creates it through the normal create API, so the
+ *  template's own logic runs; the build is then complete. */
+function ProjectCard({ proposal: p, decision, decide, finishWith }: CardCommon & {
+  proposal: Extract<Proposal, { kind: "project" }>; finishWith: (p: Project) => void;
+}) {
+  const [template, setTemplate] = useState<Template>();
+  const [err, setErr] = useState<string>();
+  const [name, setName] = useState(p.name);
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [detected, setDetected] = useState<Detected>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.template(p.template).then((t) => {
+      setTemplate(t);
+      setVals(Object.fromEntries(Object.entries(t.params).map(([k, spec]) =>
+        [k, p.needs.includes(k) ? "" : paramText(spec, p.params?.[k])])));
+    }).catch((e) => setErr(String((e as Error).message ?? e)));
+    api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
+    api.detectRecipe(p.template).then(setDetected).catch(() => {});
+  }, [p.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const start = async () => {
+    if (!template) return;
+    setBusy(true); setErr(undefined);
+    try {
+      const made = await api.createProject({ template: template.key, name: name.trim() || undefined, params: paramsBody(template, vals) });
+      decide(p.id, "applied");
+      finishWith(made);
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+  const open = !decision || decision.status === "error";
+  return (
+    <ProposalShell title={proposalTitle(p)} decision={decision} reasoning={p.reasoning}
+                   actions={open ? <div className="btnrow"><button onClick={() => decide(p.id, "skipped")}>Skip</button></div> : null}>
+      <ProposalBody proposal={p} />
+      {err && <div className="alert error">{err}</div>}
+      {open && template && (
+        <>
+          <p className="help" style={{ whiteSpace: "normal" }}>{template.description}</p>
+          <label className="field">
+            <span className="lbl">name</span>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 420 }} />
+          </label>
+          <TemplateParams template={template} vals={vals} setVals={setVals} needs={p.needs}
+                          models={models} defaultModel={defaultModel} detected={detected} />
+          <div className="btnrow" style={{ alignItems: "center" }}>
+            <button className="primary" disabled={busy} onClick={start}>{busy ? "starting…" : "Start"}</button>
+            <span className="help">
+              creates the project with everything the template sets up
+              {template.setup && template.setup.length > 0 ? `, then ${template.setup.length} steps to do on your side` : ""}
+            </span>
+          </div>
+        </>
+      )}
+      {open && !template && !err && <div className="dim">loading the template…</div>}
+    </ProposalShell>
   );
 }
 

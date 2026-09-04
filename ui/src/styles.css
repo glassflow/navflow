@@ -559,7 +559,8 @@ label.field .help, div.field > .help { display: block; font-size: 12px; color: v
 .fld-row.invalid input, .fld-row.invalid select, .fld-row.invalid textarea { border-color: var(--err); background: var(--err-soft); }
 .fld-row.invalid .help { color: var(--err); }
 /* a builder proposal's `needs`: the fields only the user can fill (a token, a URL) */
-.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
+.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea,
+label.field.needs input, label.field.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
 
 /* The AI-guided project builder (ProjectNewAssist): one column of step panels; the strip on top
    says where you are. */
@@ -1358,5 +1359,14 @@ pre.payload {
 .landing-ask textarea.mono { font-family: var(--mono); font-size: 13px; }
 .landing-heard { min-height: 26px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 10px; }
 .landing-starters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.landing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.landing-head .btn { flex: 0 0 auto; margin-top: 6px; }
 .landing-demo { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
 .landing-foot { text-align: center; }
+
+/* the builder once it is running: the goal as a brief, the active step visibly busy */
+.builder-brief blockquote { margin: 2px 0 0; padding: 0 0 0 12px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+.builder-running { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 13px; }
+.builder-running .spinner { width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: builder-spin 0.8s linear infinite; }
+@keyframes builder-spin { to { transform: rotate(360deg); } }
+.builder-steps .step.busy { border-style: dashed; }
