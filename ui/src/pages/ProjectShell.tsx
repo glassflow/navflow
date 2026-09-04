@@ -632,10 +632,10 @@ export default function ProjectShell({ s, id, reload, template }: {
               {s.objects.filter((o) => o.kind !== "mcp_server").map((o) => {
                 const k = `${o.kind}:${o.name}`;
                 return (
-                  <label key={k} style={{ display: "flex", gap: 8, alignItems: "center", padding: "2px 0" }}>
+                  <label key={k} style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "2px 0", minWidth: 0 }}>
                     <input type="checkbox" checked={delSel.has(k)} disabled={!delDeps} onChange={(e) => pick(k, e.target.checked)} />
-                    <span className="help" style={{ width: 56 }}>{o.kind}</span>
-                    <span className="mono">{o.name}</span>
+                    <span className="help" style={{ width: 56, flex: "0 0 auto" }}>{o.kind}</span>
+                    <span className="mono" style={{ minWidth: 0, wordBreak: "break-all" }}>{o.name}</span>
                   </label>
                 );
               })}
