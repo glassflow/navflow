@@ -393,7 +393,8 @@ thead th {
 }
 thead th.num { text-align: right; }
 tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-tbody tr:last-child td { border-bottom: none; }
+/* direct children only: a table nested inside the last row (a folded source on the project page) keeps its own row lines */
+tbody > tr:last-child > td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--row-hover); }
 tbody tr.sel, tbody tr.sel:hover { background: var(--accent-soft); }
