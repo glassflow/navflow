@@ -494,7 +494,7 @@ export default function ProjectShell({ s, id, reload, template }: {
               })}
             </tbody>
           </table>
-        ) : <p className="help">nothing ingested yet across this project's sources</p>
+        ) : <div className="empty">nothing ingested yet across this project's sources</div>
       )}
 
       {tab === "firings" && (
