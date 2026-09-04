@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -57,14 +57,26 @@ const wireText = (t: Turn, decisions: DecisionMap) => t.parts.map((p) => {
 const kindOf = (p: Proposal): ProjectObjectKind | null =>
   p.kind === "labels" ? null : p.kind;
 
+/** A project name from the first content words of the goal, editable until the project exists. */
+const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please"]);
+function nameFromGoal(goal: string, incident: boolean): string {
+  const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w)).slice(0, 4);
+  const base = ws.join(" ") || "my project";
+  return incident ? `catch ${base}` : base;
+}
+
 export default function ProjectNewAssist() {
   const [ready, setReady] = useState<boolean>();
   const refreshKey = () => api.capabilities()
     .then((c) => setReady(!!c.agent_key_configured)).catch(() => setReady(false));
   useEffect(() => { refreshKey(); }, []);
 
-  const [goal, setGoal] = useState("");
-  const [projectName, setProjectName] = useState("");
+  // Handed over from the landing screen (Landing.tsx): the goal already typed, so the builder
+  // starts its first turn on arrival and the user never sees an empty box. `incident` means the
+  // text is a pasted alert or thread, framed for the model as something to have caught.
+  const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean };
+  const [goal, setGoal] = useState(handoff.goal ?? "");
+  const [projectName, setProjectName] = useState(handoff.goal ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
   const [step, setStep] = useState<StepKey | "describe" | "done">("describe");
   const [states, setStates] = useState<Record<StepKey, StepState>>({
     sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] },
@@ -161,8 +173,20 @@ export default function ProjectNewAssist() {
 
   const start = async () => {
     setStep("sources");
-    await turn("sources", `Project: ${projectName.trim()}.\nGoal: ${goal.trim()}`);
+    const framing = handoff.incident
+      ? `Project: ${projectName.trim()}.\nThis is an incident I had, pasted as it was written:\n\n${goal.trim()}\n\nPropose the project that would have caught it: the sources that carry the signal it shows, named the way the paste names things. Say in one sentence when it would have fired. Ask me only what the paste does not say.`
+      : `Project: ${projectName.trim()}.\nGoal: ${goal.trim()}`;
+    await turn("sources", framing);
   };
+
+  // arriving from the landing screen: start at once, once, when the key is known to be there
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (ready && handoff.goal && step === "describe" && !autoStarted.current) {
+      autoStarted.current = true;
+      start();
+    }
+  }, [ready]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Move on: tell the model what got created (with the decisions now known) and ask for the
    *  next step's proposals. */
@@ -231,7 +255,8 @@ export default function ProjectNewAssist() {
         <label className="field">
           <span className="lbl">project name<span className="req"> *</span></span>
           <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)}
-                 disabled={step !== "describe"} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
+                 disabled={!!project} placeholder="e.g. checkout incidents" style={{ maxWidth: 420 }} />
+          {handoff.goal && !project && <span className="help">proposed from what you typed; change it any time before the first object is created</span>}
         </label>
         <label className="field">
           <span className="lbl">what you need<span className="req"> *</span></span>
