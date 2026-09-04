@@ -3,16 +3,24 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.25.0] - 2026-09-04
 
 ### Added
-- AI-guided project builder: "Build with Tares" on the new-project gallery. Describe what you
-  need; the assistant proposes sources from the installed connectors, then views, triggers and
-  an agent, one step at a time. Each proposal is the object's own form, prefilled, with the
-  fields only you can fill (tokens, URLs, the Slack channel) marked. Every Apply creates a real
-  object through its normal API and adds it to an ordinary project, so leaving part way keeps
-  what was created. `POST /api/agent/chat` takes `mode: "build"` and `step` for this; each step
-  gets only its own proposal tool.
+- AI-guided project builder. Describe what you need; the assistant proposes sources from the
+  installed connectors, then views and triggers, then an agent, one step at a time, asking
+  before it guesses. Each proposal is the object's own form, prefilled, with the fields only you
+  can fill (tokens, URLs, the Slack channel) marked. Every Apply creates a real object through
+  its normal API and adds it to an ordinary project, so leaving part way keeps what was created.
+  `POST /api/agent/chat` takes `mode: "build"` and `step`; each step gets only its own proposal
+  tools. A goal that matches a template is proposed as that template, as its own form.
+- A new landing screen. A cell with no project of its own opens on one question, "What do you
+  want to build?", with starter sentences from the templates, a paste-your-last-incident door,
+  and the demo as a one-click offer instead of a seeded project. The same screen is Create new
+  under Projects; the template gallery sits behind a "Use a guided template" button. Each
+  template declares its sentence (`sentence` in `describe()`); `GET /api/projects/templates/{key}`
+  serves one template, hidden ones included.
+- Project page: source rows fold open to the ingest endpoint or the polled target, with
+  Configure. Framed empty states for runs, firings and events.
 
 ### Changed
 - Deleting a source or a view no longer refuses with "remove it from those views first". The
