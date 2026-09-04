@@ -3,6 +3,12 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
+  not only on the resource, so a backend's span view shows which instance sent it.
+
 ## [1.23.0] - 2026-09-03
 
 ### Added
