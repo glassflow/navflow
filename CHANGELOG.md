@@ -3,11 +3,7 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
-
-### Changed
-- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
-  not only on the resource, so a backend's span view shows which instance sent it.
+## [1.24.0] - 2026-09-04
 
 ### Added
 - Runs on an agent's page and on a project's Agents tab can be filtered to successful or failed
@@ -19,6 +15,10 @@ the project follows [Semantic Versioning](https://semver.org/).
   create form and said "this instance has no project named rius_rca". The form now loads the
   template by key, hidden templates included, prefills the project's params (secrets blank,
   blank keeps the stored value) and saves in place.
+
+### Changed
+- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
+  not only on the resource, so a backend's span view shows which instance sent it.
 
 ## [1.23.0] - 2026-09-03
 
