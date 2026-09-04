@@ -266,9 +266,9 @@ export function ProposalBody({ proposal }: { proposal: Proposal }) {
       {proposal.kind === "project" && (
         <p style={{ margin: "0 0 8px" }}>
           from the template <span className="chip mono">{proposal.template}</span>
-          {Object.keys(proposal.params ?? {}).length > 0 && (
+          {Object.entries(proposal.params ?? {}).filter(([, v]) => v !== "" && v !== null && v !== undefined).length > 0 && (
             <> · prefilled{" "}
-              {Object.entries(proposal.params ?? {}).map(([k, v]) => (
+              {Object.entries(proposal.params ?? {}).filter(([, v]) => v !== "" && v !== null && v !== undefined).map(([k, v]) => (
                 <span key={k} className="chip mono" title={typeof v === "string" ? v : JSON.stringify(v)}>{k}</span>
               ))}
             </>

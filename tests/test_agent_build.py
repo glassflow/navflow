@@ -69,8 +69,8 @@ ck("propose_source config is an object, poll optional",
 pj = by_name["propose_project"]["input_schema"]
 ck("propose_project requires template, name, needs, reasoning",
    set(pj["required"]) == {"template", "name", "needs", "reasoning"}, str(pj["required"]))
-ck("read tools include list_templates and detect_template",
-   {"list_templates", "detect_template"} <= READ)
+ck("read tools include list_templates, list_projects and detect_template",
+   {"list_templates", "list_projects", "detect_template"} <= READ)
 ag = by_name["propose_agent"]["input_schema"]
 ck("propose_agent requires name, trigger, prompt, delivery, reasoning",
    set(ag["required"]) == {"name", "trigger", "prompt", "delivery", "reasoning"}, str(ag["required"]))

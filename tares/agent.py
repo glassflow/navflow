@@ -60,6 +60,11 @@ TOOLS = [
                     "type to get it. A template creates its whole project in one step; prefer one "
                     "over assembling the same thing from parts.",
      "input_schema": {"type": "object", "properties": {}}},
+    {"name": "list_projects",
+     "description": "The projects that already exist here, with the template each came from. A "
+                    "template's project usually exists at most once (its objects have fixed "
+                    "names), so check before proposing one.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "detect_template",
      "description": "Ask a template to look at the environment (running containers, reachable "
                     "services) and propose parameter values. Returns {params, found, missing, "
@@ -294,6 +299,8 @@ async def _execute_tool(name: str, args: dict, headers: dict) -> tuple[bool, str
                              params={"limit": int(args.get("limit", 20))})
         elif name == "list_templates":
             r = await cx.get("/api/projects/templates")
+        elif name == "list_projects":
+            r = await cx.get("/api/projects")
         elif name == "detect_template":
             r = await cx.post(f"/api/projects/templates/{args.get('key', '')}/detect")
         elif name == "query":
@@ -394,8 +401,11 @@ default the user did not choose and present it as theirs.
 up (its sentence or description says the same thing in other words), do not assemble it from \
 parts: ask for the parameters only the user knows, call detect_template for the rest, and make \
 ONE propose_project card. If the console says the user picked a template, that is the answer; \
-gather its parameters and propose it. Templates set up everything at once, so after that card \
-there is nothing left to propose on any step.
+gather its parameters and propose it. Check list_projects first: if a project from that template \
+already exists, say so and point at it instead of proposing another; a second one cannot be \
+created. Templates set up everything at once, so after that card there is nothing left to \
+propose on any step. The console shows the template's setup steps after the user presses Start: \
+do not list them, and say "press Start", never "apply the card".
 · SOURCES: otherwise, map the user's goal onto the INSTALLED connectors only. Call list_connectors first and \
 pick from what it returns; never name a connector it does not list. If nothing installed fits \
 part of the goal, say so in one sentence rather than forcing a poor match. One propose_source \

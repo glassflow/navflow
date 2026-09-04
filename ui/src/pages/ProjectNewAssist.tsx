@@ -143,6 +143,7 @@ export default function ProjectNewAssist() {
 
   /** A template project is the whole build in one card: record it and finish. */
   const finishWith = (p: Project) => {
+    api.template(p.template).then(setFinishedTemplate).catch(() => {});
     projectRef.current = p;
     setProject(p);
     objectsRef.current = p.objects.map((o) => ({ kind: o.kind, name: o.name }));
@@ -192,14 +193,26 @@ export default function ProjectNewAssist() {
     await turn("sources", framing);
   };
 
+  // A template's project exists at most once (its objects have fixed names), so a picked template
+  // that already has one is answered here, without a model turn: open it.
+  const [already, setAlready] = useState<Project | null | undefined>(handoff.template ? undefined : null);
+  useEffect(() => {
+    if (!handoff.template) return;
+    api.projects().then((r) => setAlready(r.projects.find((p) => p.template === handoff.template) ?? null))
+      .catch(() => setAlready(null));
+  }, [handoff.template]);
+
   // arriving from the landing screen: start at once, once, when the key is known to be there
   const autoStarted = useRef(false);
   useEffect(() => {
-    if (ready && handoff.goal && step === "describe" && !autoStarted.current) {
+    if (ready && handoff.goal && step === "describe" && already === null && !autoStarted.current) {
       autoStarted.current = true;
       start();
     }
-  }, [ready]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, already]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the template behind a finished template project, for its setup steps on Done
+  const [finishedTemplate, setFinishedTemplate] = useState<Template>();
 
   /** Move on: tell the model what got created (with the decisions now known) and ask for the
    *  next step's proposals. */
@@ -225,7 +238,25 @@ export default function ProjectNewAssist() {
     await turn(step, text);
   };
 
-  if (ready === undefined) return <div className="dim">loading…</div>;
+  if (ready === undefined || already === undefined) return <div className="dim">loading…</div>;
+  if (already) {
+    return (
+      <>
+        <PageHead />
+        <div className="panel">
+          <h2 style={{ marginTop: 0 }}>You already have this</h2>
+          <p>
+            <strong>{already.name}</strong> was set up from this template. A cell holds one of these,
+            because its objects have fixed names.
+          </p>
+          <div className="btnrow">
+            <Link className="btn primary" to={`/projects/${encodeURIComponent(already.id)}`}>Open it</Link>
+            <Link className="btn" to="/">Describe something else</Link>
+          </div>
+        </div>
+      </>
+    );
+  }
   if (!ready) {
     return (
       <>
@@ -354,6 +385,26 @@ export default function ProjectNewAssist() {
                   .map((x, i, arr) => <span key={x.k}>{i > 0 ? (i === arr.length - 1 ? " and " : ", ") : ""}{x.n} {x.k}{x.n === 1 ? "" : "s"}</span>)}.
                 The project page shows its objects, firings and agent runs.
               </p>
+              {finishedTemplate?.setup && finishedTemplate.setup.length > 0 && (
+                <>
+                  <h3 style={{ margin: "14px 0 6px" }}>What happens next</h3>
+                  <ol className="uc-setup">
+                    {finishedTemplate.setup.map((st, i) => (
+                      <li key={i}>
+                        <div className="uc-setup-title">{st.title}</div>
+                        {st.text && <p className="help" style={{ margin: "2px 0 6px", whiteSpace: "normal" }}>{st.text}</p>}
+                        {st.check === "anthropic_key" && <p className="help" style={{ margin: "2px 0 6px" }}>Under <Link to="/settings">Settings</Link>, if none is set yet.</p>}
+                        {st.command && (
+                          <div className="uc-setup-cmd">
+                            <pre className="mono">{st.command}</pre>
+                            <button type="button" onClick={() => navigator.clipboard?.writeText(st.command!)}>copy</button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
               <div className="btnrow">
                 <Link className="btn primary" to={`/projects/${encodeURIComponent(project.id)}`}>Open the project</Link>
               </div>
@@ -598,8 +649,12 @@ function ProjectCard({ proposal: p, decision, decide, finishWith }: CardCommon &
           </label>
           <TemplateParams template={template} vals={vals} setVals={setVals} needs={p.needs}
                           models={models} defaultModel={defaultModel} detected={detected} />
-          <div className="btnrow">
+          <div className="btnrow" style={{ alignItems: "center" }}>
             <button className="primary" disabled={busy} onClick={start}>{busy ? "starting…" : "Start"}</button>
+            <span className="help">
+              creates the project with everything the template sets up
+              {template.setup && template.setup.length > 0 ? `, then ${template.setup.length} steps to do on your side` : ""}
+            </span>
           </div>
         </>
       )}
