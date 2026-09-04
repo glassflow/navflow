@@ -1,18 +1,13 @@
-"""Threat-intel feed connector — polls a JSON indicator feed (the normalized shape a MISP, OTX, or
+"""Threat-intel feed connector - polls a JSON indicator feed (the normalized shape a MISP, OTX, or
 AbuseIPDB export flattens to: indicator, type, threat_type, confidence, source, first_seen) and
 emits one Envelope per indicator, keyed by the indicator value itself (an IP, domain, or hash).
 
 Point this at the same feed a SOC already consumes and it lands on the SAME timeline as everything
-else keyed by that indicator — a webhook source logging auth attempts by IP, a Postgres table of
+else keyed by that indicator - a webhook source logging auth attempts by IP, a Postgres table of
 account activity by user, whatever else is already flowing in. An agent reading `read(ip)` then
 sees "5 failed logins in the last minute" and "this IP is a known credential-stuffing proxy,
 confidence 92" as one correlated read, instead of separately calling an auth-log tool and a
 threat-intel lookup tool.
-
-Incremental like the GitHub connector: cursor is the set of indicator values already emitted
-(stored as a sorted, newline-joined string — small feeds, typically hundreds to low thousands of
-entries, so this stays well within a single cursor value). A poll only emits indicators not in the
-cursor; nothing to emit means an empty envelope list, same as any other quiet poll tick.
 
 config:
   feed_url: https://example.com/iocs.json   # a JSON array of indicator objects, or
@@ -56,13 +51,13 @@ class ThreatIntelConnector(Connector):
                   "help": "bearer token for feed_url, if the feed requires auth"},
         "field_map": {"type": "json", "advanced": True,
                       "help": "rename source fields to the standard shape, e.g. "
-                              '{"indicator": "ioc", "type": "ioc_type"} — only needed when the '
+                              '{"indicator": "ioc", "type": "ioc_type"} - only needed when the '
                               "feed doesn't already use indicator/type/threat_type/confidence/"
                               "source/first_seen"},
     }
 
     PROVIDES = [
-        {"name": "indicator", "primary": True, "help": "the IOC value itself — an IP, domain, or hash"},
+        {"name": "indicator", "primary": True, "help": "the IOC value itself - an IP, domain, or hash"},
         {"name": "indicator_type", "help": "ip | domain | hash | url"},
         {"name": "threat_type", "help": "e.g. credential_stuffing_proxy, botnet_c2, known_scanner"},
     ]
@@ -125,7 +120,7 @@ class ThreatIntelConnector(Connector):
         text = (
             f"{norm.get('indicator')} flagged as {threat_type}"
             + (f" (confidence {confidence})" if confidence is not None else "")
-            + f" — source: {norm.get('source') or 'feed'}"
+            + f" - source: {norm.get('source') or 'feed'}"
             + (f", first seen {norm['first_seen']}" if norm.get("first_seen") else "")
         )
         return Envelope(

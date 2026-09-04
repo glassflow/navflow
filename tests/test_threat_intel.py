@@ -1,13 +1,16 @@
-"""Threat-intel connector — incremental poll against a local feed file, cursor behavior, and
+"""Threat-intel connector - incremental poll against a local feed file, cursor behavior, and
 end-to-end ingestion through the daemon (same shape as tests/test_vercel.py, tests/test_postgres.py).
 """
 import asyncio
 import json
 import os
+import tempfile
 
-os.environ["TARES_DB"] = "/tmp/threat_intel.duckdb"
-os.environ["TARES_CATALOG"] = "/tmp/none.yaml"
-for _p in ("/tmp/threat_intel.duckdb", "/tmp/threat_intel.duckdb.wal"):
+TMP = tempfile.gettempdir()
+
+os.environ["TARES_DB"] = os.path.join(TMP, "threat_intel.duckdb")
+os.environ["TARES_CATALOG"] = os.path.join(TMP, "none.yaml")
+for _p in (os.environ["TARES_DB"], os.environ["TARES_DB"] + ".wal"):
     if os.path.exists(_p):
         os.remove(_p)
 
@@ -49,7 +52,7 @@ def write_feed(path, items):
 
 
 async def test_poll_and_cursor():
-    feed_path = "/tmp/ioc_feed.json"
+    feed_path = os.path.join(TMP, "ioc_feed.json")
     write_feed(feed_path, FEED)
     store = FakeStore()
     conn = ThreatIntelConnector(cfg({"feed_path": feed_path, "labels": LABELS}), store)
@@ -78,7 +81,7 @@ async def test_poll_and_cursor():
 
 
 async def test_field_map():
-    feed_path = "/tmp/ioc_feed_mapped.json"
+    feed_path = os.path.join(TMP, "ioc_feed_mapped.json")
     write_feed(feed_path, [{"ioc": "1.2.3.4", "ioc_type": "ip", "threat_type": "botnet_c2",
                             "confidence": 50}])
     store = FakeStore()
@@ -114,7 +117,7 @@ async def test_ingest_end_to_end():
     from tares.daemon import make_app
     import httpx
 
-    feed_path = "/tmp/ioc_feed_e2e.json"
+    feed_path = os.path.join(TMP, "ioc_feed_e2e.json")
     write_feed(feed_path, FEED)
 
     app = make_app()
@@ -127,7 +130,7 @@ async def test_ingest_end_to_end():
         ck("source created via daemon API", r.status_code in (200, 201), r.text)
 
         # ingestion runs on the background poll loop (interval-driven, not a manual-trigger
-        # endpoint) — poll the connector directly against the daemon's own store, exactly as
+        # endpoint) - poll the connector directly against the daemon's own store, exactly as
         # runtime._loop does, so this test doesn't depend on wall-clock timing.
         from tares.connectors import build_connector
         store = app.state.store
