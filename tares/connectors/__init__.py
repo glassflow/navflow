@@ -22,6 +22,7 @@ from .postgres import PostgresConnector
 from .prometheus import PrometheusConnector
 from .finding import FindingConnector
 from .reference import ReferenceConnector
+from .threat_intel import ThreatIntelConnector
 from .vercel import VercelConnector
 from .webhook import WebhookConnector
 
@@ -40,6 +41,7 @@ REGISTRY = {
     "postgres": PostgresConnector,
     "claude_code": ClaudeCodeConnector,
     "finding": FindingConnector,
+    "threat_intel": ThreatIntelConnector,
 }
 
 # Connector metadata for the UI. The `fields` of each are GENERATED from the connector's
@@ -90,6 +92,12 @@ SPECS = {
                  "description": "Polls a table incrementally (cursor by an id or updated_at); one "
                                 "event per new/changed row, keyed by an entity column (tenant_id). "
                                 "Your application's source-of-truth data in the timeline."},
+    "threat_intel": {"label": "Threat-intel feed", "mode": "poll", "discover": True, "poll": "5m",
+                     "description": "Polls a JSON indicator feed (MISP/OTX/AbuseIPDB-shaped "
+                                    "export, or a local file); one event per new indicator, keyed "
+                                    "by the indicator itself (an IP, domain, or hash) so it lands "
+                                    "on the same timeline as anything else keyed by that value — "
+                                    "auth logs, account activity, whatever else you already run."},
     "claude_code": {"label": "Claude Code sessions", "mode": "poll",
                     "description": "Tails local Claude Code session transcripts "
                                    "(~/.claude/projects/*.jsonl) into the data plane; one event per "
