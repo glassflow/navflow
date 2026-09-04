@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
+import { usePolling } from "../components/bits";
+import { wizardPath } from "./ProjectNew";
 import type { ConnectorSpec, Project, Template } from "../types";
 
 // The screen a new cell lands on (TR-257): one question, answered by typing. Shown by Home while
@@ -53,6 +55,14 @@ function overlap(typed: Set<string>, sentence: string) {
   let n = 0;
   for (const w of words(sentence)) if (typed.has(w)) n++;
   return n;
+}
+
+/** Create new (/projects/new): the landing screen loading its own data. */
+export function ProjectNewPage() {
+  const { data: rec } = usePolling(() => api.templates(), 60000);
+  const { data: uc } = usePolling(() => api.projects(), 30000);
+  if (!rec || !uc) return <div className="dim">loading…</div>;
+  return <Landing templates={rec.templates} projects={uc.projects} />;
 }
 
 export default function Landing({ templates, projects }: { templates: Template[]; projects: Project[] }) {
@@ -161,10 +171,14 @@ export default function Landing({ templates, projects }: { templates: Template[]
       <div className="landing-starters">
         <div className="help">Or start from one of these</div>
         {sentences.map((s) => (
-          <button key={s.text} type="button" className="starter"
-                  onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
-            {s.text}
-          </button>
+          <div key={s.text} className="starter-row">
+            <button type="button" className="starter"
+                    onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
+              {s.text}
+            </button>
+            {/* the deterministic path, one click away on every template sentence */}
+            {s.template && <Link className="help starter-wizard" to={wizardPath(s.template)} title="the template's form, no assistant">set up step by step</Link>}
+          </div>
         ))}
       </div>
 
@@ -188,7 +202,8 @@ export default function Landing({ templates, projects }: { templates: Template[]
       )}
 
       <p className="help landing-foot">
-        Know exactly what you want? <Link to="/projects/new">Pick a template</Link> or{" "}
+        Know exactly what you want? <Link to="/projects/new/templates">Pick a template</Link>,{" "}
+        <Link to="/projects/new/custom">assemble from existing objects</Link>, or{" "}
         <Link to="/sources/new">add a source</Link>.
       </p>
     </div>

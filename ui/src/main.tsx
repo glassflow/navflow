@@ -28,7 +28,8 @@ import McpServers from "./pages/McpServers";
 import Sources from "./pages/Sources";
 import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import Projects from "./pages/Projects";
-import ProjectNew from "./pages/ProjectNew";
+import ProjectTemplates from "./pages/ProjectNew";
+import { ProjectNewPage } from "./pages/Landing";
 import ProjectDetail from "./pages/ProjectDetail";
 import ProjectNewAssist from "./pages/ProjectNewAssist";
 import ProjectNewCustom from "./pages/ProjectNewCustom";
@@ -60,7 +61,9 @@ const router = createBrowserRouter([
       // here, so a customer arrives at the instance at a glance rather than at a table.
       { index: true, element: <Home /> },
       { path: "projects", element: <Projects /> },
-      { path: "projects/new", element: <ProjectNew /> },
+      // Create new is the landing screen; the template gallery is the step-by-step path behind it
+      { path: "projects/new", element: <ProjectNewPage /> },
+      { path: "projects/new/templates", element: <ProjectTemplates /> },
       { path: "projects/new/shared_code_context", element: <ProjectNewSharedContext /> },
       { path: "projects/new/custom", element: <ProjectNewCustom /> },
       // the AI-guided builder is not a template (it assembles a custom project), so it sits
