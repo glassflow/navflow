@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { usePolling } from "../components/bits";
-import { wizardPath } from "./ProjectNew";
 import type { ConnectorSpec, Project, Template } from "../types";
 
 // The screen a new cell lands on (TR-257): one question, answered by typing. Shown by Home while
@@ -129,8 +128,14 @@ export default function Landing({ templates, projects }: { templates: Template[]
 
   return (
     <div className="landing">
-      <h1 className="landing-title">Always-on agents for your systems.</h1>
-      <p className="landing-sub">Give it your data, tell it what to watch for, see it act.</p>
+      <div className="landing-head">
+        <div>
+          <h1 className="landing-title">Always-on agents for your systems.</h1>
+          <p className="landing-sub">Give it your data, tell it what to watch for, see it act.</p>
+        </div>
+        {/* the deterministic path: the template gallery, one button, top right */}
+        <Link className="btn" to="/projects/new/templates">Use a guided template</Link>
+      </div>
 
       <form className="landing-ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
         <label className="landing-q" htmlFor="landing-goal">What do you want to build?</label>
@@ -171,14 +176,10 @@ export default function Landing({ templates, projects }: { templates: Template[]
       <div className="landing-starters">
         <div className="help">Or start from one of these</div>
         {sentences.map((s) => (
-          <div key={s.text} className="starter-row">
-            <button type="button" className="starter"
-                    onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
-              {s.text}
-            </button>
-            {/* the deterministic path, one click away on every template sentence */}
-            {s.template && <Link className="help starter-wizard" to={wizardPath(s.template)} title="the template's form, no assistant">set up step by step</Link>}
-          </div>
+          <button key={s.text} type="button" className="starter"
+                  onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
+            {s.text}
+          </button>
         ))}
       </div>
 
@@ -202,9 +203,8 @@ export default function Landing({ templates, projects }: { templates: Template[]
       )}
 
       <p className="help landing-foot">
-        Know exactly what you want? <Link to="/projects/new/templates">Pick a template</Link>,{" "}
-        <Link to="/projects/new/custom">assemble from existing objects</Link>, or{" "}
-        <Link to="/sources/new">add a source</Link>.
+        Or <Link to="/projects/new/custom">assemble a project from existing objects</Link>, or{" "}
+        <Link to="/sources/new">add a source</Link> on its own.
       </p>
     </div>
   );
