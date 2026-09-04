@@ -536,7 +536,7 @@ export default function ProjectShell({ s, id, reload, template }: {
                 })}
               </tbody>
             </table>
-          ) : !dispatchesError && <p className="help">no firings yet across this project's triggers</p>}
+          ) : !dispatchesError && <div className="empty">no firings yet across this project's triggers</div>}
         </>
       )}
 
