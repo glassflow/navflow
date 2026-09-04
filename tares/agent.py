@@ -147,7 +147,67 @@ PROPOSAL_TOOLS = [
          "reasoning": {"type": "string"}},
          "required": ["name", "view", "condition", "reasoning"]}},
 ]
-_PROPOSAL_NAMES = {t["name"] for t in PROPOSAL_TOOLS}
+_PROPOSAL_NAMES = {t["name"] for t in PROPOSAL_TOOLS}   # the Ask set; build mode adds more below
+
+
+# Build mode (the AI-guided project builder, TR-242): two more proposal cards that only make sense
+# while assembling a project from nothing. A source proposal is a prefilled connector form; the
+# model never sees or invents a secret, it names the fields the user has to type in `needs`. An
+# agent proposal is a prefilled agent form; the model picks a delivery KIND, the user picks the
+# channel or URL. Same contract as the others: nothing happens server-side until the user clicks.
+BUILD_PROPOSAL_TOOLS = [
+    {"name": "propose_source",
+     "description": "Propose ONE source to connect, as a prefilled connector form the user will "
+                    "complete and test. `connector` must be a name list_connectors returned and "
+                    "`config` may hold only its non-secret fields (URLs, names, containers) that "
+                    "you can infer from what the user said. Never invent a token, password, DSN "
+                    "or URL you were not told: list every such field in `needs` and leave it out "
+                    "of `config`. Say in `reasoning` why this connector fits the goal.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string", "description": "a short, lowercase source name"},
+         "connector": {"type": "string", "description": "a connector name from list_connectors"},
+         "poll": {"type": "string", "description": "poll interval, e.g. 30s; omit for the default"},
+         "config": {"type": "object",
+                    "description": "non-secret field values only, keyed by the connector's field "
+                                   "names; a field in `needs` must not appear here"},
+         "needs": {"type": "array", "items": {"type": "string"},
+                   "description": "connector field names the user must supply themselves: every "
+                                  "secret, plus anything you would otherwise have to guess"},
+         "reasoning": {"type": "string"}},
+         "required": ["name", "connector", "needs", "reasoning"]}},
+    {"name": "propose_agent",
+     "description": "Propose the Tares agent that runs when the trigger fires, as a prefilled "
+                    "agent form the user will review. `trigger` must be a trigger that exists or "
+                    "was applied in this build. The prompt is the substance: say what to look at "
+                    "in the correlated timeline and what a useful finding looks like. Pick only the "
+                    "delivery KIND; the user chooses the channel or URL.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "trigger": {"type": "string"},
+         "prompt": {"type": "string"},
+         "model": {"type": "string", "description": "omit to follow the instance default"},
+         "max_rounds": {"type": "integer"},
+         "budget_usd": {"type": "number"},
+         "delivery": {"type": "object", "properties": {
+             "kind": {"type": "string", "enum": ["slack", "webhook", "none"],
+                      "description": "where the finding also goes; it always lands on the "
+                                     "entity's timeline"}},
+             "required": ["kind"]},
+         "reasoning": {"type": "string"}},
+         "required": ["name", "trigger", "prompt", "delivery", "reasoning"]}},
+]
+_ALL_PROPOSALS = {t["name"]: t for t in PROPOSAL_TOOLS + BUILD_PROPOSAL_TOOLS}
+_PROPOSAL_KIND = {"propose_labels": "labels", "propose_view": "view", "propose_trigger": "trigger",
+                  "propose_source": "source", "propose_agent": "agent"}
+
+# Which proposal tools each build step gets. The step-scoped toolset is what makes an out-of-order
+# proposal impossible: a views turn cannot emit a trigger card because the tool is not there.
+BUILD_STEPS = {
+    "sources": ["propose_source"],
+    "views": ["propose_view", "propose_labels"],
+    "triggers": ["propose_trigger"],
+    "agent": ["propose_agent"],
+}
 
 
 def _canon_labels(specs) -> list:
@@ -277,15 +337,45 @@ permission to inspect."""
 # It is not duplicated here: a second copy is a copy that drifts.
 
 
-def system_prompt() -> str:
-    """One prompt. There used to be a second, "organize" one — but `tools_for` ignored the mode, so
-    the ONLY difference between the two surfaces was guidance the assistant needed in both. A user
-    asking Ask to add a label got an agent with no idea what makes a key good."""
-    return _SYSTEM_BASE
+_SYSTEM_BUILD = """
+
+BUILD MODE. The user is assembling a new project from nothing, one step at a time, on a page that \
+turns each of your proposals into a prefilled form. The console tells you which step you are on; \
+you only have that step's proposal tool, so propose only what the step asks for.
+
+· SOURCES: map the user's goal onto the INSTALLED connectors only. Call list_connectors first and \
+pick from what it returns; never name a connector it does not list. If nothing installed fits \
+part of the goal, say so in text rather than forcing a poor match. One propose_source card per \
+source. Put in `config` only the non-secret values the user actually told you (a URL they \
+pasted, a container or repo name); every secret and every value you would have to guess goes in \
+`needs`. Check list_sources first: if a source already covers what the goal needs, say so and \
+propose only what is missing.
+· VIEWS: the sources are connected now. Ground every key and filter in `source_fields` from real \
+data, exactly as in the rules above; propose labels first where a source needs them, then the view.
+· TRIGGERS: propose conditions on the views that exist, with a threshold, window and cooldown \
+the user can tune on the card.
+· AGENT: one propose_agent card. The prompt is the substance; the user will pick the channel or \
+URL for the delivery kind you choose. Pick "slack" when the user mentioned Slack, "webhook" \
+when they named a system to post into, "none" otherwise.
+
+One card per object. Keep the text short: the cards are the answer."""
 
 
-def tools_for() -> list:
-    # read tools + proposal cards — the agent never mutates the catalog directly
+def system_prompt(mode: str = "ask") -> str:
+    """One base prompt for every surface, with a build-mode section on top when the console is
+    assembling a project. There used to be a second, "organize" prompt too; `tools_for` ignored
+    the mode back then, so the two surfaces differed only in guidance the assistant needed in
+    both. Build mode is different: it changes the toolset for real (see tools_for)."""
+    return _SYSTEM_BASE + (_SYSTEM_BUILD if mode == "build" else "")
+
+
+def tools_for(mode: str = "ask", step: str | None = None) -> list:
+    """The read tools plus the proposal cards this turn may emit. Ask gets every catalog card;
+    build mode gets only the cards of the current step, so the schema itself makes an
+    out-of-order proposal impossible. The agent never mutates the catalog directly either way."""
+    if mode == "build":
+        names = BUILD_STEPS.get(step or "", [])
+        return TOOLS + [_ALL_PROPOSALS[n] for n in names]
     return TOOLS + PROPOSAL_TOOLS
 
 
@@ -295,7 +385,7 @@ def _sse(obj: dict) -> str:
 
 async def run_agent(api_key: str, messages: list,
                     model: str | None = None, self_headers: dict | None = None,
-                    on_usage=None, tracer=None):
+                    on_usage=None, tracer=None, mode: str = "ask", step: str | None = None):
     """Async generator of SSE lines: the agent loop, streaming assistant text and tool activity.
 
     `on_usage(model, usage_dict)` is called once per turn (after the loop, including on an error
@@ -303,15 +393,18 @@ async def run_agent(api_key: str, messages: list,
     meter Ask's Anthropic spend. Never called when no model call completed.
 
     `tracer` (see tracing.py) makes the turn a trace: a root span, one LLM span per model call,
-    one tool span per tool call. None means no tracing."""
+    one tool span per tool call. None means no tracing.
+
+    `mode` is "ask" or "build"; `step` names the build step (see BUILD_STEPS) and picks which
+    proposal cards the turn may emit."""
     with _tracing.run_span(tracer, "ask", kind="CHAIN") as obs:
         async for line in _run_agent(api_key, messages, model, self_headers, on_usage, tracer,
-                                     obs):
+                                     obs, mode, step):
             yield line
 
 
 async def _run_agent(api_key: str, messages: list, model, self_headers, on_usage, tracer,
-                     obs: _tracing.Observation):
+                     obs: _tracing.Observation, mode: str = "ask", step: str | None = None):
     try:
         import anthropic
     except ImportError:
@@ -333,7 +426,7 @@ async def _run_agent(api_key: str, messages: list, model, self_headers, on_usage
                                      {"max_tokens": 2048}) as gen:
                 async with client.messages.stream(
                     model=model or DEFAULT_MODEL, max_tokens=2048,
-                    system=system_prompt(), tools=tools_for(), messages=convo,
+                    system=system_prompt(mode), tools=tools_for(mode, step), messages=convo,
                 ) as stream:
                     async for event in stream:
                         if event.type == "content_block_delta" and event.delta.type == "text_delta":
@@ -358,7 +451,7 @@ async def _run_agent(api_key: str, messages: list, model, self_headers, on_usage
                 break
             results = []
             for tu in tool_uses:
-                if tu.name in _PROPOSAL_NAMES:
+                if tu.name in _PROPOSAL_KIND:
                     # no-op proposals are suppressed deterministically: re-proposing a source's
                     # exact current label set produces no card (re-runs must converge, not nag)
                     if tu.name == "propose_labels":
@@ -371,7 +464,7 @@ async def _run_agent(api_key: str, messages: list, model, self_headers, on_usage
                                                        "changes."})
                             continue
                     # a proposal is a card for the user, not a server-side action
-                    kind = {"propose_labels": "labels", "propose_view": "view", "propose_trigger": "trigger"}[tu.name]
+                    kind = _PROPOSAL_KIND[tu.name]
                     yield _sse({"type": "proposal", "kind": kind, "id": tu.id, "payload": tu.input})
                     results.append({"type": "tool_result", "tool_use_id": tu.id,
                                     "content": "proposal recorded; the user will review it as a "
