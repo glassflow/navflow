@@ -434,9 +434,7 @@ export default function ProjectNewAssist() {
                           placeholder={asking ? "answer here, then Send" : "ask for a change, e.g. use the staging URL, or add the alerts too"}
                           onChange={(e) => setRefine(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendRefine(); } }} />
-                {streaming
-                  ? <button type="button" className="danger" onClick={stop}>Stop</button>
-                  : <button type="button" disabled={!refine.trim()} onClick={sendRefine}>Send</button>}
+                <button type="button" disabled={streaming || !refine.trim()} onClick={sendRefine}>Send</button>
               </div>
               <div className="btnrow" style={{ marginTop: 12 }}>
                 <button className="primary" disabled={streaming || (s.key === "sources" && created("source").length === 0)}
