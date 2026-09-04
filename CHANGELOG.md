@@ -5,6 +5,10 @@ the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
+  not only on the resource, so a backend's span view shows which instance sent it.
+
 ### Fixed
 - Edit on a project built from a template without its own wizard (Rius RCA among them) opened the
   create form and said "this instance has no project named rius_rca". The form now loads the
