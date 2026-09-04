@@ -85,6 +85,26 @@ export default function Landing({ templates, projects }: { templates: Template[]
 
   const demo = projects.find((p) => p.template === "ai_sre_demo");
   const demoTemplate = templates.find((t) => t.key === "ai_sre_demo");
+  // The demo is an offer, never seeded: one click creates it here, in the background, from
+  // what detection finds, and lands on its page. When the demo stack is not reachable the
+  // wizard takes over with the steps to start it.
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoErr, setDemoErr] = useState<string>();
+  const startDemo = async () => {
+    if (!demoTemplate) return;
+    setDemoBusy(true); setDemoErr(undefined);
+    try {
+      const d = await api.detectRecipe(demoTemplate.key);
+      const required = Object.entries(demoTemplate.params).filter(([, p]) => p.required).map(([k]) => k);
+      const missing = required.filter((k) => d.params[k] === undefined || d.params[k] === "");
+      if (missing.length) { navigate(`/projects/new/${demoTemplate.key}`); return; }
+      const made = await api.createProject({ template: demoTemplate.key, params: d.params });
+      navigate(`/projects/${encodeURIComponent(made.id)}`);
+    } catch (e) {
+      setDemoErr(String((e as Error).message ?? e));
+      setDemoBusy(false);
+    }
+  };
 
   const go = () => {
     if (!goal.trim()) return;
@@ -158,7 +178,12 @@ export default function Landing({ templates, projects }: { templates: Template[]
           </div>
           {demo
             ? <Link className="btn" to={`/projects/${encodeURIComponent(demo.id)}`}>Open the demo</Link>
-            : <button onClick={() => navigate("/projects/new/ai_sre_demo")}>Start the demo</button>}
+            : <button onClick={startDemo} disabled={demoBusy}>{demoBusy ? "starting…" : "Start the demo"}</button>}
+        </div>
+      )}
+      {demoErr && (
+        <div className="alert error">
+          could not start the demo: {demoErr}. <Link to="/projects/new/ai_sre_demo">Set it up step by step</Link> instead.
         </div>
       )}
 
