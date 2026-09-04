@@ -305,6 +305,7 @@ async def run_agent(api_key: str, messages: list,
     `tracer` (see tracing.py) makes the turn a trace: a root span, one LLM span per model call,
     one tool span per tool call. None means no tracing."""
     with _tracing.run_span(tracer, "ask", kind="CHAIN") as obs:
+        obs.set_attribute("tares.instance", _tracing.instance_name())
         async for line in _run_agent(api_key, messages, model, self_headers, on_usage, tracer,
                                      obs):
             yield line
