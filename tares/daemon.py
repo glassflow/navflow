@@ -2203,6 +2203,17 @@ def make_app() -> FastAPI:
     async def project_templates():
         return {"templates": projects.list_templates()}
 
+    # By key, hidden templates included: the gallery list leaves out templates a person does not
+    # pick (rius_rca is created by the Rius control plane), but the Edit page of a project built
+    # on one still has to render its form.
+    @app.get("/api/projects/templates/{key}")
+    async def project_template(key: str):
+        from .projects.registry import get_template
+        try:
+            return get_template(key).describe()
+        except ProjectError:
+            _err(KeyError(f"unknown template {key!r}"), 404)
+
     @app.get("/api/projects")
     async def list_projects():
         return {"projects": projects.list()}

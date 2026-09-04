@@ -3,6 +3,14 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- Edit on a project built from a template without its own wizard (Rius RCA among them) opened the
+  create form and said "this instance has no project named rius_rca". The form now loads the
+  template by key, hidden templates included, prefills the project's params (secrets blank,
+  blank keeps the stored value) and saves in place.
+
 ## [1.23.0] - 2026-09-03
 
 ### Added

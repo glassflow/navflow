@@ -55,6 +55,12 @@ async def main():
             r = await cx.get("/api/projects/templates")
             keys = [x["key"] for x in r.json()["templates"]]
             check("hidden: not in the gallery", "rius_rca" not in keys, str(keys))
+            r = await cx.get("/api/projects/templates/rius_rca")
+            check("hidden: still served by key (the Edit page needs its form)",
+                  r.status_code == 200 and r.json()["key"] == "rius_rca"
+                  and r.json()["params"]["mcp_token"].get("secret") is True, r.text[:200])
+            r = await cx.get("/api/projects/templates/nope")
+            check("unknown template by key -> 404", r.status_code == 404, r.text)
 
             print("== validation ==")
             r = await cx.post("/api/projects", json={"template": "rius_rca", "name": "r1",
