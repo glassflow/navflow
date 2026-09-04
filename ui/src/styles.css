@@ -393,7 +393,8 @@ thead th {
 }
 thead th.num { text-align: right; }
 tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-tbody tr:last-child td { border-bottom: none; }
+/* direct children only: a table nested inside the last row (a folded source on the project page) keeps its own row lines */
+tbody > tr:last-child > td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--row-hover); }
 tbody tr.sel, tbody tr.sel:hover { background: var(--accent-soft); }
@@ -557,6 +558,18 @@ label.field .help, div.field > .help { display: block; font-size: 12px; color: v
 .fld-ctrl { display: flex; flex-direction: column; }
 .fld-row.invalid input, .fld-row.invalid select, .fld-row.invalid textarea { border-color: var(--err); background: var(--err-soft); }
 .fld-row.invalid .help { color: var(--err); }
+/* a builder proposal's `needs`: the fields only the user can fill (a token, a URL) */
+.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
+
+/* The AI-guided project builder (ProjectNewAssist): one column of step panels; the strip on top
+   says where you are. */
+.builder-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.builder-steps .step { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }
+.builder-steps .step.active { border-color: var(--accent); color: var(--ink); }
+.builder-steps .step.done { color: var(--ok); border-color: var(--ok-border); }
+.builder-steps .step .n { font-family: var(--mono); font-size: 11px; }
+.builder-refine { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.builder-refine textarea { flex: 1; min-height: 38px; }
 /* field grouping (postgres) */
 .fld-group { margin: 4px 0; }
 .fld-group-head h3 { margin: 20px 0 2px; font-size: 15px; font-weight: 600; }

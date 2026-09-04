@@ -1307,7 +1307,7 @@ def make_app() -> FastAPI:
 
     @app.post("/api/agent/chat")
     async def agent_chat(request: Request):
-        from .agent import run_agent
+        from .agent import BUILD_STEPS, run_agent
         # ONE key for the whole instance: env, else the console-stored one. There used to be an
         # `X-Anthropic-Key` header override, which the console filled from localStorage — so a key
         # added on the Ask page made Ask work while Slack and trigger-woken agents still reported
@@ -1318,11 +1318,17 @@ def make_app() -> FastAPI:
         body = await request.json()
         # the daemon's own token, so the agent's tool self-calls clear the auth middleware
         self_headers = {"Authorization": f"Bearer {AUTH_TOKEN}"} if AUTH_TOKEN else {}
+        # mode "build" + step (sources|views|triggers|agent) is the AI-guided project builder:
+        # same loop, same endpoint, a step-scoped toolset (tares/agent.py, TR-242)
+        mode = "build" if body.get("mode") == "build" else "ask"
+        step = str(body.get("step") or "") or None
+        if mode == "build" and step not in BUILD_STEPS:
+            _err(ValueError(f"build step must be one of {', '.join(BUILD_STEPS)}"), 400)
         return StreamingResponse(
             run_agent(key, body.get("messages") or [],
                       model=body.get("model"), self_headers=self_headers,
                       on_usage=lambda m, u: _record_ask_usage(m, u, key_source=key_origin),
-                      tracer=tracing.tracer_for("ask")),
+                      tracer=tracing.tracer_for("ask"), mode=mode, step=step),
             media_type="text/event-stream")
 
     # ── MCP connections — external tool servers a Tares agent can opt into ─────

@@ -7,10 +7,11 @@ import TriggerEditor from "../components/TriggerEditor";
 import ViewEditor from "../components/ViewEditor";
 import { Combo, Picker, ErrorState, TimeAgo, usePolling } from "../components/bits";
 import AgentForm from "../components/AgentForm";
+import IngestEndpoint from "../components/IngestEndpoint";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
 import { SessionsPanel } from "../components/ChallengerSessions";
 import { RunsPanel } from "./AgentDetail";
-import type { ProjectSummary, Template, RecipeActionOption } from "../types";
+import type { ConnectorSpec, ProjectSummary, Template, RecipeActionOption, Source } from "../types";
 
 // The page for every project: what a project really is, on one page, driven by the live APIs
 // plus the template's summary. Setup (sources, views and triggers, the latter two editable in
@@ -78,6 +79,7 @@ export default function ProjectShell({ s, id, reload, template }: {
 
   const names = (kind: string) => s.objects.filter((o) => o.kind === kind).map((o) => o.name);
   const { data: sources, reload: reloadSources } = usePolling(() => api.sources(), 10000);
+  const { data: specs } = usePolling(() => api.connectors(), 600000);
   const { data: views, reload: reloadViews } = usePolling(() => api.views(), 10000);
   const { data: triggers, reload: reloadTriggers } = usePolling(() => api.triggers(), 10000);
   const { data: dispatches, error: dispatchesError } = usePolling(() => api.dispatches(100), 10000);
@@ -348,19 +350,9 @@ export default function ProjectShell({ s, id, reload, template }: {
           <h2>Sources</h2>
           {mySources.length ? (
             <table>
-              <thead><tr><th>source</th><th>type</th><th>status</th><th className="num">events</th><th>last ingest</th></tr></thead>
+              <thead><tr><th style={{ width: 24 }}></th><th>source</th><th>type</th><th>status</th><th className="num">events</th><th>last ingest</th></tr></thead>
               <tbody>
-                {mySources.map((x) => (
-                  <tr key={x.name} className="clickable" onClick={() => navigate(`/sources/${encodeURIComponent(x.name)}`)}>
-                    <td className="mono">{x.name}</td>
-                    <td><span className="chip">{x.connector}</span></td>
-                    <td>{x.paused ? <span className="badge paused">paused</span>
-                      : x.health?.last_error ? <span className="badge error" title={x.health.last_error}>error</span>
-                      : <span className="badge ok">ok</span>}</td>
-                    <td className="num">{(x.health?.events_total ?? 0).toLocaleString()}</td>
-                    <td><TimeAgo ts={x.health?.last_ingest ?? null} /></td>
-                  </tr>
-                ))}
+                {mySources.map((x) => <SourceRow key={x.name} x={x} spec={specs?.[x.connector]} />)}
               </tbody>
             </table>
           ) : <p className="help">none in this project</p>}
@@ -529,7 +521,7 @@ export default function ProjectShell({ s, id, reload, template }: {
               })}
             </tbody>
           </table>
-        ) : <p className="help">nothing ingested yet across this project's sources</p>
+        ) : <div className="empty">nothing ingested yet across this project's sources</div>
       )}
 
       {tab === "firings" && (
@@ -571,7 +563,7 @@ export default function ProjectShell({ s, id, reload, template }: {
                 })}
               </tbody>
             </table>
-          ) : !dispatchesError && <p className="help">no firings yet across this project's triggers</p>}
+          ) : !dispatchesError && <div className="empty">no firings yet across this project's triggers</div>}
         </>
       )}
 
@@ -658,6 +650,55 @@ export default function ProjectShell({ s, id, reload, template }: {
 
 // One view, as its own page shows it (key field, sources, filters, author, usage), with the same
 // in-place editor. "+ trigger" preselects this view on the trigger form.
+/** One source, folded: the row is the health line; opening it shows what a producer needs (the
+ *  ingest endpoint for a push source, the polled target for a poll one) with a Configure button
+ *  to the source page. A builder-made project is looked at here first, and a push source is
+ *  nothing until something posts to it, so the address has to be one click away, not one page. */
+function SourceRow({ x, spec }: { x: Source; spec?: ConnectorSpec }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const push = spec?.mode === "push";
+  // the polled target in plain fields: non-secret string/number values the connector declares
+  const shown = (spec?.fields ?? [])
+    .filter((f) => !f.secret && (f.type === "string" || f.type === "number") && x.config?.[f.name] !== undefined && x.config?.[f.name] !== "")
+    .map((f) => ({ name: f.name, value: String(x.config[f.name]) }));
+  return (
+    <>
+      <tr className="clickable" onClick={() => setOpen((o) => !o)}>
+        <td className="dim">{open ? "▾" : "▸"}</td>
+        <td className="mono">{x.name}</td>
+        <td><span className="chip">{x.connector}</span></td>
+        <td>{x.paused ? <span className="badge paused">paused</span>
+          : x.health?.last_error ? <span className="badge error" title={x.health.last_error}>error</span>
+          : <span className="badge ok">ok</span>}</td>
+        <td className="num">{(x.health?.events_total ?? 0).toLocaleString()}</td>
+        <td><TimeAgo ts={x.health?.last_ingest ?? null} /></td>
+      </tr>
+      {open && (
+        <tr>
+          <td></td>
+          <td colSpan={5} style={{ paddingTop: 10, paddingBottom: 14 }}>
+            {push ? <IngestEndpoint source={x} /> : shown.length > 0 ? (
+              <table style={{ marginBottom: 10 }}>
+                <tbody>
+                  {shown.map((f) => (
+                    <tr key={f.name}><td className="help" style={{ width: 180 }}>{f.name}</td><td className="mono" style={{ wordBreak: "break-all" }}>{f.value}</td></tr>
+                  ))}
+                  <tr><td className="help">poll</td><td className="mono">{x.poll}</td></tr>
+                </tbody>
+              </table>
+            ) : <p className="help">polls every {x.poll}</p>}
+            {x.health?.last_error && <div className="alert error" style={{ marginBottom: 10 }}>{x.health.last_error}</div>}
+            <div className="btnrow">
+              <button className="primary" onClick={() => navigate(`/sources/${encodeURIComponent(x.name)}`)}>Configure</button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function ViewPanel({ v, sourceNames, watchers, onSaved }: {
   v: import("../types").View; sourceNames: string[]; watchers: number; onSaved: () => void;
 }) {

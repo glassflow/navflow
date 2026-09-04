@@ -85,6 +85,34 @@ export default function ProjectNew() {
         <div className="empty">No templates are registered on this instance yet.</div>
       )}
       <div className="uc-cards">
+        {/* Hand-written: the builder is not a template, it assembles a custom project one step at
+            a time with the assistant proposing each piece (ProjectNewAssist). */}
+        {rec && (
+          <div className="panel uc-card">
+            <div className="uc-card-main">
+              <div className="uc-card-title">Build with Tares</div>
+              <div className="help" style={{ marginTop: 2 }}>AI-guided</div>
+              <p className="help uc-card-desc">
+                Describe what you need in your own words. Tares proposes the sources, views, triggers
+                and agent from the connectors installed here; you confirm each one in place and fill
+                in what only you know.
+              </p>
+              <div className="uc-card-facts">
+                <div>
+                  <div className="lbl">you</div>
+                  <ul><li>say what you run and what should happen</li><li>fill in URLs, tokens and the Slack channel</li><li>apply or skip each proposal</li></ul>
+                </div>
+                <div>
+                  <div className="lbl">Tares sets up</div>
+                  <ul><li>the sources, tested before they are created</li><li>views and triggers grounded in your real data</li><li>an agent on the trigger, enabled and ready</li></ul>
+                </div>
+              </div>
+            </div>
+            <div className="uc-card-side">
+              <button className="primary" onClick={() => navigate("/projects/new/assist")}>Build</button>
+            </div>
+          </div>
+        )}
         {templates.map((r) => <TemplateCard key={r.key} r={r} />)}
         {rec && (
           <div className="panel uc-card">

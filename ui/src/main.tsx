@@ -30,6 +30,7 @@ import { TriggersPage, ViewsPage } from "./pages/ViewsTriggers";
 import Projects from "./pages/Projects";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
+import ProjectNewAssist from "./pages/ProjectNewAssist";
 import ProjectNewCustom from "./pages/ProjectNewCustom";
 import ProjectNewGeneric from "./pages/ProjectNewGeneric";
 import ProjectNewSharedContext from "./pages/ProjectNewSharedContext";
@@ -62,6 +63,9 @@ const router = createBrowserRouter([
       { path: "projects/new", element: <ProjectNew /> },
       { path: "projects/new/shared_code_context", element: <ProjectNewSharedContext /> },
       { path: "projects/new/custom", element: <ProjectNewCustom /> },
+      // the AI-guided builder is not a template (it assembles a custom project), so it sits
+      // above the :template fallback
+      { path: "projects/new/assist", element: <ProjectNewAssist /> },
       { path: "projects/new/:template", element: <ProjectNewGeneric /> },
       { path: "projects/:id", element: <ProjectDetail /> },
       { path: "sources", element: <Sources /> },

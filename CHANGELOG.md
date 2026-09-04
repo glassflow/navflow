@@ -5,6 +5,15 @@ the project follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- AI-guided project builder: "Build with Tares" on the new-project gallery. Describe what you
+  need; the assistant proposes sources from the installed connectors, then views, triggers and
+  an agent, one step at a time. Each proposal is the object's own form, prefilled, with the
+  fields only you can fill (tokens, URLs, the Slack channel) marked. Every Apply creates a real
+  object through its normal API and adds it to an ordinary project, so leaving part way keeps
+  what was created. `POST /api/agent/chat` takes `mode: "build"` and `step` for this; each step
+  gets only its own proposal tool.
+
 ### Changed
 - Deleting a source or a view no longer refuses with "remove it from those views first". The
   dialog lists what depends on it (views, triggers, agents) and, on yes, deletes them too, in
