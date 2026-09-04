@@ -1789,13 +1789,20 @@ def make_app() -> FastAPI:
             _err(ValueError(f"the agent is already running for {run['key']!r}"), 409)
         return {"ok": True, "run_id": rid, "rerun_of": run_id}
 
+    _RUN_STATUSES = {"running", "ok", "empty", "failed", "capped", "exhausted"}
+
     @app.get("/api/agents/builtin/{name}/runs")
-    async def builtin_agent_runs(name: str, limit: int = 50):
+    async def builtin_agent_runs(name: str, limit: int = 50, offset: int = 0, status: str = ""):
         """The operational record — status, duration, errors. Distinct from findings, which are
-        events on the entity's timeline; a failed run must never look like a conclusion."""
+        events on the entity's timeline; a failed run must never look like a conclusion.
+        `status` narrows to one run status; `offset` pages (a capped agent's list is mostly
+        capped rows, and the ok runs are what a reader looks for, TR-267)."""
         if store.get_catalog_agent(name) is None:
             _err(KeyError(f"unknown agent {name!r}"), 404)
-        return store.list_agent_runs(name, limit=min(limit, 200))
+        if status and status not in _RUN_STATUSES:
+            _err(ValueError(f"status must be one of {', '.join(sorted(_RUN_STATUSES))}"), 400)
+        return store.list_agent_runs(name, limit=min(max(1, limit), 200), offset=offset,
+                                     status=status or None)
 
     # ── the Anthropic key: a stored key wins, env is the fallback ────────────
     @app.get("/api/settings/anthropic-key")
