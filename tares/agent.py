@@ -358,7 +358,10 @@ the user can tune on the card.
 URL for the delivery kind you choose. Pick "slack" when the user mentioned Slack, "webhook" \
 when they named a system to post into, "none" otherwise.
 
-One card per object. Keep the text short: the cards are the answer."""
+One card per object. Keep the text short: the cards are the answer. The page moves to the next \
+step when the user is ready, so do not list next steps, do not ask the user to apply and come \
+back, and do not describe objects you cannot propose on this step; a push source's ingest URL and \
+payload example are shown by the console once the source exists, so do not write them."""
 
 
 def system_prompt(mode: str = "ask") -> str:

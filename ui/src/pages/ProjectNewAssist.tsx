@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 
 import { api } from "../api";
 import AgentForm from "../components/AgentForm";
+import IngestSetup from "../components/IngestSetup";
 import { KeySetup, ToolRun } from "../components/AskChat";
 import type { ToolPart } from "../components/AskChat";
 import { Picker } from "../components/bits";
@@ -391,6 +392,12 @@ function SourceCard({ proposal: p, specs, existing, refreshSources, decision, de
   const known = Object.keys(specs).filter((k) => !specs[k].internal).sort();
   const [connector, setConnector] = useState(p.connector);
   const spec = specs[connector];
+  // After Create the form goes away, but a push source is useless until something posts to it:
+  // keep the ingest URL, the setup snippet and a link to the source on the card. Same show-once
+  // ingest key as the Sources page mints on a secured instance.
+  const [made, setMade] = useState<{ name: string; connector: string; ingestKey: string; authKey?: string; keyErr?: string }>();
+  const [authOn, setAuthOn] = useState(false);
+  useEffect(() => { api.health().then((h) => setAuthOn(h.auth_required)).catch(() => {}); }, []);
   const unknown = Object.keys(specs).length > 0 && !specs[p.connector];
   // the same name, unowned: adopt it instead of creating a second one
   const twin = existing.find((s) => s.name === p.name && !s.owned_by);
@@ -419,6 +426,9 @@ function SourceCard({ proposal: p, specs, existing, refreshSources, decision, de
                      <div className="btnrow"><button onClick={() => decide(p.id, "skipped")}>Skip</button></div>
                    ) : null}>
       <ProposalBody proposal={p} />
+      {decision?.status === "applied" && (
+        <CreatedSource made={made} name={p.name} specs={specs} />
+      )}
       {(!decision || decision.status === "error") && (
         <>
           {unknown && (
@@ -442,8 +452,14 @@ function SourceCard({ proposal: p, specs, existing, refreshSources, decision, de
                         highlight={connector === p.connector ? p.needs : undefined}
                         submitLabel="Create source"
                         onSubmit={async (body) => {
-                          await api.createSource(body);
+                          const res = await api.createSource(body);
                           refreshSources();
+                          let authKey: string | undefined, keyErr: string | undefined;
+                          if (spec.mode === "push" && authOn) {
+                            try { authKey = (await api.createKey(`ingest: ${body.name}`, ["ingest"])).secret; }
+                            catch (e) { keyErr = String((e as Error).message ?? e); }
+                          }
+                          setMade({ name: body.name, connector: body.connector, ingestKey: res.ingest_key || body.name, authKey, keyErr });
                           try { await own("source", body.name); }
                           catch (e) { decide(p.id, "error", String((e as Error).message ?? e)); return; }
                           decide(p.id, "applied");
@@ -452,6 +468,39 @@ function SourceCard({ proposal: p, specs, existing, refreshSources, decision, de
         </>
       )}
     </ProposalShell>
+  );
+}
+
+/** What an applied source card keeps showing: where it lives, and for a push source the ingest
+ *  URL and setup snippet, because nothing arrives until a producer posts to it. */
+function CreatedSource({ made, name, specs }: {
+  made?: { name: string; connector: string; ingestKey: string; authKey?: string; keyErr?: string };
+  name: string; specs: Record<string, ConnectorSpec>;
+}) {
+  const [copied, setCopied] = useState(false);
+  const n = made?.name ?? name;
+  const push = made ? specs[made.connector]?.mode === "push" : false;
+  const url = made ? (made.connector === "otlp" ? `${window.location.origin}/v1/logs` : `${window.location.origin}/ingest/${made.ingestKey}`) : "";
+  return (
+    <div style={{ margin: "0 0 10px" }}>
+      <p className="help" style={{ margin: "0 0 6px" }}>
+        Created. <Link to={`/sources/${encodeURIComponent(n)}`}>Open the source</Link>
+        {push ? " to see events as they arrive." : " to see its first poll."}
+      </p>
+      {push && made && (
+        <>
+          <div className="field">
+            <span className="lbl">send events here</span>
+            <span className="mono" style={{ wordBreak: "break-all" }}>{url}</span>{" "}
+            <button type="button" onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
+              {copied ? "copied" : "copy"}
+            </button>
+          </div>
+          {made.keyErr && <div className="alert error">could not mint an ingest key: {made.keyErr}. Create one under Settings.</div>}
+          <IngestSetup connector={made.connector} url={url} authKey={made.authKey} />
+        </>
+      )}
+    </div>
   );
 }
 
