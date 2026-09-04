@@ -1347,3 +1347,16 @@ pre.payload {
 .uc-setup-cmd pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); background: var(--wash); font-size: 12px; flex: 1; overflow-x: auto; white-space: pre; }
 .uc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .uc-setup-done .uc-setup-title { color: var(--ink-soft); }
+
+/* The landing screen (Landing.tsx): one question, centred, nothing else asking for attention. */
+.landing { max-width: 760px; margin: 24px auto 0; }
+.landing-title { font-size: 28px; margin: 0 0 4px; }
+.landing-sub { color: var(--ink-soft); margin: 0 0 28px; font-size: 15px; }
+.landing-ask { background: var(--panel); border: 1px solid var(--line); padding: 18px 20px; margin-bottom: 18px; }
+.landing-q { display: block; font-weight: 600; margin-bottom: 10px; }
+.landing-ask textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; padding: 10px 12px; }
+.landing-ask textarea.mono { font-family: var(--mono); font-size: 13px; }
+.landing-heard { min-height: 26px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 10px; }
+.landing-starters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.landing-demo { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
+.landing-foot { text-align: center; }
