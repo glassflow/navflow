@@ -25,7 +25,7 @@ const WORDS: [RegExp, string][] = [
   [/\b(github|repos?|repositor(y|ies)|commits?|pull requests?|prs?)\b/i, "github"],
   [/\b(vercel|next\.?js|deploys?|deployments?)\b/i, "vercel"],
   [/\b(otlp|opentelemetry|otel|traces?|spans?)\b/i, "otlp"],
-  [/\b(webhook|api|post|json|endpoint|payload)\b/i, "webhook"],
+  [/\b(webhook|json|endpoint|payload|http post)\b/i, "webhook"],
   [/\b(claude code|claude)\b/i, "claude_code"],
 ];
 // Delivery words: not connectors, but the screen should still show it heard them.
@@ -42,7 +42,8 @@ const COMMON: string[] = [
   "tell me when a city in Germany gets storm winds, from a public weather API",
 ];
 
-const STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "is", "me", "for", "one"]);
+// Words every goal shares are not a match: only the nouns of their world count.
+const STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "is", "me", "for", "one", "watch", "agent", "tell", "wake", "show", "its", "something", "every", "each"]);
 const words = (t: string) => new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP.has(w)));
 
 /** How many of the typed words a sentence shares; the sentences reorder by it while typing. */

@@ -58,7 +58,7 @@ const kindOf = (p: Proposal): ProjectObjectKind | null =>
   p.kind === "labels" ? null : p.kind;
 
 /** A project name from the first content words of the goal, editable until the project exists. */
-const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please"]);
+const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "its", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please", "show", "then", "also"]);
 function nameFromGoal(goal: string, incident: boolean): string {
   const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w)).slice(0, 4);
   const base = ws.join(" ") || "my project";
