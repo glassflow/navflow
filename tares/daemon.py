@@ -1135,18 +1135,47 @@ def make_app() -> FastAPI:
         # store.backfill_labels for the building block), never something that runs inline on an edit.
         return {"ok": True, "relabeled": False}
 
+    # What else goes if an object is deleted, in delete order (agents, triggers, views). The
+    # delete dialogs show it and offer to take it along; the cascade deletes use the same list.
+    @app.get("/api/catalog/dependents")
+    async def catalog_dependents(kind: str, name: str):
+        from .projects.engine import dependents
+        if kind not in ("source", "view", "trigger"):
+            _err(ValueError("kind must be source, view or trigger"), 400)
+        return {"dependents": dependents(store, kind, name)}
+
+    def _delete_dependents(kind: str, name: str) -> list[str]:
+        from .projects.engine import dependents
+        gone = []
+        for d in dependents(store, kind, name):
+            if d["kind"] == "agent":
+                store.remove_subscription_by_url(agent_url(d["name"]))
+                store.delete_catalog_agent(d["name"])
+            elif d["kind"] == "trigger":
+                store.delete_catalog_trigger(d["name"])
+                store.remove_subscriptions_by_trigger(d["name"])
+            elif d["kind"] == "view":
+                store.delete_catalog_view(d["name"])
+            gone.append(f"{d['kind']}:{d['name']}")
+        return gone
+
     @app.delete("/api/sources/{name}")
-    async def delete_source(name: str, purge_events: bool = False):
+    async def delete_source(name: str, purge_events: bool = False, cascade: bool = False):
+        """`cascade` takes the views on this source, their triggers and those triggers' agents
+        with it; without it a source that something depends on is refused by name."""
         if name not in {s["name"] for s in store.list_catalog_sources()}:
             _err(KeyError(f"unknown source {name!r}"), 404)
         referencing = [v.name for v in runtime.catalog.views.values() if name in v.sources]
-        if referencing:
+        gone: list[str] = []
+        if referencing and not cascade:
             _err(ValueError(f"source {name!r} is used by views {referencing}; "
-                            f"remove it from those views first"), 409)
+                            f"delete them too (cascade) or remove it from those views first"), 409)
+        if cascade:
+            gone = _delete_dependents("source", name)
         store.delete_catalog_source(name)
         purged = store.purge_events(name) if purge_events else 0
         runtime.reload_catalog()
-        return {"ok": True, "purged_events": purged}
+        return {"ok": True, "purged_events": purged, "deleted": gone}
 
     @app.post("/api/sources/{name}/pause")
     async def pause_source(name: str):
@@ -1568,16 +1597,20 @@ def make_app() -> FastAPI:
         return {"ok": True}
 
     @app.delete("/api/views/{name}")
-    async def delete_view(name: str):
+    async def delete_view(name: str, cascade: bool = False):
+        """`cascade` takes the triggers on this view and their agents with it."""
         if name not in runtime.catalog.views:
             _err(KeyError(f"unknown view {name!r}"), 404)
         referencing = [t.name for t in runtime.catalog.triggers if t.view == name]
-        if referencing:
+        gone: list[str] = []
+        if referencing and not cascade:
             _err(ValueError(f"view {name!r} is used by triggers {referencing}; "
-                            f"delete those triggers first"), 409)
+                            f"delete them too (cascade) or delete those triggers first"), 409)
+        if cascade:
+            gone = _delete_dependents("view", name)
         store.delete_catalog_view(name)
         runtime.reload_catalog()
-        return {"ok": True}
+        return {"ok": True, "deleted": gone}
 
     # ── management API: triggers ──────────────────────────────────────────────
     @app.get("/api/triggers")
@@ -2253,9 +2286,17 @@ def make_app() -> FastAPI:
             _uc_err(e)
 
     @app.delete("/api/projects/{uid}")
-    async def delete_project(uid: str, purge_events: bool = False):
+    async def delete_project(uid: str, purge_events: bool = False, delete: str = ""):
+        """`delete` names the objects of a custom project to delete along with it, as
+        `kind:name,kind:name`; the rest are released."""
+        chosen = []
+        for item in filter(None, (x.strip() for x in delete.split(","))):
+            kind, _, name = item.partition(":")
+            if not name:
+                _err(ValueError(f"delete entries look like kind:name, got {item!r}"), 400)
+            chosen.append((kind, name))
         try:
-            return projects.delete(uid, purge_events=purge_events)
+            return projects.delete(uid, purge_events=purge_events, delete_objects=chosen)
         except Exception as e:
             _uc_err(e)
 

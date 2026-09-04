@@ -3,6 +3,18 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- Deleting a source or a view no longer refuses with "remove it from those views first". The
+  dialog lists what depends on it (views, triggers, agents) and, on yes, deletes them too, in
+  order. `DELETE /api/sources/{name}` and `/api/views/{name}` take `cascade=true`;
+  `GET /api/catalog/dependents?kind=&name=` lists what would go.
+- Deleting a hand-assembled project (including one the builder made) lists its objects with
+  Select all or individual picks; the chosen ones are deleted with the project, the rest stay.
+  Picking a source pulls in what depends on it. `DELETE /api/projects/{uid}` takes
+  `delete=kind:name,...`.
+
 ## [1.24.0] - 2026-09-04
 
 ### Added

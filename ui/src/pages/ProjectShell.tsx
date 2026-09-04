@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
@@ -28,6 +28,7 @@ export default function ProjectShell({ s, id, reload, template }: {
 }) {
   const navigate = useNavigate();
   const custom = s.template === "custom";
+
   const sourceCount = (s.objects ?? []).filter((o) => o.kind === "source" && !o.missing).length;
   const pausedSources = ((s.params as Record<string, unknown> | undefined)?.paused_sources as string[] | undefined) ?? [];
   // ?tab= deep links win; otherwise a project with sessions opens on them
@@ -45,6 +46,31 @@ export default function ProjectShell({ s, id, reload, template }: {
   const [openEvent, setOpenEvent] = useState<number>();
   const [actionError, setActionError] = useState<string>();
   const [confirmDel, setConfirmDel] = useState(false);
+  // Which of a custom project's objects go with it. The builder assembled them, so deleting the
+  // project is the one place to take them apart in one go; a pick pulls in what depends on it
+  // (a source brings its views, triggers and agents) and unpicking one lets go of what needed it.
+  const [delSel, setDelSel] = useState<Set<string>>(new Set());
+  const [delDeps, setDelDeps] = useState<Record<string, string[]>>();
+  useEffect(() => {
+    if (!confirmDel || !custom) return;
+    let live = true;
+    const objs = s.objects.filter((o) => o.kind !== "mcp_server");
+    Promise.all(objs.map(async (o) => {
+      if (o.kind === "agent") return [`${o.kind}:${o.name}`, [] as string[]] as const;
+      try {
+        const r = await api.dependents(o.kind as "source" | "view" | "trigger", o.name);
+        return [`${o.kind}:${o.name}`, r.dependents.map((d) => `${d.kind}:${d.name}`)] as const;
+      } catch { return [`${o.kind}:${o.name}`, [] as string[]] as const; }
+    })).then((rows) => { if (live) setDelDeps(Object.fromEntries(rows)); });
+    return () => { live = false; };
+  }, [confirmDel]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const delKeys = s.objects.filter((o) => o.kind !== "mcp_server").map((o) => `${o.kind}:${o.name}`);
+  const pick = (k: string, on: boolean) => setDelSel((cur) => {
+    const next = new Set(cur);
+    if (on) { next.add(k); for (const d of delDeps?.[k] ?? []) if (delKeys.includes(d)) next.add(d); }
+    else { next.delete(k); for (const [j, ds] of Object.entries(delDeps ?? {})) if (ds.includes(k)) next.delete(j); }
+    return next;
+  });
   const [purge, setPurge] = useState(false);
   const [confirmPause, setConfirmPause] = useState(false);
   const [pauseSources, setPauseSources] = useState(false);
@@ -587,14 +613,38 @@ export default function ProjectShell({ s, id, reload, template }: {
       {confirmDel && (
         <ConfirmDialog title={`Delete project ${s.name}?`}
           message={custom
-            ? "Removes the project. Its objects stay in place, no longer part of a project. Events already stored stay unless you purge them."
+            ? "Removes the project. Pick which of its objects go with it; the rest stay in place, no longer part of a project. Events already stored stay unless you purge them."
             : "Deletes the sources, views, triggers and agents this project created. Events already stored stay unless you purge them."}
-          confirmLabel="Delete project" danger
+          confirmLabel={custom && delSel.size ? `Delete project and ${delSel.size} object${delSel.size === 1 ? "" : "s"}` : "Delete project"} danger
           onConfirm={async () => {
-            try { await api.deleteProject(id, purge); navigate("/projects", { replace: true }); }
+            const chosen = s.objects.filter((o) => delSel.has(`${o.kind}:${o.name}`)).map((o) => ({ kind: o.kind, name: o.name }));
+            try { await api.deleteProject(id, purge, custom ? chosen : []); navigate("/projects", { replace: true }); }
             catch (e) { setActionError(String((e as Error).message ?? e)); setConfirmDel(false); }
           }}
           onCancel={() => setConfirmDel(false)}>
+          {custom && delKeys.length > 0 && (
+            <div style={{ margin: "10px 0 4px" }}>
+              <div className="btnrow" style={{ marginBottom: 6 }}>
+                <span className="lbl">its objects</span>
+                <button type="button" className="dim" onClick={() => setDelSel(new Set(delKeys))}>Select all</button>
+                <button type="button" className="dim" onClick={() => setDelSel(new Set())}>None</button>
+                {!delDeps && <span className="help">checking what depends on what…</span>}
+              </div>
+              {s.objects.filter((o) => o.kind !== "mcp_server").map((o) => {
+                const k = `${o.kind}:${o.name}`;
+                return (
+                  <label key={k} style={{ display: "flex", gap: 8, alignItems: "center", padding: "2px 0" }}>
+                    <input type="checkbox" checked={delSel.has(k)} disabled={!delDeps} onChange={(e) => pick(k, e.target.checked)} />
+                    <span className="help" style={{ width: 56 }}>{o.kind}</span>
+                    <span className="mono">{o.name}</span>
+                  </label>
+                );
+              })}
+              <p className="help" style={{ margin: "6px 0 0", whiteSpace: "normal" }}>
+                Picking a source also picks the views, triggers and agents that need it. Unpicked objects stay.
+              </p>
+            </div>
+          )}
           <label style={{ display: "block", marginTop: 8 }}>
             <input type="checkbox" checked={purge} onChange={(e) => setPurge(e.target.checked)} />{" "}
             {custom
