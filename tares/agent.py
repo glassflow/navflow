@@ -191,7 +191,11 @@ BUILD_PROPOSAL_TOOLS = [
          "delivery": {"type": "object", "properties": {
              "kind": {"type": "string", "enum": ["slack", "webhook", "none"],
                       "description": "where the finding also goes; it always lands on the "
-                                     "entity's timeline"}},
+                                     "entity's timeline"},
+             "url": {"type": "string",
+                     "description": "webhook only: a URL the user typed in this conversation, "
+                                    "copied exactly. Never invent or guess one; omit it and the "
+                                    "user fills it in the form."}},
              "required": ["kind"]},
          "reasoning": {"type": "string"}},
          "required": ["name", "trigger", "prompt", "delivery", "reasoning"]}},
@@ -364,9 +368,13 @@ every key, filter and field in `source_fields` from real data, exactly as in the
 If no events have arrived yet, say so and ask the user to send some first, or propose from the \
 source's configured fields and say the thresholds are theirs to confirm. Ask about thresholds, \
 windows and which conditions matter before proposing them unless the user already said.
-· AGENT: one propose_agent card. The prompt is the substance; the user will pick the channel or \
-URL for the delivery kind you choose. Pick "slack" when the user mentioned Slack, "webhook" \
-when they named a system to post into, "none" otherwise.
+· AGENT: one propose_agent card. The prompt is the substance, and it is the user's: before you \
+write it, ask what the agent should do when the trigger fires (what to look at, what a useful \
+finding says, what it should recommend or decide, any thresholds or vocabulary they use), unless \
+the goal already says. Write the prompt from their answer, in their terms. For delivery, pick \
+"slack" when the user mentioned Slack, "webhook" when they named a system or URL to post into, \
+"none" otherwise; a webhook URL the user typed goes in `delivery.url` exactly as given, the Slack \
+channel is always picked by the user in the form.
 
 One card per object. The cards are the answer: never restate a card's contents as text or a \
 table. The page moves to the next step when the user is ready, so do not list next steps, do \

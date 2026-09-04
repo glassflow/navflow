@@ -69,9 +69,10 @@ ck("propose_source config is an object, poll optional",
 ag = by_name["propose_agent"]["input_schema"]
 ck("propose_agent requires name, trigger, prompt, delivery, reasoning",
    set(ag["required"]) == {"name", "trigger", "prompt", "delivery", "reasoning"}, str(ag["required"]))
-ck("propose_agent delivery is a kind from slack|webhook|none, nothing else",
+ck("propose_agent delivery is a kind from slack|webhook|none plus an optional typed URL",
    ag["properties"]["delivery"]["properties"]["kind"]["enum"] == ["slack", "webhook", "none"]
-   and set(ag["properties"]["delivery"]["properties"]) == {"kind"})
+   and set(ag["properties"]["delivery"]["properties"]) == {"kind", "url"}
+   and ag["properties"]["delivery"]["required"] == ["kind"])
 ck("every proposal tool requires reasoning",
    all("reasoning" in t["input_schema"]["required"]
        for t in agent.PROPOSAL_TOOLS + agent.BUILD_PROPOSAL_TOOLS))
@@ -86,7 +87,8 @@ ck("ask prompt has no build section", "BUILD MODE" not in base)
 ck("build prompt is the ask prompt plus the build section",
    build.startswith(base) and "BUILD MODE" in build)
 for marker in ("ASK BEFORE YOU GUESS", "INSTALLED connectors", "`needs`", "source_fields",
-               "One card per object", "channel or URL", "propose NOTHING in that turn"):
+               "One card per object", "propose NOTHING in that turn",
+               "ask what the agent should do", "delivery.url"):
     ck(f"build prompt says: {marker}", marker in build)
 
 

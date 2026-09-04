@@ -24,7 +24,8 @@ export type Proposal =
   | { id: string; kind: "source"; name: string; connector: string; poll?: string;
       config?: Record<string, unknown>; needs: string[]; reasoning: string }
   | { id: string; kind: "agent"; name: string; trigger: string; prompt: string; model?: string;
-      max_rounds?: number; budget_usd?: number; delivery: { kind: "slack" | "webhook" | "none" };
+      max_rounds?: number; budget_usd?: number;
+      delivery: { kind: "slack" | "webhook" | "none"; url?: string };   // url only when the user typed it
       reasoning: string };
 
 // The operators a view filter may use — the set `tares/config.py` validates against on Apply.
@@ -266,7 +267,7 @@ export function ProposalBody({ proposal }: { proposal: Proposal }) {
           {proposal.model && <> · model <span className="chip mono">{proposal.model}</span></>}
           {" · "}
           {proposal.delivery.kind === "slack" ? "posts the finding to a Slack channel you pick"
-            : proposal.delivery.kind === "webhook" ? "posts the finding to a URL you give"
+            : proposal.delivery.kind === "webhook" ? (proposal.delivery.url ? <>posts the finding to <span className="mono">{proposal.delivery.url}</span></> : "posts the finding to a URL you give")
             : "writes the finding onto the timeline only"}
         </p>
       )}
