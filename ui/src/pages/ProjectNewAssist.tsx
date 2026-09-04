@@ -380,19 +380,17 @@ export default function ProjectNewAssist() {
         </div>
       ) : (
         <div className="panel builder-brief">
-          <div className="builder-brief-goal">
-            <span className="help">building</span>
+          <label className="field" style={{ marginBottom: 10 }}>
+            <span className="lbl">project name</span>
+            {project
+              ? <span className="mono">{project.name}</span>
+              : <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ maxWidth: 360 }} />}
+          </label>
+          <div className="field" style={{ marginBottom: 10 }}>
+            <span className="lbl">building</span>
             <blockquote>{goal.trim()}</blockquote>
           </div>
-          <div className="builder-brief-side">
-            <label className="field" style={{ margin: 0 }}>
-              <span className="lbl">project name</span>
-              {project
-                ? <span className="mono">{project.name}</span>
-                : <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} style={{ maxWidth: 260 }} />}
-            </label>
-            {step !== "done" && <button onClick={change}>Change what you need</button>}
-          </div>
+          {step !== "done" && <button onClick={change}>Change what you need</button>}
         </div>
       )}
 
