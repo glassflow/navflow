@@ -8,8 +8,8 @@ import type { ConnectorSpec, Project, Template } from "../types";
 // the cell has no project of the user's own; the seeded demo does not count.
 //
 // It is a conversation that has not started yet, not a form. As the user types, the screen
-// answers: the connectors they name light up under the box, the starter sentences reorder to the
-// closest ones, and the button says back what it understood. Nothing here asks the user to know
+// answers: the connectors they name light up under the box, and the starter sentences reorder to the
+// closest ones. Nothing here asks the user to know
 // a source from a view. Three doors, one builder: describe it, paste your last incident, or
 // start the demo. Templates live behind the sentences; the gallery stays one click away under
 // Projects for people who already know what they want.
@@ -19,7 +19,8 @@ import type { ConnectorSpec, Project, Template } from "../types";
 const WORDS: [RegExp, string][] = [
   [/\b(docker|container|compose)\b/i, "docker_logs"],
   [/\b(prometheus|metrics?|latency|p95|p99|cpu|memory)\b/i, "prometheus"],
-  [/\b(alerts?|alerting|alertmanager|pager|on-?call)\b/i, "prometheus_alerts"],
+  // "alert me" is what the user wants done, not a source; only the product names count here
+  [/\b(alertmanager|prometheus alerts?|alerting rules?)\b/i, "prometheus_alerts"],
   [/\b(loki|grafana)\b/i, "loki"],
   [/\b(postgres|postgresql|database|table|sql|rows?)\b/i, "postgres"],
   [/\b(github|repos?|repositor(y|ies)|commits?|pull requests?|prs?)\b/i, "github"],
@@ -54,8 +55,6 @@ function overlap(typed: Set<string>, sentence: string) {
   return n;
 }
 
-const shorten = (t: string, n = 44) => (t.length <= n ? t : t.slice(0, n - 1).replace(/\s+\S*$/, "") + "…");
-
 export default function Landing({ templates, projects }: { templates: Template[]; projects: Project[] }) {
   const navigate = useNavigate();
   const [goal, setGoal] = useState("");
@@ -85,7 +84,6 @@ export default function Landing({ templates, projects }: { templates: Template[]
   const demo = projects.find((p) => p.template === "ai_sre_demo");
   const demoTemplate = templates.find((t) => t.key === "ai_sre_demo");
 
-  const enough = words(goal).size >= 3;
   const go = () => {
     if (!goal.trim()) return;
     navigate("/projects/new/assist", { state: { goal: goal.trim() } });
@@ -101,9 +99,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
       <p className="landing-sub">Give it your data, tell it what to watch for, see it act.</p>
 
       <form className="landing-ask" onSubmit={(e) => { e.preventDefault(); go(); }}>
-        <label className="landing-q" htmlFor="landing-goal">
-          What should your agent keep an eye on, and what should it do when something is wrong?
-        </label>
+        <label className="landing-q" htmlFor="landing-goal">What do you want to build?</label>
         <textarea id="landing-goal" ref={box} rows={3} value={goal}
                   placeholder="watch my checkout service logs and wake an agent in Slack when payments fail"
                   onChange={(e) => setGoal(e.target.value)}
@@ -117,9 +113,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
           )}
         </div>
         <div className="btnrow">
-          <button className="primary" disabled={!goal.trim()}>
-            {enough ? `Show me: ${shorten(goal.trim())}` : "Show me"}
-          </button>
+          <button className="primary" disabled={!goal.trim()}>Show me</button>
           {!pasting && (
             <button type="button" className="dim" onClick={() => setPasting(true)}>or paste your last alert or incident thread</button>
           )}
