@@ -29,14 +29,14 @@ import type { AgentPreset, BuiltinAgent, ConnectorSpec, Project, ProjectObjectKi
 // Secrets and Slack channels are never the model's to fill: a source proposal lists them in
 // `needs` and the form highlights them; an agent proposal picks only the delivery kind.
 
-type StepKey = "sources" | "views" | "triggers" | "agent";
-const STEPS: { key: StepKey; label: string }[] = [
-  { key: "sources", label: "Sources" },
-  { key: "views", label: "Views" },
-  { key: "triggers", label: "Triggers" },
-  { key: "agent", label: "Agent" },
+type StepKey = "sources" | "watch" | "agent";
+// Views and triggers are one step: the user thinks "what should fire" as one question.
+const STEPS: { key: StepKey; label: string; kinds: ProjectObjectKind[] }[] = [
+  { key: "sources", label: "Sources", kinds: ["source"] },
+  { key: "watch", label: "Views and triggers", kinds: ["view", "trigger"] },
+  { key: "agent", label: "Agent", kinds: ["agent"] },
 ];
-const NEXT: Record<StepKey, StepKey | "done"> = { sources: "views", views: "triggers", triggers: "agent", agent: "done" };
+const NEXT: Record<StepKey, StepKey | "done"> = { sources: "watch", watch: "agent", agent: "done" };
 
 type Part = { type: "text"; text: string } | ToolPart | { type: "proposal"; proposal: Proposal };
 type Turn = { parts: Part[] };
@@ -67,7 +67,7 @@ export default function ProjectNewAssist() {
   const [projectName, setProjectName] = useState("");
   const [step, setStep] = useState<StepKey | "describe" | "done">("describe");
   const [states, setStates] = useState<Record<StepKey, StepState>>({
-    sources: { turns: [] }, views: { turns: [] }, triggers: { turns: [] }, agent: { turns: [] },
+    sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] },
   });
   const [decisions, setDecisions] = useState<DecisionMap>({});
   const [history, setHistory] = useState<WireMessage[]>([]);
@@ -175,11 +175,9 @@ export default function ProjectNewAssist() {
     if (last) setHistory((h) => [...h.slice(0, -1), { role: "assistant", content: wireText(last, decisions) }]);
     if (next === "done") { setStep("done"); return; }
     setStep(next);
-    const framing = next === "views"
-      ? `Sources connected: ${created("source").join(", ") || "none"}. Now propose the views (and any labels they need) that correlate these sources for the goal. Check source_fields on each source first.`
-      : next === "triggers"
-      ? `Views created: ${created("view").join(", ") || "none"}. Now propose the triggers on these views for the goal.`
-      : `Triggers created: ${created("trigger").join(", ") || "none"}. Now propose the one Tares agent that runs when they fire, and its delivery kind.`;
+    const framing = next === "watch"
+      ? `Sources connected: ${created("source").join(", ") || "none"}. Now the views and triggers: what to correlate and what should fire, for the goal. Check source_fields on each source first. Ask me what you need to know before proposing thresholds or conditions I have not stated.`
+      : `Views created: ${created("view").join(", ") || "none"}; triggers created: ${created("trigger").join(", ") || "none"}. Now propose the one Tares agent that runs when they fire, and its delivery kind.`;
     await turn(next, framing);
   };
 
@@ -208,6 +206,10 @@ export default function ProjectNewAssist() {
   const proposalsInStep = step !== "describe" && step !== "done"
     ? states[step].turns.flatMap((t) => t.parts).filter((p) => p.type === "proposal").length
     : 0;
+  // A turn with text and no cards is the assistant asking: make the box read as the answer box.
+  const lastTurn = step !== "describe" && step !== "done" ? states[step].turns[states[step].turns.length - 1] : undefined;
+  const asking = !!lastTurn && !streaming && lastTurn.parts.some((p) => p.type === "text")
+    && !lastTurn.parts.some((p) => p.type === "proposal");
 
   return (
     <>
@@ -216,8 +218,8 @@ export default function ProjectNewAssist() {
         {STEPS.map((s, i) => (
           <span key={s.key} className={"step" + (i === stepIndex ? " active" : i < stepIndex ? " done" : "")}>
             <span className="n">{i + 1}</span>{s.label}
-            {i < stepIndex && created(s.key === "agent" ? "agent" : s.key.slice(0, -1) as ProjectObjectKind).length > 0 && (
-              <span className="badge ok">{created(s.key === "agent" ? "agent" : s.key.slice(0, -1) as ProjectObjectKind).length}</span>
+            {i < stepIndex && s.kinds.some((k) => created(k).length > 0) && (
+              <span className="badge ok">{s.kinds.reduce((n, k) => n + created(k).length, 0)}</span>
             )}
           </span>
         ))}
@@ -269,7 +271,7 @@ export default function ProjectNewAssist() {
                       createdTriggers={created("trigger")}
                       active={s.key === step} />
           ))}
-          {s.key === step && !streaming && states[s.key].turns.length > 0 && proposalsInStep === 0 && (
+          {s.key === step && !streaming && states[s.key].turns.length > 0 && proposalsInStep === 0 && !asking && (
             <div className="empty">
               {s.key === "sources"
                 ? <>No source was proposed. Say which systems you run and where (a container name, a URL, a repo), or <Link to="/sources/new">add a source by hand</Link> and come back to assemble the project from <Link to="/projects/new/custom">existing objects</Link>.</>
@@ -279,7 +281,8 @@ export default function ProjectNewAssist() {
           {s.key === step && (
             <>
               <div className="builder-refine">
-                <textarea value={refine} rows={1} placeholder="ask for a change, e.g. use the staging URL, or add the alerts too"
+                <textarea value={refine} rows={asking ? 2 : 1} autoFocus={asking}
+                          placeholder={asking ? "answer here, then Send" : "ask for a change, e.g. use the staging URL, or add the alerts too"}
                           onChange={(e) => setRefine(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendRefine(); } }} />
                 {streaming

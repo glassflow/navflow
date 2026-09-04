@@ -45,8 +45,7 @@ ck("ask mode never offers the build-only cards",
    not names(agent.tools_for()) & {"propose_source", "propose_agent"})
 expected = {
     "sources": {"propose_source"},
-    "views": {"propose_view", "propose_labels"},
-    "triggers": {"propose_trigger"},
+    "watch": {"propose_view", "propose_labels", "propose_trigger"},
     "agent": {"propose_agent"},
 }
 for step, cards in expected.items():
@@ -55,7 +54,7 @@ for step, cards in expected.items():
 ck("an unknown build step gets no proposal tools at all",
    names(agent.tools_for("build", "nope")) == READ)
 ck("BUILD_STEPS lists the steps in flow order",
-   list(agent.BUILD_STEPS) == ["sources", "views", "triggers", "agent"])
+   list(agent.BUILD_STEPS) == ["sources", "watch", "agent"])
 
 print("== schemas ==")
 by_name = {t["name"]: t for t in agent.BUILD_PROPOSAL_TOOLS}
@@ -86,8 +85,8 @@ base, build = agent.system_prompt(), agent.system_prompt("build")
 ck("ask prompt has no build section", "BUILD MODE" not in base)
 ck("build prompt is the ask prompt plus the build section",
    build.startswith(base) and "BUILD MODE" in build)
-for marker in ("INSTALLED connectors", "`needs`", "source_fields", "One card per object",
-               "channel or URL"):
+for marker in ("ASK BEFORE YOU GUESS", "INSTALLED connectors", "`needs`", "source_fields",
+               "One card per object", "channel or URL", "propose NOTHING in that turn"):
     ck(f"build prompt says: {marker}", marker in build)
 
 

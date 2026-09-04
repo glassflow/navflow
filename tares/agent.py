@@ -204,8 +204,9 @@ _PROPOSAL_KIND = {"propose_labels": "labels", "propose_view": "view", "propose_t
 # proposal impossible: a views turn cannot emit a trigger card because the tool is not there.
 BUILD_STEPS = {
     "sources": ["propose_source"],
-    "views": ["propose_view", "propose_labels"],
-    "triggers": ["propose_trigger"],
+    # views and triggers are one step: a view exists to be watched, and the user thinks about
+    # "what should fire" as one question, not two pages
+    "watch": ["propose_view", "propose_labels", "propose_trigger"],
     "agent": ["propose_agent"],
 }
 
@@ -341,27 +342,37 @@ _SYSTEM_BUILD = """
 
 BUILD MODE. The user is assembling a new project from nothing, one step at a time, on a page that \
 turns each of your proposals into a prefilled form. The console tells you which step you are on; \
-you only have that step's proposal tool, so propose only what the step asks for.
+you only have that step's proposal tools, so propose only what the step asks for.
+
+ASK BEFORE YOU GUESS. A proposal is only as good as what the user told you. When the goal leaves \
+a real choice open (which service or API, which places or entities, which conditions matter and at \
+what threshold, which channel), ask up to three short, numbered questions in plain text and \
+propose NOTHING in that turn; the user answers in the box under your message and you propose on \
+the next turn. When the goal already says enough, propose directly. Never fill a gap with a \
+default the user did not choose and present it as theirs.
 
 · SOURCES: map the user's goal onto the INSTALLED connectors only. Call list_connectors first and \
 pick from what it returns; never name a connector it does not list. If nothing installed fits \
-part of the goal, say so in text rather than forcing a poor match. One propose_source card per \
-source. Put in `config` only the non-secret values the user actually told you (a URL they \
-pasted, a container or repo name); every secret and every value you would have to guess goes in \
-`needs`. Check list_sources first: if a source already covers what the goal needs, say so and \
+part of the goal, say so in one sentence rather than forcing a poor match. One propose_source \
+card per source. Put in `config` only the non-secret values the user actually told you (a URL \
+they pasted, a container or repo name); every secret and every value you would have to guess goes \
+in `needs`. Check list_sources first: if a source already covers what the goal needs, say so and \
 propose only what is missing.
-· VIEWS: the sources are connected now. Ground every key and filter in `source_fields` from real \
-data, exactly as in the rules above; propose labels first where a source needs them, then the view.
-· TRIGGERS: propose conditions on the views that exist, with a threshold, window and cooldown \
-the user can tune on the card.
+· WATCH: the sources are connected now. Propose the views and the triggers on them together: \
+labels first where a source needs them, then the view, then each trigger on that view. Ground \
+every key, filter and field in `source_fields` from real data, exactly as in the rules above. \
+If no events have arrived yet, say so and ask the user to send some first, or propose from the \
+source's configured fields and say the thresholds are theirs to confirm. Ask about thresholds, \
+windows and which conditions matter before proposing them unless the user already said.
 · AGENT: one propose_agent card. The prompt is the substance; the user will pick the channel or \
 URL for the delivery kind you choose. Pick "slack" when the user mentioned Slack, "webhook" \
 when they named a system to post into, "none" otherwise.
 
-One card per object. Keep the text short: the cards are the answer. The page moves to the next \
-step when the user is ready, so do not list next steps, do not ask the user to apply and come \
-back, and do not describe objects you cannot propose on this step; a push source's ingest URL and \
-payload example are shown by the console once the source exists, so do not write them."""
+One card per object. The cards are the answer: never restate a card's contents as text or a \
+table. The page moves to the next step when the user is ready, so do not list next steps, do \
+not ask the user to apply and come back, and do not describe objects you cannot propose on this \
+step. A push source's ingest URL and payload example are shown by the console once the source \
+exists, so do not write them."""
 
 
 def system_prompt(mode: str = "ask") -> str:

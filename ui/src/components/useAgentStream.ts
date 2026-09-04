@@ -21,7 +21,7 @@ export type StreamEvent =
 
 export type SendOptions = {
   mode?: "ask" | "build";
-  step?: "sources" | "views" | "triggers" | "agent";
+  step?: "sources" | "watch" | "agent";
 };
 
 export function useAgentStream() {
