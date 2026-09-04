@@ -165,8 +165,9 @@ export const api = {
   deleteBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}`, { method: "DELETE" }),
   enableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/enable`, { method: "POST" }),
   disableBuiltinAgent: (name: string) => request(`/api/agents/builtin/${name}/disable`, { method: "POST" }),
-  builtinAgentRuns: (name: string, limit = 20) =>
-    request<AgentRun[]>(`/api/agents/builtin/${name}/runs?limit=${limit}`),
+  builtinAgentRuns: (name: string, limit = 20, offset = 0, status = "") =>
+    request<AgentRun[]>(`/api/agents/builtin/${encodeURIComponent(name)}/runs?limit=${limit}&offset=${offset}`
+      + (status ? `&status=${encodeURIComponent(status)}` : "")),
   rerunAgentRun: (name: string, runId: string) =>
     request<{ ok: boolean; run_id: string }>(
       `/api/agents/builtin/${encodeURIComponent(name)}/runs/${encodeURIComponent(runId)}/rerun`,

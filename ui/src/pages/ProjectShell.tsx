@@ -9,7 +9,7 @@ import { Combo, Picker, ErrorState, TimeAgo, usePolling } from "../components/bi
 import AgentForm from "../components/AgentForm";
 import InfoDialog, { HelpButton } from "../components/InfoDialog";
 import { SessionsPanel } from "../components/ChallengerSessions";
-import { RunsTable } from "./AgentDetail";
+import { RunsPanel } from "./AgentDetail";
 import type { ProjectSummary, Template, RecipeActionOption } from "../types";
 
 // The page for every project: what a project really is, on one page, driven by the live APIs
@@ -740,7 +740,7 @@ function AgentSection({ name, focusDispatch, triggerInProject, onShowTrigger }: 
   const [openRun, setOpenRun] = useState<string>();
   const [editing, setEditing] = useState(false);
   const { data, error, reload } = usePolling(() => api.builtinAgents(), 10000);
-  const { data: runs, error: runsError } = usePolling(() => api.builtinAgentRuns(name, 50), 10000);
+  const { data: runs } = usePolling(() => api.builtinAgentRuns(name, 1), 10000);   // the latest, for the overview row
   const [err, setErr] = useState<string>();
   if (error) return <div className="alert error">{error}</div>;
   if (!data) return <div className="dim">loading…</div>;
@@ -818,7 +818,7 @@ function AgentSection({ name, focusDispatch, triggerInProject, onShowTrigger }: 
         </div>
       )}
       <h3 style={{ margin: "12px 0 6px" }}>Runs</h3>
-      <RunsTable runs={runs} runsError={runsError} agent={agent}
+      <RunsPanel name={name} agent={agent}
                  focusDispatch={focusDispatch} focusRun={undefined}
                  openRun={openRun} setOpenRun={setOpenRun} />
     </div>
