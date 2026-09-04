@@ -77,7 +77,8 @@ export default function Landing({ templates, projects }: { templates: Template[]
   const sentences = useMemo(() => {
     const fromTemplates = templates.filter((t) => t.sentence).map((t) => ({ text: t.sentence!, template: t.key }));
     const all = [...fromTemplates, ...COMMON.map((text) => ({ text, template: "" }))];
-    return all.map((s, i) => ({ ...s, i, score: overlap(typed, s.text) }))
+    // one shared word is noise ("service" matches almost anything); two is a real neighbour
+    return all.map((s, i) => { const n = overlap(typed, s.text); return { ...s, i, score: n >= 2 ? n : 0 }; })
       .sort((a, b) => b.score - a.score || a.i - b.i);
   }, [templates, typed]);
 
@@ -137,7 +138,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
       <div className="landing-starters">
         <div className="help">Or start from one of these</div>
         {sentences.map((s) => (
-          <button key={s.text} type="button" className={"starter" + (s.score > 0 ? " near" : "")}
+          <button key={s.text} type="button" className="starter"
                   onClick={() => { setGoal(s.text); box.current?.focus(); }}>
             {s.text}
           </button>

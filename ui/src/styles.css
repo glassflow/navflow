@@ -1358,6 +1358,5 @@ pre.payload {
 .landing-ask textarea.mono { font-family: var(--mono); font-size: 13px; }
 .landing-heard { min-height: 26px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 10px; }
 .landing-starters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
-.landing-starters .starter.near { border-color: var(--accent); }
 .landing-demo { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
 .landing-foot { text-align: center; }
