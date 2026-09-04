@@ -59,11 +59,23 @@ const wireText = (t: Turn, decisions: DecisionMap) => t.parts.map((p) => {
 const kindOf = (p: Proposal): ProjectObjectKind | null =>
   p.kind === "labels" || p.kind === "project" ? null : p.kind;
 
-/** A project name from the first content words of the goal, editable until the project exists. */
-const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "its", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please", "show", "then", "also"]);
+/** A project name from the goal, editable until the project exists: the nouns of the user's
+ *  world (a service, a container, a repo), never the verbs of ours. Three words at most, so
+ *  "watch the docker container checkout-api and its prometheus metrics" becomes
+ *  "checkout-api metrics". */
+const NAME_STOP = new Set([
+  "the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of",
+  "on", "in", "it", "its", "is", "me", "for", "want", "please", "then", "also", "some", "any", "all", "one",
+  "watch", "tell", "wake", "show", "build", "need", "keep", "make", "get", "let", "run", "runs", "running",
+  "agent", "agents", "service", "services", "project", "tares", "data", "something", "wrong", "happens",
+  "up", "date", "every", "each", "top", "over", "via", "using", "use", "like",
+]);
 function nameFromGoal(goal: string, incident: boolean): string {
-  const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w)).slice(0, 4);
-  const base = ws.join(" ") || "my project";
+  const ws = goal.toLowerCase().split(/[^a-z0-9-]+/).filter((w) => w.length > 2 && !NAME_STOP.has(w));
+  // prefer words that look like names of things: hyphenated, or ending in a system-ish noun
+  const named = ws.filter((w) => w.includes("-") || /(api|logs?|metrics|db|repo|repos|server|checkout|payments?|orders?|weather|deploys?)$/.test(w));
+  const pick = [...new Set([...named, ...ws])].slice(0, 3);
+  const base = pick.join(" ") || "my project";
   return incident ? `catch ${base}` : base;
 }
 
@@ -78,7 +90,12 @@ export default function ProjectNewAssist() {
   // text is a pasted alert or thread, framed for the model as something to have caught.
   const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean; template?: string };
   const [goal, setGoal] = useState(handoff.goal ?? "");
-  const [projectName, setProjectName] = useState(handoff.goal ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
+  const [projectName, setProjectName] = useState(handoff.goal && !handoff.template ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
+  // a picked template is named after itself, not after words chopped out of its sentence
+  useEffect(() => {
+    if (!handoff.template) return;
+    api.template(handoff.template).then((t) => setProjectName((cur) => cur || t.title)).catch(() => {});
+  }, [handoff.template]);
   const [step, setStep] = useState<StepKey | "describe" | "done">("describe");
   const [states, setStates] = useState<Record<StepKey, StepState>>({
     sources: { turns: [] }, watch: { turns: [] }, agent: { turns: [] },
