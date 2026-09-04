@@ -485,7 +485,7 @@ export default function ProjectNewAssist() {
               </div>
             </>
           ) : (
-            <p className="help">Nothing was created. Start again with a fuller description, or <Link to="/projects/new">pick a template</Link>.</p>
+            <p className="help">Nothing was created. Start again with a fuller description, or <Link to="/projects/new/templates">pick a template</Link>.</p>
           )}
         </div>
       )}
