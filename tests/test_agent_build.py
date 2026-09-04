@@ -44,7 +44,7 @@ ck("ask mode is the read tools plus the catalog cards",
 ck("ask mode never offers the build-only cards",
    not names(agent.tools_for()) & {"propose_source", "propose_agent"})
 expected = {
-    "sources": {"propose_source"},
+    "sources": {"propose_source", "propose_project"},
     "watch": {"propose_view", "propose_labels", "propose_trigger"},
     "agent": {"propose_agent"},
 }
@@ -66,6 +66,11 @@ ck("propose_source needs is a list of field names",
    and src["properties"]["needs"]["items"]["type"] == "string")
 ck("propose_source config is an object, poll optional",
    src["properties"]["config"]["type"] == "object" and "poll" not in src["required"])
+pj = by_name["propose_project"]["input_schema"]
+ck("propose_project requires template, name, needs, reasoning",
+   set(pj["required"]) == {"template", "name", "needs", "reasoning"}, str(pj["required"]))
+ck("read tools include list_templates and detect_template",
+   {"list_templates", "detect_template"} <= READ)
 ag = by_name["propose_agent"]["input_schema"]
 ck("propose_agent requires name, trigger, prompt, delivery, reasoning",
    set(ag["required"]) == {"name", "trigger", "prompt", "delivery", "reasoning"}, str(ag["required"]))
@@ -79,7 +84,7 @@ ck("every proposal tool requires reasoning",
 ck("every proposal tool maps to a card kind",
    set(agent._PROPOSAL_KIND) == ALL_PROPOSALS, str(set(agent._PROPOSAL_KIND) ^ ALL_PROPOSALS))
 ck("card kinds are the object kinds the console knows",
-   set(agent._PROPOSAL_KIND.values()) == {"labels", "view", "trigger", "source", "agent"})
+   set(agent._PROPOSAL_KIND.values()) == {"labels", "view", "trigger", "source", "agent", "project"})
 
 print("== prompts ==")
 base, build = agent.system_prompt(), agent.system_prompt("build")
@@ -88,7 +93,7 @@ ck("build prompt is the ask prompt plus the build section",
    build.startswith(base) and "BUILD MODE" in build)
 for marker in ("ASK BEFORE YOU GUESS", "INSTALLED connectors", "`needs`", "source_fields",
                "One card per object", "propose NOTHING in that turn",
-               "ask what the agent should do", "delivery.url"):
+               "ask what the agent should do", "delivery.url", "TEMPLATES FIRST"):
     ck(f"build prompt says: {marker}", marker in build)
 
 

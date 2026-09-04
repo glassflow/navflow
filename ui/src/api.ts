@@ -267,6 +267,8 @@ export const api = {
 
   // ── Projects: templates instantiated with params; each instance owns ordinary objects ──
   templates: () => request<{ templates: Template[] }>("/api/projects/templates"),
+  // by key, hidden templates included (the gallery list leaves those out)
+  template: (key: string) => request<Template>(`/api/projects/templates/${encodeURIComponent(key)}`),
   projects: () => request<{ projects: Project[] }>("/api/projects"),
   project: (id: string) => request<Project>(`/api/projects/${encodeURIComponent(id)}`),
   // Accepted memory: only what a user accepted is ever written (a proposal is just text until then).

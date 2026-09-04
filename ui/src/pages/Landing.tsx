@@ -58,6 +58,7 @@ function overlap(typed: Set<string>, sentence: string) {
 export default function Landing({ templates, projects }: { templates: Template[]; projects: Project[] }) {
   const navigate = useNavigate();
   const [goal, setGoal] = useState("");
+  const [picked, setPicked] = useState("");   // the template behind the sentence in the box, if any
   const [paste, setPaste] = useState("");
   const [pasting, setPasting] = useState(false);
   const [specs, setSpecs] = useState<Record<string, ConnectorSpec>>({});
@@ -87,7 +88,9 @@ export default function Landing({ templates, projects }: { templates: Template[]
 
   const go = () => {
     if (!goal.trim()) return;
-    navigate("/projects/new/assist", { state: { goal: goal.trim() } });
+    // a sentence picked and left as it was names its template; an edited one is free text
+    const tpl = sentences.find((x) => x.template && x.text === goal.trim())?.template ?? picked;
+    navigate("/projects/new/assist", { state: { goal: goal.trim(), template: tpl || undefined } });
   };
   const goIncident = () => {
     if (!paste.trim()) return;
@@ -103,7 +106,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
         <label className="landing-q" htmlFor="landing-goal">What do you want to build?</label>
         <textarea id="landing-goal" ref={box} rows={3} value={goal}
                   placeholder="watch my checkout service logs and wake an agent in Slack when payments fail"
-                  onChange={(e) => setGoal(e.target.value)}
+                  onChange={(e) => { setGoal(e.target.value); setPicked(""); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(); } }} />
         {/* what the screen heard, before anything is pressed */}
         <div className="landing-heard">
@@ -139,7 +142,7 @@ export default function Landing({ templates, projects }: { templates: Template[]
         <div className="help">Or start from one of these</div>
         {sentences.map((s) => (
           <button key={s.text} type="button" className="starter"
-                  onClick={() => { setGoal(s.text); box.current?.focus(); }}>
+                  onClick={() => { setGoal(s.text); setPicked(s.template); box.current?.focus(); }}>
             {s.text}
           </button>
         ))}

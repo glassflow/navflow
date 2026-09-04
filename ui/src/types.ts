@@ -417,6 +417,7 @@ export interface GithubCredential {
 export interface RecipeParam {
   type?: string;              // string | number | bool | list | json | choice
   required?: boolean;
+  secret?: boolean;           // a token: never shown back; blank on edit means keep
   default?: unknown;
   help?: string;
   label?: string;

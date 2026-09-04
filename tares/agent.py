@@ -54,6 +54,20 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "name": {"type": "string"}, "limit": {"type": "integer", "default": 20}},
          "required": ["name"]}},
+    {"name": "list_templates",
+     "description": "The project templates installed here: key, title, what each sets up, its "
+                    "parameters (with help text, required, secret) and the sentence a user would "
+                    "type to get it. A template creates its whole project in one step; prefer one "
+                    "over assembling the same thing from parts.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "detect_template",
+     "description": "Ask a template to look at the environment (running containers, reachable "
+                    "services) and propose parameter values. Returns {params, found, missing, "
+                    "notes}. Call it before proposing a template so the user confirms detected "
+                    "values instead of typing them.",
+     "input_schema": {"type": "object", "properties": {
+         "key": {"type": "string", "description": "the template key from list_templates"}},
+         "required": ["key"]}},
     {"name": "query",
      "description": "Pull one correlated, time-ordered timeline for an entity from a view. Select "
                     "the entity by `key` or by `where` ({label: value}). Needs an existing view "
@@ -175,6 +189,21 @@ BUILD_PROPOSAL_TOOLS = [
                                   "secret, plus anything you would otherwise have to guess"},
          "reasoning": {"type": "string"}},
          "required": ["name", "connector", "needs", "reasoning"]}},
+    {"name": "propose_project",
+     "description": "Propose a whole project from an installed template, as its prefilled form "
+                    "the user will confirm. Use it when the goal is what a template sets up "
+                    "(compare with the template's sentence and description) instead of building "
+                    "the same thing from parts. `params` holds the values you know: what the user "
+                    "said, or what detect_template found. Every secret and every value you would "
+                    "have to guess goes in `needs`, never in `params`.",
+     "input_schema": {"type": "object", "properties": {
+         "template": {"type": "string", "description": "the template key from list_templates"},
+         "name": {"type": "string", "description": "a short project name"},
+         "params": {"type": "object", "description": "parameter values, keyed by parameter name"},
+         "needs": {"type": "array", "items": {"type": "string"},
+                   "description": "parameter names the user must fill themselves"},
+         "reasoning": {"type": "string"}},
+         "required": ["template", "name", "needs", "reasoning"]}},
     {"name": "propose_agent",
      "description": "Propose the Tares agent that runs when the trigger fires, as a prefilled "
                     "agent form the user will review. `trigger` must be a trigger that exists or "
@@ -202,12 +231,14 @@ BUILD_PROPOSAL_TOOLS = [
 ]
 _ALL_PROPOSALS = {t["name"]: t for t in PROPOSAL_TOOLS + BUILD_PROPOSAL_TOOLS}
 _PROPOSAL_KIND = {"propose_labels": "labels", "propose_view": "view", "propose_trigger": "trigger",
-                  "propose_source": "source", "propose_agent": "agent"}
+                  "propose_source": "source", "propose_agent": "agent",
+                  "propose_project": "project"}
 
 # Which proposal tools each build step gets. The step-scoped toolset is what makes an out-of-order
 # proposal impossible: a views turn cannot emit a trigger card because the tool is not there.
 BUILD_STEPS = {
-    "sources": ["propose_source"],
+    # a whole project from a template is proposed on the first step, in place of its parts
+    "sources": ["propose_source", "propose_project"],
     # views and triggers are one step: a view exists to be watched, and the user thinks about
     # "what should fire" as one question, not two pages
     "watch": ["propose_view", "propose_labels", "propose_trigger"],
@@ -261,6 +292,10 @@ async def _execute_tool(name: str, args: dict, headers: dict) -> tuple[bool, str
         elif name == "recent_events":
             r = await cx.get(f"/api/sources/{args.get('name', '')}/events",
                              params={"limit": int(args.get("limit", 20))})
+        elif name == "list_templates":
+            r = await cx.get("/api/projects/templates")
+        elif name == "detect_template":
+            r = await cx.post(f"/api/projects/templates/{args.get('key', '')}/detect")
         elif name == "query":
             body = {"view": args.get("view"), "window": args.get("window", "15m"), "client": "in-app-agent"}
             if args.get("key"):
@@ -355,7 +390,13 @@ propose NOTHING in that turn; the user answers in the box under your message and
 the next turn. When the goal already says enough, propose directly. Never fill a gap with a \
 default the user did not choose and present it as theirs.
 
-· SOURCES: map the user's goal onto the INSTALLED connectors only. Call list_connectors first and \
+· TEMPLATES FIRST: call list_templates on the sources step. If the goal is what a template sets \
+up (its sentence or description says the same thing in other words), do not assemble it from \
+parts: ask for the parameters only the user knows, call detect_template for the rest, and make \
+ONE propose_project card. If the console says the user picked a template, that is the answer; \
+gather its parameters and propose it. Templates set up everything at once, so after that card \
+there is nothing left to propose on any step.
+· SOURCES: otherwise, map the user's goal onto the INSTALLED connectors only. Call list_connectors first and \
 pick from what it returns; never name a connector it does not list. If nothing installed fits \
 part of the goal, say so in one sentence rather than forcing a poor match. One propose_source \
 card per source. Put in `config` only the non-secret values the user actually told you (a URL \

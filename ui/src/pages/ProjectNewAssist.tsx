@@ -12,11 +12,13 @@ import { Picker } from "../components/bits";
 import { applyProposal, ProposalBody, ProposalShell, proposalTitle } from "../components/proposals";
 import type { DecisionMap, Proposal } from "../components/proposals";
 import SourceForm from "../components/SourceForm";
+import TemplateParams, { paramText, paramsBody } from "../components/TemplateParams";
+import type { Detected } from "../components/TemplateParams";
 import TriggerEditor from "../components/TriggerEditor";
 import { useAgentStream } from "../components/useAgentStream";
 import type { StreamEvent, WireMessage } from "../components/useAgentStream";
 import ViewEditor from "../components/ViewEditor";
-import type { AgentPreset, BuiltinAgent, ConnectorSpec, Project, ProjectObjectKind, Source, Trigger, View, ViewFilter } from "../types";
+import type { AgentPreset, BuiltinAgent, ConnectorSpec, Project, ProjectObjectKind, Source, Template, Trigger, View, ViewFilter } from "../types";
 
 // The AI-guided project builder (TR-243 to TR-246): describe what you need in your own words,
 // the assistant proposes the pieces one step at a time, and you complete each proposal in the
@@ -55,7 +57,7 @@ const wireText = (t: Turn, decisions: DecisionMap) => t.parts.map((p) => {
 }).join("").trim() || "[no answer]";
 
 const kindOf = (p: Proposal): ProjectObjectKind | null =>
-  p.kind === "labels" ? null : p.kind;
+  p.kind === "labels" || p.kind === "project" ? null : p.kind;
 
 /** A project name from the first content words of the goal, editable until the project exists. */
 const NAME_STOP = new Set(["the", "and", "when", "with", "that", "this", "from", "into", "what", "your", "my", "an", "a", "to", "of", "on", "in", "it", "its", "is", "me", "for", "watch", "tell", "wake", "agent", "want", "please", "show", "then", "also"]);
@@ -74,7 +76,7 @@ export default function ProjectNewAssist() {
   // Handed over from the landing screen (Landing.tsx): the goal already typed, so the builder
   // starts its first turn on arrival and the user never sees an empty box. `incident` means the
   // text is a pasted alert or thread, framed for the model as something to have caught.
-  const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean };
+  const handoff = (useLocation().state ?? {}) as { goal?: string; incident?: boolean; template?: string };
   const [goal, setGoal] = useState(handoff.goal ?? "");
   const [projectName, setProjectName] = useState(handoff.goal ? nameFromGoal(handoff.goal, !!handoff.incident) : "");
   const [step, setStep] = useState<StepKey | "describe" | "done">("describe");
@@ -139,6 +141,15 @@ export default function ProjectNewAssist() {
     return p;
   };
 
+  /** A template project is the whole build in one card: record it and finish. */
+  const finishWith = (p: Project) => {
+    projectRef.current = p;
+    setProject(p);
+    objectsRef.current = p.objects.map((o) => ({ kind: o.kind, name: o.name }));
+    setObjects(objectsRef.current);
+    setStep("done");
+  };
+
   /** One build turn: push the user framing, stream the assistant's answer into this step. */
   const turn = async (stepKey: StepKey, userText: string) => {
     const messages: WireMessage[] = [...history, { role: "user", content: userText }];
@@ -175,6 +186,8 @@ export default function ProjectNewAssist() {
     setStep("sources");
     const framing = handoff.incident
       ? `Project: ${projectName.trim()}.\nThis is an incident I had, pasted as it was written:\n\n${goal.trim()}\n\nPropose the project that would have caught it: the sources that carry the signal it shows, named the way the paste names things. Say in one sentence when it would have fired. Ask me only what the paste does not say.`
+      : handoff.template
+      ? `Project: ${projectName.trim()}.\nI picked the template "${handoff.template}": ${goal.trim()}\n\nSet it up for me: read its parameters with list_templates, run detect_template, ask me only for what neither says, then propose the project.`
       : `Project: ${projectName.trim()}.\nGoal: ${goal.trim()}`;
     await turn("sources", framing);
   };
@@ -294,6 +307,7 @@ export default function ProjectNewAssist() {
                       specs={specs ?? {}} existing={existing} refreshSources={refreshSources}
                       sourceNames={[...new Set([...created("source"), ...existing.map((x) => x.name)])]}
                       createdTriggers={created("trigger")}
+                      finishWith={finishWith}
                       active={s.key === step} />
           ))}
           {s.key === step && !streaming && states[s.key].turns.length > 0 && proposalsInStep === 0 && !asking && (
@@ -371,10 +385,11 @@ function PageHead() {
 /** One assistant turn inside a step: text, the tool rail, and each proposal as a card the user
  *  completes. Mirrors AskChat's Turn, with forms in place of Apply for sources and agents. */
 function TurnView({ turn, decisions, decide, own, thinking, specs, existing, refreshSources, sourceNames,
-                    createdTriggers, active }: {
+                    createdTriggers, finishWith, active }: {
   turn: Turn; decisions: DecisionMap; thinking: boolean; active: boolean;
   decide: (id: string, status: "applied" | "skipped" | "error", detail?: string) => void;
   own: (kind: ProjectObjectKind, name: string) => Promise<void>;
+  finishWith: (p: Project) => void;
   specs: Record<string, ConnectorSpec>; existing: Source[]; refreshSources: () => void;
   sourceNames: string[]; createdTriggers: string[];
 }) {
@@ -398,6 +413,8 @@ function TurnView({ turn, decisions, decide, own, thinking, specs, existing, ref
           return <SourceCard key={j} proposal={p} specs={specs} existing={existing} refreshSources={refreshSources} {...common} />;
         if (p.kind === "agent")
           return <AgentCard key={j} proposal={p} triggers={createdTriggers} {...common} />;
+        if (p.kind === "project")
+          return <ProjectCard key={j} proposal={p} finishWith={finishWith} {...common} />;
         return <CatalogCard key={j} proposal={p} sourceNames={sourceNames} {...common} />;
       })}
       {thinking && <div className="dim">thinking…</div>}
@@ -529,6 +546,65 @@ function CreatedSource({ made, name, specs }: {
         </>
       )}
     </div>
+  );
+}
+
+/** A whole project from a template, as the template's own form prefilled with what the assistant
+ *  knew and the `needs` params marked. Start creates it through the normal create API, so the
+ *  template's own logic runs; the build is then complete. */
+function ProjectCard({ proposal: p, decision, decide, finishWith }: CardCommon & {
+  proposal: Extract<Proposal, { kind: "project" }>; finishWith: (p: Project) => void;
+}) {
+  const [template, setTemplate] = useState<Template>();
+  const [err, setErr] = useState<string>();
+  const [name, setName] = useState(p.name);
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [detected, setDetected] = useState<Detected>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.template(p.template).then((t) => {
+      setTemplate(t);
+      setVals(Object.fromEntries(Object.entries(t.params).map(([k, spec]) =>
+        [k, p.needs.includes(k) ? "" : paramText(spec, p.params?.[k])])));
+    }).catch((e) => setErr(String((e as Error).message ?? e)));
+    api.builtinAgents().then((r) => { setModels(r.models); setDefaultModel(r.default_model); }).catch(() => {});
+    api.detectRecipe(p.template).then(setDetected).catch(() => {});
+  }, [p.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const start = async () => {
+    if (!template) return;
+    setBusy(true); setErr(undefined);
+    try {
+      const made = await api.createProject({ template: template.key, name: name.trim() || undefined, params: paramsBody(template, vals) });
+      decide(p.id, "applied");
+      finishWith(made);
+    } catch (e) { setErr(String((e as Error).message ?? e)); }
+    setBusy(false);
+  };
+  const open = !decision || decision.status === "error";
+  return (
+    <ProposalShell title={proposalTitle(p)} decision={decision} reasoning={p.reasoning}
+                   actions={open ? <div className="btnrow"><button onClick={() => decide(p.id, "skipped")}>Skip</button></div> : null}>
+      <ProposalBody proposal={p} />
+      {err && <div className="alert error">{err}</div>}
+      {open && template && (
+        <>
+          <p className="help" style={{ whiteSpace: "normal" }}>{template.description}</p>
+          <label className="field">
+            <span className="lbl">name</span>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 420 }} />
+          </label>
+          <TemplateParams template={template} vals={vals} setVals={setVals} needs={p.needs}
+                          models={models} defaultModel={defaultModel} detected={detected} />
+          <div className="btnrow">
+            <button className="primary" disabled={busy} onClick={start}>{busy ? "starting…" : "Start"}</button>
+          </div>
+        </>
+      )}
+      {open && !template && !err && <div className="dim">loading the template…</div>}
+    </ProposalShell>
   );
 }
 

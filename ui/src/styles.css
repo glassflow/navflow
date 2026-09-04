@@ -559,7 +559,8 @@ label.field .help, div.field > .help { display: block; font-size: 12px; color: v
 .fld-row.invalid input, .fld-row.invalid select, .fld-row.invalid textarea { border-color: var(--err); background: var(--err-soft); }
 .fld-row.invalid .help { color: var(--err); }
 /* a builder proposal's `needs`: the fields only the user can fill (a token, a URL) */
-.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
+.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea,
+label.field.needs input, label.field.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
 
 /* The AI-guided project builder (ProjectNewAssist): one column of step panels; the strip on top
    says where you are. */
