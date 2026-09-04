@@ -278,7 +278,7 @@ export function RunsTable({ runs, runsError, agent, focusDispatch, focusRun, ope
 }) {
   if (runsError) return <ErrorState error={runsError} what="this agent’s runs" />;
   if (!runs?.length) {
-    return <p className="help">none yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</p>;
+    return <div className="empty">no runs yet; this agent runs when <span className="mono">{agent.trigger}</span> fires</div>;
   }
   const isFocused = (r: AgentRun) =>
     (!!focusDispatch && r.dispatch_id === focusDispatch) || (!!focusRun && r.id === focusRun);
