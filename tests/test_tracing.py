@@ -348,6 +348,8 @@ async def part2():
                str([(kv.key, kv.value) for kv in root.attributes]) if root else "no root")
             ck("root output is the finding", root is not None and _attr(root, "output.value") == FINDING)
             ck("root session is the entity key", root is not None and _attr(root, "session.id") == "checkout")
+            ck("root carries the instance and agent as span attributes",
+               root is not None and _attr(root, "tares.instance") == "local" and _attr(root, "tares.agent") == "first-look")
             ck("root records cost + calls", root is not None and _attr(root, "tares.model_calls") == 2)
             llms = [sp for svc, sp in spans if _attr(sp, "openinference.span.kind") == "LLM"]
             ck("one LLM span per model call", len(llms) == 2, str(len(llms)))

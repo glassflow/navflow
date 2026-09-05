@@ -393,7 +393,8 @@ thead th {
 }
 thead th.num { text-align: right; }
 tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-tbody tr:last-child td { border-bottom: none; }
+/* direct children only: a table nested inside the last row (a folded source on the project page) keeps its own row lines */
+tbody > tr:last-child > td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: var(--row-hover); }
 tbody tr.sel, tbody tr.sel:hover { background: var(--accent-soft); }
@@ -557,6 +558,19 @@ label.field .help, div.field > .help { display: block; font-size: 12px; color: v
 .fld-ctrl { display: flex; flex-direction: column; }
 .fld-row.invalid input, .fld-row.invalid select, .fld-row.invalid textarea { border-color: var(--err); background: var(--err-soft); }
 .fld-row.invalid .help { color: var(--err); }
+/* a builder proposal's `needs`: the fields only the user can fill (a token, a URL) */
+.fld-row.needs input, .fld-row.needs select, .fld-row.needs textarea,
+label.field.needs input, label.field.needs textarea { border-color: var(--accent); background: var(--accent-soft); }
+
+/* The AI-guided project builder (ProjectNewAssist): one column of step panels; the strip on top
+   says where you are. */
+.builder-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.builder-steps .step { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); }
+.builder-steps .step.active { border-color: var(--accent); color: var(--ink); }
+.builder-steps .step.done { color: var(--ok); border-color: var(--ok-border); }
+.builder-steps .step .n { font-family: var(--mono); font-size: 11px; }
+.builder-refine { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.builder-refine textarea { flex: 1; min-height: 38px; }
 /* field grouping (postgres) */
 .fld-group { margin: 4px 0; }
 .fld-group-head h3 { margin: 20px 0 2px; font-size: 15px; font-weight: 600; }
@@ -1334,3 +1348,25 @@ pre.payload {
 .uc-setup-cmd pre { margin: 0; padding: 8px 10px; border: 1px solid var(--line); background: var(--wash); font-size: 12px; flex: 1; overflow-x: auto; white-space: pre; }
 .uc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .uc-setup-done .uc-setup-title { color: var(--ink-soft); }
+
+/* The landing screen (Landing.tsx): one question, centred, nothing else asking for attention. */
+.landing { max-width: 760px; margin: 24px auto 0; }
+.landing-title { font-size: 28px; margin: 0 0 4px; }
+.landing-sub { color: var(--ink-soft); margin: 0 0 28px; font-size: 15px; }
+.landing-ask { background: var(--panel); border: 1px solid var(--line); padding: 18px 20px; margin-bottom: 18px; }
+.landing-q { display: block; font-weight: 600; margin-bottom: 10px; }
+.landing-ask textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 15px; padding: 10px 12px; }
+.landing-ask textarea.mono { font-family: var(--mono); font-size: 13px; }
+.landing-heard { min-height: 26px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 10px; }
+.landing-starters { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.landing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.landing-head .btn { flex: 0 0 auto; margin-top: 6px; }
+.landing-demo { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
+.landing-foot { text-align: center; }
+
+/* the builder once it is running: the goal as a brief, the active step visibly busy */
+.builder-brief blockquote { margin: 2px 0 0; padding: 0 0 0 12px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+.builder-running { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 13px; }
+.builder-running .spinner { width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: builder-spin 0.8s linear infinite; }
+@keyframes builder-spin { to { transform: rotate(360deg); } }
+.builder-steps .step.busy { border-style: dashed; }

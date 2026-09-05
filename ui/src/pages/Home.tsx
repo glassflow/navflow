@@ -1,8 +1,9 @@
-import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { ErrorState, TimeAgo, fmtCost, fmtTokens, formatBytes, usePolling } from "../components/bits";
+import Landing from "./Landing";
 import type { ModelUsage, Usage, Project } from "../types";
 
 // The instance at a glance. This exists because the numbers that describe the WHOLE instance —
@@ -18,24 +19,36 @@ import type { ModelUsage, Usage, Project } from "../types";
 // Degraded state is NOT surfaced here — AuthGate already renders a global banner when /health is
 // anything but ok, and a second copy would just be one more thing to keep in sync.
 
-// An instance with no sources has nothing for Overview to say — every number is zero. On the
-// first landing of a page load we send that user to Sources, where the next step actually is.
-// Once per page load only (module flag, not state): clicking Overview in the nav afterwards must
-// still show the page, and polling must not bounce you away if sources later drop to zero.
-let emptyRedirectDone = false;
+// A cell with no project of the user's own lands on the landing screen instead (Landing.tsx):
+// one question, answered by typing. The seeded demo does not count as theirs. Someone who runs
+// sources without projects and wants the numbers can skip it; the choice is remembered in this
+// browser only (a per-viewer convenience, nothing the cell needs to know).
+const SKIP_KEY = "tares_skip_landing";
+const skipLanding = () => { try { return localStorage.getItem(SKIP_KEY) === "1"; } catch { return false; } };
 
 export default function Home() {
   const { data: u, error: usageError, reload: reloadUsage } = usePolling(() => api.usage(), 30000);
   const { data: sources, error: sourcesError } = usePolling(() => api.sources(), 30000);
   const { data: uc } = usePolling(() => api.projects(), 30000);
   const { data: mu, error: muError, reload: reloadMu } = usePolling(() => api.modelUsage(30), 30000);
-  const navigate = useNavigate();
+  const { data: rec } = usePolling(() => api.templates(), 60000);
+  const [skipped, setSkipped] = useState(skipLanding);
 
-  useEffect(() => {
-    if (emptyRedirectDone || !sources) return;   // a failed load never counts as "no sources"
-    emptyRedirectDone = true;
-    if (sources.length === 0) navigate("/sources", { replace: true });
-  }, [sources, navigate]);
+  const own = uc?.projects.filter((p) => p.template !== "ai_sre_demo") ?? [];
+  // ?landing previews the screen on a cell that already has projects
+  const preview = new URLSearchParams(window.location.search).has("landing");
+  if (uc && ((own.length === 0 && !skipped) || preview)) {
+    return (
+      <>
+        <Landing templates={rec?.templates ?? []} projects={uc.projects} />
+        <p className="help" style={{ textAlign: "center" }}>
+          <button type="button" className="dim" onClick={() => { try { localStorage.setItem(SKIP_KEY, "1"); } catch { /* private mode */ } setSkipped(true); }}>
+            Skip, show the instance overview
+          </button>
+        </p>
+      </>
+    );
+  }
 
   const onDisk = u ? u.db_bytes + u.wal_bytes : 0;
   // Both are null together, but it's the denominator that decides whether a percentage means
@@ -97,10 +110,19 @@ export default function Home() {
         pct={pct}
       />
 
+      {/* An empty cell's next step is a project, not a source: the builder brings the sources
+          with it. Add a source stays as the secondary link for someone who only wants data in. */}
       {sources && sources.length === 0 && !sourcesError && (
         <div className="empty">
-          Nothing is being ingested yet; <Link to="/sources/new">add a source</Link> to start
-          filling the timeline.
+          Nothing to watch yet.{" "}
+          <Link to="/projects/new">Create a project</Link>: describe what you need and Tares sets
+          up the sources, views, triggers and agent with you. Or <Link to="/sources/new">add a source</Link> on its own.
+        </div>
+      )}
+      {sources && sources.length > 0 && own.length === 0 && (
+        <div className="empty">
+          Data is coming in, but nothing watches it yet.{" "}
+          <Link to="/projects/new">Create a project</Link> to add views, triggers and an agent on top.
         </div>
       )}
     </>

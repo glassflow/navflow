@@ -1038,18 +1038,26 @@ class Store:
                                  "FROM agent_runs WHERE agent = ?", [agent]).fetchone()
         return (int(r[0]), int(r[1])) if r else (0, 0)
 
-    def list_agent_runs(self, agent: str | None = None, limit: int = 50) -> list[dict]:
+    def list_agent_runs(self, agent: str | None = None, limit: int = 50, offset: int = 0,
+                        status: str | None = None) -> list[dict]:
+        """Newest first. `status` narrows to one run status (ok, failed, capped, ...); `offset`
+        pages, so a console can show more without re-reading what it has."""
         sql = ("SELECT id, agent, trigger, dispatch_id, key_value, status, rounds, tool_calls, "
                "started_at, duration_ms, finding, error, external_tools, max_rounds, "
                "model, input_tokens, output_tokens, cache_creation_input_tokens, "
                "cache_read_input_tokens, cost_usd "
                "FROM agent_runs ")
-        params: list = []
+        where, params = [], []
         if agent:
-            sql += "WHERE agent = ? "
+            where.append("agent = ?")
             params.append(agent)
-        sql += "ORDER BY started_at DESC LIMIT ?"
-        params.append(int(limit))
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if where:
+            sql += "WHERE " + " AND ".join(where) + " "
+        sql += "ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        params += [int(limit), max(0, int(offset))]
         with self._lock:
             rows = self.con.execute(sql, params).fetchall()
         return [

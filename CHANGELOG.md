@@ -3,6 +3,52 @@
 Notable changes to Tares (formerly NavFlow). Format follows [Keep a Changelog](https://keepachangelog.com/);
 the project follows [Semantic Versioning](https://semver.org/).
 
+## [1.25.0] - 2026-09-04
+
+### Added
+- AI-guided project builder. Describe what you need; the assistant proposes sources from the
+  installed connectors, then views and triggers, then an agent, one step at a time, asking
+  before it guesses. Each proposal is the object's own form, prefilled, with the fields only you
+  can fill (tokens, URLs, the Slack channel) marked. Every Apply creates a real object through
+  its normal API and adds it to an ordinary project, so leaving part way keeps what was created.
+  `POST /api/agent/chat` takes `mode: "build"` and `step`; each step gets only its own proposal
+  tools. A goal that matches a template is proposed as that template, as its own form.
+- A new landing screen. A cell with no project of its own opens on one question, "What do you
+  want to build?", with starter sentences from the templates, a paste-your-last-incident door,
+  and the demo as a one-click offer instead of a seeded project. The same screen is Create new
+  under Projects; the template gallery sits behind a "Use a guided template" button. Each
+  template declares its sentence (`sentence` in `describe()`); `GET /api/projects/templates/{key}`
+  serves one template, hidden ones included.
+- Project page: source rows fold open to the ingest endpoint or the polled target, with
+  Configure. Framed empty states for runs, firings and events.
+
+### Changed
+- Deleting a source or a view no longer refuses with "remove it from those views first". The
+  dialog lists what depends on it (views, triggers, agents) and, on yes, deletes them too, in
+  order. `DELETE /api/sources/{name}` and `/api/views/{name}` take `cascade=true`;
+  `GET /api/catalog/dependents?kind=&name=` lists what would go.
+- Deleting a hand-assembled project (including one the builder made) lists its objects with
+  Select all or individual picks; the chosen ones are deleted with the project, the rest stay.
+  Picking a source pulls in what depends on it. `DELETE /api/projects/{uid}` takes
+  `delete=kind:name,...`.
+
+## [1.24.0] - 2026-09-04
+
+### Added
+- Runs on an agent's page and on a project's Agents tab can be filtered to successful or failed
+  runs only, and "Show more" pages past the first fifty. `GET /api/agents/builtin/{name}/runs`
+  takes `status` and `offset`.
+
+### Fixed
+- Edit on a project built from a template without its own wizard (Rius RCA among them) opened the
+  create form and said "this instance has no project named rius_rca". The form now loads the
+  template by key, hidden templates included, prefills the project's params (secrets blank,
+  blank keeps the stored value) and saves in place.
+
+### Changed
+- The root span of a traced run carries `tares.instance` and `tares.agent` as span attributes,
+  not only on the resource, so a backend's span view shows which instance sent it.
+
 ## [1.23.0] - 2026-09-03
 
 ### Added
